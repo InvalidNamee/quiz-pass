@@ -1,14 +1,18 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
-import { useRoute } from 'vue-router'
-import { api, type Page, type Question } from '../api/client'
+import { useRoute, useRouter } from 'vue-router'
+import { api, type Page, type Question, type QuestionBank } from '../api/client'
+import { useAuthStore } from '../stores/auth'
 import AppBadge from '../components/AppBadge.vue'
 import AppButton from '../components/AppButton.vue'
 import { useToast } from '../composables/useToast'
 
 const route = useRoute()
+const router = useRouter()
+const auth = useAuthStore()
 const toast = useToast()
 const bankId = Number(route.params.bankId)
+const bank = ref<QuestionBank | null>(null)
 const questions = ref<Question[]>([])
 const keyword = ref('')
 const loading = ref(true)
@@ -68,6 +72,12 @@ function toggleCorrect(index: number) {
 async function load() {
   loading.value = true
   try {
+    bank.value = await api<QuestionBank>(`/api/v1/question-banks/${bankId}`)
+    const canManage = auth.user && (auth.user.id === bank.value.owner_id || auth.user.role === 'admin')
+    if (!canManage) {
+      router.replace(`/banks/${bankId}`)
+      return
+    }
     const q = keyword.value ? `?keyword=${encodeURIComponent(keyword.value)}` : ''
     const data = await api<Page<Question>>(`/api/v1/question-banks/${bankId}/questions${q}`)
     questions.value = data.items

@@ -29,7 +29,7 @@ router = APIRouter()
 
 
 def _can_read_bank(bank: QuestionBank | None, user: User) -> bool:
-    return bool(bank and (bank.owner_id == user.id or bank.visibility == "public"))
+    return bool(bank and (bank.owner_id == user.id or bank.visibility == "public" or user.role == "admin"))
 
 
 def _record_wrong_answer(db: Session, user_id: int, bank_id: int, question_id: int) -> None:
@@ -238,6 +238,9 @@ def get_result(session_id: int, current_user: User = Depends(get_current_user), 
 
 @router.get("/question-banks/{bank_id}/mistakes", response_model=Page[MistakeRecordOut])
 def list_mistakes(bank_id: int, page: int = 1, page_size: int = 20, resolved: bool | None = None, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    bank = db.get(QuestionBank, bank_id)
+    if not _can_read_bank(bank, current_user):
+        raise HTTPException(status_code=404, detail="Question bank not found")
     stmt = select(MistakeRecord).where(MistakeRecord.user_id == current_user.id, MistakeRecord.bank_id == bank_id)
     if resolved is True:
         stmt = stmt.where(MistakeRecord.resolved_at.is_not(None))
@@ -255,6 +258,9 @@ def create_mistake_session(bank_id: int, current_user: User = Depends(get_curren
 
 @router.post("/question-banks/{bank_id}/mistakes/{question_id}/resolve")
 def resolve_mistake(bank_id: int, question_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    bank = db.get(QuestionBank, bank_id)
+    if not _can_read_bank(bank, current_user):
+        raise HTTPException(status_code=404, detail="Question bank not found")
     mistake = db.scalar(select(MistakeRecord).where(MistakeRecord.user_id == current_user.id, MistakeRecord.bank_id == bank_id, MistakeRecord.question_id == question_id))
     if not mistake:
         raise HTTPException(status_code=404, detail="Mistake not found")

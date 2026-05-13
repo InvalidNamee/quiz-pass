@@ -23,8 +23,10 @@ const editIsPublic = computed({
   get: () => editForm.value.visibility === 'public',
   set: (val: boolean) => { editForm.value.visibility = val ? 'public' : 'private' },
 })
+const canManage = computed(() => Boolean(bank.value && auth.user && (auth.user.id === bank.value.owner_id || auth.user.role === 'admin')))
 const saving = ref(false)
 const deleting = ref(false)
+const exporting = ref(false)
 
 async function load() {
   loading.value = true
@@ -75,6 +77,28 @@ async function removeBank() {
   }
 }
 
+async function exportJson() {
+  if (!bank.value) return
+  exporting.value = true
+  try {
+    const response = await fetch(`/api/v1/question-banks/${bank.value.id}/export`, {
+      headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : {},
+    })
+    if (!response.ok) throw new Error('导出失败')
+    const blob = await response.blob()
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement('a')
+    link.href = url
+    link.download = `question-bank-${bank.value.id}.json`
+    link.click()
+    URL.revokeObjectURL(url)
+  } catch (err) {
+    toast.show(err instanceof Error ? err.message : '导出失败', 'error')
+  } finally {
+    exporting.value = false
+  }
+}
+
 function statusVariant(status: string): 'default' | 'success' | 'warning' | 'danger' | 'info' {
   const map: Record<string, 'default' | 'success' | 'warning' | 'danger' | 'info'> = {
     none: 'default', pending: 'warning', processing: 'info', succeeded: 'success', failed: 'danger',
@@ -119,13 +143,14 @@ onMounted(load)
       <h2 class="text-lg font-semibold mb-3">练习与内容</h2>
       <div class="flex flex-wrap gap-2">
         <RouterLink :to="`/banks/${bank.id}/practice/setup`" class="inline-flex items-center rounded-btn bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">开始练习</RouterLink>
-        <RouterLink :to="`/banks/${bank.id}/mistakes`" class="inline-flex items-center rounded-btn bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">错题</RouterLink>
-        <RouterLink :to="`/banks/${bank.id}/questions`" class="inline-flex items-center rounded-btn bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">题目管理</RouterLink>
-        <RouterLink :to="`/banks/${bank.id}/import`" class="inline-flex items-center rounded-btn bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">导入导出</RouterLink>
+        <RouterLink :to="`/banks/${bank.id}/mistakes`" class="inline-flex items-center rounded-btn bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">我的错题</RouterLink>
+        <AppButton variant="secondary" :loading="exporting" @click="exportJson">导出题库</AppButton>
+        <RouterLink v-if="canManage" :to="`/banks/${bank.id}/questions`" class="inline-flex items-center rounded-btn bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">题目管理</RouterLink>
+        <RouterLink v-if="canManage" :to="`/banks/${bank.id}/import`" class="inline-flex items-center rounded-btn bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">导入追加</RouterLink>
       </div>
     </div>
 
-    <div v-if="auth.user?.id === bank.owner_id" class="page-card p-5">
+    <div v-if="canManage" class="page-card p-5">
       <h2 class="text-lg font-semibold mb-3">题库管理</h2>
       <div class="flex flex-wrap gap-2">
         <AppButton variant="secondary" @click="editing = !editing">{{ editing ? '收起编辑' : '编辑题库' }}</AppButton>

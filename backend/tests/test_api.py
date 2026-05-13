@@ -6,8 +6,11 @@ os.environ["JWT_SECRET_KEY"] = "test-secret"
 Path("test_quiz_pass.db").unlink(missing_ok=True)
 
 from fastapi.testclient import TestClient  # noqa: E402
+from sqlalchemy import select  # noqa: E402
 
+from app.db.session import SessionLocal  # noqa: E402
 from app.main import app  # noqa: E402
+from app.models.user import User  # noqa: E402
 
 
 def _register(client: TestClient, email: str, username: str) -> dict[str, str]:
@@ -20,6 +23,17 @@ def _login(client: TestClient, identifier: str, password: str = "password123") -
     response = client.post("/api/v1/auth/login", json={"identifier": identifier, "password": password})
     assert response.status_code == 200, response.text
     return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
+def _make_admin(username: str) -> None:
+    db = SessionLocal()
+    try:
+        user = db.scalar(select(User).where(User.username == username))
+        assert user is not None
+        user.role = "admin"
+        db.commit()
+    finally:
+        db.close()
 
 
 def test_login_identifier_and_change_password():
@@ -193,6 +207,80 @@ def test_ai_config_api_key_cannot_be_updated_and_list_has_only_real_configs():
         )
         assert blocked.status_code == 400
         assert "不可修改" in blocked.json()["detail"]
+
+
+def test_admin_user_management_and_bank_permissions():
+    with TestClient(app) as client:
+        admin_headers = _register(client, "admin@example.com", "adminuser")
+        _make_admin("adminuser")
+        admin_headers = _login(client, "adminuser")
+        admin_id = client.get("/api/v1/auth/me", headers=admin_headers).json()["id"]
+        owner_headers = _register(client, "owner@example.com", "owneruser")
+        other_headers = _register(client, "visitor@example.com", "visitoruser")
+
+        users = client.get("/api/v1/admin/users?keyword=visitor", headers=admin_headers).json()
+        visitor_id = users["items"][0]["id"]
+        patched = client.patch(
+            f"/api/v1/admin/users/{visitor_id}",
+            headers=admin_headers,
+            json={"display_name": "Visitor", "bio": "bio", "is_active": False},
+        )
+        assert patched.status_code == 200
+        assert patched.json()["display_name"] == "Visitor"
+        assert patched.json()["is_active"] is False
+        assert client.post("/api/v1/auth/login", json={"identifier": "visitoruser", "password": "password123"}).status_code == 401
+        client.patch(f"/api/v1/admin/users/{visitor_id}", headers=admin_headers, json={"is_active": True})
+        role_patch = client.patch(f"/api/v1/admin/users/{visitor_id}", headers=admin_headers, json={"role": "admin"})
+        assert role_patch.status_code == 422
+        reset = client.post(f"/api/v1/admin/users/{visitor_id}/reset-password", headers=admin_headers)
+        assert reset.status_code == 200
+        temporary_password = reset.json()["temporary_password"]
+        assert client.post("/api/v1/auth/login", json={"identifier": "visitoruser", "password": "password123"}).status_code == 401
+        assert _login(client, "visitoruser", temporary_password)
+        assert client.post(f"/api/v1/admin/users/{admin_id}/reset-password", headers=admin_headers).status_code == 400
+        assert client.patch(f"/api/v1/admin/users/{visitor_id}", headers=other_headers, json={"is_active": False}).status_code == 403
+
+        private_bank = client.post("/api/v1/question-banks", headers=owner_headers, json={"title": "Private", "visibility": "private"}).json()
+        public_bank = client.post("/api/v1/question-banks", headers=owner_headers, json={"title": "Public", "visibility": "public"}).json()
+        question = client.post(
+            f"/api/v1/question-banks/{public_bank['id']}/questions",
+            headers=owner_headers,
+            json={
+                "type": "single",
+                "stem": "Public Q",
+                "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
+            },
+        ).json()
+
+        assert client.get(f"/api/v1/question-banks/{private_bank['id']}", headers=other_headers).status_code == 404
+        assert client.get(f"/api/v1/question-banks/{public_bank['id']}/export", headers=other_headers).status_code == 200
+        assert client.get(f"/api/v1/question-banks/{public_bank['id']}/mistakes", headers=other_headers).status_code == 200
+        assert client.patch(f"/api/v1/question-banks/{public_bank['id']}", headers=other_headers, json={"title": "Nope"}).status_code == 404
+        assert client.post(
+            f"/api/v1/question-banks/{public_bank['id']}/questions",
+            headers=other_headers,
+            json={
+                "type": "single",
+                "stem": "Nope",
+                "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
+            },
+        ).status_code == 404
+        assert client.delete(f"/api/v1/questions/{question['id']}", headers=other_headers).status_code == 404
+
+        assert client.get(f"/api/v1/question-banks/{private_bank['id']}", headers=admin_headers).status_code == 200
+        admin_update = client.patch(f"/api/v1/question-banks/{private_bank['id']}", headers=admin_headers, json={"title": "Admin Edited"})
+        assert admin_update.status_code == 200
+        assert admin_update.json()["title"] == "Admin Edited"
+        admin_question = client.post(
+            f"/api/v1/question-banks/{private_bank['id']}/questions",
+            headers=admin_headers,
+            json={
+                "type": "single",
+                "stem": "Admin Q",
+                "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
+            },
+        )
+        assert admin_question.status_code == 200
 
 
 def test_ai_generation_validation_failure(monkeypatch):

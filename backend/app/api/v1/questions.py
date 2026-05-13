@@ -14,9 +14,17 @@ from app.utils.pagination import paginate
 router = APIRouter()
 
 
-def require_owner_bank(db: Session, bank_id: int, user: User) -> QuestionBank:
+def can_read_bank(bank: QuestionBank | None, user: User) -> bool:
+    return bool(bank and (bank.visibility == "public" or bank.owner_id == user.id or user.role == "admin"))
+
+
+def can_manage_bank(bank: QuestionBank | None, user: User) -> bool:
+    return bool(bank and (bank.owner_id == user.id or user.role == "admin"))
+
+
+def require_manage_bank(db: Session, bank_id: int, user: User) -> QuestionBank:
     bank = db.get(QuestionBank, bank_id)
-    if not bank or bank.owner_id != user.id:
+    if not can_manage_bank(bank, user):
         raise HTTPException(status_code=404, detail="Question bank not found")
     return bank
 
@@ -24,7 +32,7 @@ def require_owner_bank(db: Session, bank_id: int, user: User) -> QuestionBank:
 @router.get("/question-banks/{bank_id}/questions", response_model=Page[QuestionOut])
 def list_questions(bank_id: int, page: int = 1, page_size: int = 20, keyword: str | None = None, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     bank = db.get(QuestionBank, bank_id)
-    if not bank or not (bank.owner_id == current_user.id or bank.visibility == "public"):
+    if not can_read_bank(bank, current_user):
         raise HTTPException(status_code=404, detail="Question bank not found")
     stmt = select(Question).options(selectinload(Question.options)).where(Question.bank_id == bank_id)
     if keyword:
@@ -36,7 +44,7 @@ def list_questions(bank_id: int, page: int = 1, page_size: int = 20, keyword: st
 
 @router.post("/question-banks/{bank_id}/questions", response_model=QuestionOut)
 def create_question(bank_id: int, payload: QuestionCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    bank = require_owner_bank(db, bank_id, current_user)
+    bank = require_manage_bank(db, bank_id, current_user)
     question = Question(bank_id=bank_id, type=payload.type, stem=payload.stem, explanation=payload.explanation, difficulty=payload.difficulty, source="manual")
     db.add(question)
     db.flush()
@@ -53,7 +61,7 @@ def get_question(question_id: int, current_user: User = Depends(get_current_user
     if not question:
         raise HTTPException(status_code=404, detail="Question not found")
     bank = db.get(QuestionBank, question.bank_id)
-    if not bank or not (bank.owner_id == current_user.id or bank.visibility == "public"):
+    if not can_read_bank(bank, current_user):
         raise HTTPException(status_code=404, detail="Question not found")
     return question
 
@@ -63,7 +71,7 @@ def update_question(question_id: int, payload: QuestionUpdate, current_user: Use
     question = db.scalar(select(Question).options(selectinload(Question.options)).where(Question.id == question_id))
     if not question:
         raise HTTPException(status_code=404, detail="Question not found")
-    require_owner_bank(db, question.bank_id, current_user)
+    require_manage_bank(db, question.bank_id, current_user)
     question.type = payload.type
     question.stem = payload.stem
     question.explanation = payload.explanation
@@ -82,7 +90,7 @@ def delete_question(question_id: int, current_user: User = Depends(get_current_u
     question = db.get(Question, question_id)
     if not question:
         raise HTTPException(status_code=404, detail="Question not found")
-    bank = require_owner_bank(db, question.bank_id, current_user)
+    bank = require_manage_bank(db, question.bank_id, current_user)
     db.delete(question)
     bank.question_count = max(0, bank.question_count - 1)
     db.commit()

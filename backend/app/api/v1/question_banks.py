@@ -18,7 +18,17 @@ router = APIRouter()
 
 
 def can_read(bank: QuestionBank, user: User | None) -> bool:
-    return bank.visibility == "public" and bank.generation_status in ("none", "succeeded") or bool(user and bank.owner_id == user.id)
+    return bool(
+        bank
+        and (
+            bank.visibility == "public" and bank.generation_status in ("none", "succeeded")
+            or user and (bank.owner_id == user.id or user.role == "admin")
+        )
+    )
+
+
+def can_manage(bank: QuestionBank, user: User | None) -> bool:
+    return bool(bank and user and (bank.owner_id == user.id or user.role == "admin"))
 
 
 def to_bank_out(db: Session, bank: QuestionBank, user: User | None) -> QuestionBankOut:
@@ -150,7 +160,7 @@ def export_bank(bank_id: int, current_user: User = Depends(get_current_user), db
 @router.post("/{bank_id}/import-json", response_model=QuestionBankOut)
 async def import_json_to_bank(bank_id: int, file: UploadFile = File(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     bank = db.get(QuestionBank, bank_id)
-    if not bank or bank.owner_id != current_user.id:
+    if not can_manage(bank, current_user):
         raise HTTPException(status_code=404, detail="Question bank not found")
     try:
         payload = json.loads((await file.read()).decode("utf-8"))
@@ -195,7 +205,7 @@ async def import_json_new_bank(file: UploadFile = File(...), visibility: str = "
 @router.patch("/{bank_id}", response_model=QuestionBankOut)
 def update_bank(bank_id: int, payload: QuestionBankUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     bank = db.get(QuestionBank, bank_id)
-    if not bank or bank.owner_id != current_user.id:
+    if not can_manage(bank, current_user):
         raise HTTPException(status_code=404, detail="Question bank not found")
     updates = payload.model_dump(exclude_unset=True)
     for key, value in updates.items():
@@ -210,7 +220,7 @@ def update_bank(bank_id: int, payload: QuestionBankUpdate, current_user: User = 
 @router.delete("/{bank_id}")
 def delete_bank(bank_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     bank = db.get(QuestionBank, bank_id)
-    if not bank or bank.owner_id != current_user.id:
+    if not can_manage(bank, current_user):
         raise HTTPException(status_code=404, detail="Question bank not found")
     db.delete(bank)
     db.commit()

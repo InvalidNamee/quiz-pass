@@ -60,3 +60,15 @@ class UserUpdate(BaseModel):
 class PasswordChange(BaseModel):
     old_password: str = Field(min_length=1, max_length=128)
     new_password: str = Field(min_length=8, max_length=128)
+
+
+class AdminUserUpdate(BaseModel):
+    display_name: str | None = Field(default=None, max_length=128)
+    bio: str | None = None
+    is_active: bool | None = None
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class AdminPasswordResetOut(BaseModel):
+    temporary_password: str

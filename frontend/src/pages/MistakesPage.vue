@@ -43,14 +43,14 @@ onMounted(load)
   <section class="grid gap-5">
     <div class="page-card flex flex-wrap items-center justify-between gap-4 p-6">
       <div>
-        <h1 class="text-2xl font-bold">错题</h1>
-        <p class="mt-1 text-slate-600">未掌握的错题 {{ mistakes.length }} 道</p>
+        <h1 class="text-2xl font-bold">我的错题</h1>
+        <p class="mt-1 text-slate-600">我在这个题库下未掌握的错题 {{ mistakes.length }} 道</p>
       </div>
       <AppButton :disabled="!mistakes.length" @click="practice">错题练习</AppButton>
     </div>
 
     <AppLoading v-if="loading" />
-    <AppEmpty v-else-if="!mistakes.length" title="没有错题" description="继续练习，这里会记录你做错的题目。" />
+    <AppEmpty v-else-if="!mistakes.length" title="没有错题" description="继续练习，这里只记录你自己在当前题库下做错的题目。" />
 
     <div v-else class="grid gap-3">
       <article v-for="item in mistakes" :key="item.id" class="page-card flex items-center justify-between gap-4 p-4">

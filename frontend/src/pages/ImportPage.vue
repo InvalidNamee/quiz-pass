@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref } from 'vue'
+import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, type QuestionBank } from '../api/client'
 import { useAuthStore } from '../stores/auth'
@@ -11,9 +11,25 @@ const router = useRouter()
 const auth = useAuthStore()
 const toast = useToast()
 const bankId = Number(route.params.bankId)
+const bank = ref<QuestionBank | null>(null)
+const loading = ref(true)
 const file = ref<File | null>(null)
 const importing = ref(false)
 const exporting = ref(false)
+
+async function loadBank() {
+  loading.value = true
+  try {
+    bank.value = await api<QuestionBank>(`/api/v1/question-banks/${bankId}`)
+    const canManage = auth.user && (auth.user.id === bank.value.owner_id || auth.user.role === 'admin')
+    if (!canManage) {
+      router.replace(`/banks/${bankId}`)
+      return
+    }
+  } finally {
+    loading.value = false
+  }
+}
 
 function onFile(event: Event) {
   file.value = (event.target as HTMLInputElement).files?.[0] ?? null
@@ -54,10 +70,16 @@ async function exportJson() {
     exporting.value = false
   }
 }
+
+onMounted(loadBank)
 </script>
 
 <template>
-  <section class="mx-auto grid max-w-2xl gap-5">
+  <section v-if="loading" class="mx-auto max-w-2xl">
+    <div class="page-card p-6 text-sm text-slate-500">加载中…</div>
+  </section>
+
+  <section v-else class="mx-auto grid max-w-2xl gap-5">
     <div class="page-card p-6">
       <h1 class="text-2xl font-bold">导入导出</h1>
       <p class="mt-2 text-slate-600">追加 JSON 题目到当前题库，或导出题库备份。</p>
