@@ -1,22 +1,32 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { api, type AIProviderConfig } from '../api/client'
+import AppBadge from '../components/AppBadge.vue'
+import AppButton from '../components/AppButton.vue'
+import AppModal from '../components/AppModal.vue'
+import { useToast } from '../composables/useToast'
 
 const configs = ref<AIProviderConfig[]>([])
 const form = ref({ name: '', api_base_url: '', api_key: '', model: '', is_default: true })
 const editingId = ref<number | null>(null)
 const editForm = ref({ name: '', api_base_url: '', model: '', is_default: false })
-const message = ref('')
+const testingId = ref<number | null>(null)
+const deleteTarget = ref<AIProviderConfig | null>(null)
+const toast = useToast()
 
 async function load() {
   configs.value = await api<AIProviderConfig[]>('/api/v1/users/me/ai-provider-configs')
 }
 
 async function save() {
-  message.value = ''
-  await api<AIProviderConfig>('/api/v1/users/me/ai-provider-configs', { method: 'POST', body: JSON.stringify(form.value) })
-  form.value = { name: '', api_base_url: '', api_key: '', model: '', is_default: false }
-  await load()
+  try {
+    await api<AIProviderConfig>('/api/v1/users/me/ai-provider-configs', { method: 'POST', body: JSON.stringify(form.value) })
+    form.value = { name: '', api_base_url: '', api_key: '', model: '', is_default: false }
+    toast.show('配置已保存', 'success')
+    await load()
+  } catch (err) {
+    toast.show(err instanceof Error ? err.message : '保存失败', 'error')
+  }
 }
 
 async function setDefault(id: number) {
@@ -30,22 +40,32 @@ function startEdit(item: AIProviderConfig) {
 }
 
 async function updateConfig(id: number) {
-  await api<AIProviderConfig>(`/api/v1/users/me/ai-provider-configs/${id}`, { method: 'PATCH', body: JSON.stringify(editForm.value) })
-  editingId.value = null
-  await load()
+  try {
+    await api<AIProviderConfig>(`/api/v1/users/me/ai-provider-configs/${id}`, { method: 'PATCH', body: JSON.stringify(editForm.value) })
+    editingId.value = null
+    toast.show('配置已更新', 'success')
+    await load()
+  } catch (err) {
+    toast.show(err instanceof Error ? err.message : '更新失败', 'error')
+  }
 }
 
 async function testConfig(id: number) {
+  testingId.value = id
   try {
     await api(`/api/v1/users/me/ai-provider-configs/${id}/test`, { method: 'POST' })
-    message.value = '连通性测试成功'
+    toast.show('连通性测试成功', 'success')
   } catch (err) {
-    message.value = err instanceof Error ? err.message : '测试失败'
+    toast.show(err instanceof Error ? err.message : '测试失败', 'error')
+  } finally {
+    testingId.value = null
   }
 }
 
 async function remove(id: number) {
   await api(`/api/v1/users/me/ai-provider-configs/${id}`, { method: 'DELETE' })
+  deleteTarget.value = null
+  toast.show('已删除', 'info')
   await load()
 }
 
@@ -54,41 +74,79 @@ onMounted(load)
 
 <template>
   <section class="grid gap-5">
-    <div class="rounded-xl border border-slate-200 bg-white p-6">
+    <div class="page-card p-6">
       <h1 class="text-2xl font-bold">AI 配置</h1>
-      <p class="mt-2 text-slate-600">配置用于新建题库的 OpenAI 兼容模型。API Key 保存后不可修改。</p>
+      <p class="mt-2 text-slate-600">配置 OpenAI 兼容模型，用于 AI 生成题库。</p>
     </div>
-    <div class="grid gap-3 rounded-xl border border-slate-200 bg-white p-6" autocomplete="off">
-      <input v-model="form.name" class="rounded-md border border-slate-300 bg-white px-3 py-2" name="ai-config-name" placeholder="显示名称（可空）" autocomplete="off" />
-      <input v-model="form.api_base_url" class="rounded-md border border-slate-300 bg-white px-3 py-2" name="ai-base-url" placeholder="API Base URL，例如 https://api.openai.com/v1" autocomplete="off" />
-      <input v-model="form.api_key" class="rounded-md border border-slate-300 bg-white px-3 py-2" name="ai-access-token" placeholder="API Key（保存后不可修改，只能删除重建）" type="text" autocomplete="off" spellcheck="false" />
-      <input v-model="form.model" class="rounded-md border border-slate-300 bg-white px-3 py-2" name="ai-model-name" placeholder="模型名称" autocomplete="off" />
-      <label class="flex items-center gap-2"><input v-model="form.is_default" type="checkbox" /> 默认配置</label>
-      <button class="w-fit rounded-md bg-blue-600 px-4 py-2 text-white" @click="save">保存配置</button>
-      <p v-if="message" class="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">{{ message }}</p>
-    </div>
+
+    <form class="page-card grid gap-4 p-6" autocomplete="off" @submit.prevent>
+      <h2 class="text-lg font-semibold">添加配置</h2>
+      <div class="grid gap-3 sm:grid-cols-2">
+        <label class="grid gap-1">
+          <span class="text-sm font-medium text-slate-700">显示名称</span>
+          <input v-model="form.name" class="rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="如：我的 OpenAI" autocomplete="off" />
+        </label>
+        <label class="grid gap-1">
+          <span class="text-sm font-medium text-slate-700">模型名称</span>
+          <input v-model="form.model" class="rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="如：gpt-4o" autocomplete="off" />
+        </label>
+        <label class="grid gap-1 sm:col-span-2">
+          <span class="text-sm font-medium text-slate-700">API Base URL</span>
+          <input v-model="form.api_base_url" class="rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="https://api.openai.com/v1" autocomplete="off" />
+        </label>
+        <label class="grid gap-1 sm:col-span-2">
+          <span class="text-sm font-medium text-slate-700">API Key（保存后不可查看，只能删除重建）</span>
+          <input v-model="form.api_key" class="rounded-input border border-slate-300 bg-white px-3 py-2" type="password" placeholder="sk-..." autocomplete="off" />
+        </label>
+      </div>
+      <label class="flex items-center gap-2 text-sm text-slate-700">
+        <input v-model="form.is_default" type="checkbox" class="rounded" /> 设为默认配置
+      </label>
+      <AppButton @click="save">保存配置</AppButton>
+    </form>
+
     <div class="grid gap-3">
-      <article v-for="item in configs" :key="item.id" class="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-5">
-        <div v-if="editingId !== item.id">
-          <strong>{{ item.name || item.model }}</strong>
-          <span class="block text-sm text-slate-500">{{ item.model }} · {{ item.api_base_url }} · {{ item.is_default ? '默认' : '非默认' }} · Key 已保存</span>
+      <AppBadge v-if="!configs.length" variant="default">暂无配置，请先添加</AppBadge>
+      <article v-for="item in configs" :key="item.id" class="page-card p-5">
+        <div v-if="editingId !== item.id" class="flex flex-wrap items-center justify-between gap-4">
+          <div class="min-w-0">
+            <div class="flex flex-wrap items-center gap-2">
+              <strong>{{ item.name || item.model }}</strong>
+              <AppBadge v-if="item.is_default" variant="info">默认</AppBadge>
+              <AppBadge :variant="item.is_active ? 'success' : 'warning'">{{ item.is_active ? '启用' : '未启用' }}</AppBadge>
+            </div>
+            <p class="text-sm text-slate-500">{{ item.model }} · {{ item.api_base_url }} · API Key 已保存</p>
+          </div>
+          <div class="flex flex-wrap gap-2">
+            <AppButton variant="ghost" size="sm" :loading="testingId === item.id" @click="testConfig(item.id)">测试</AppButton>
+            <AppButton variant="ghost" size="sm" @click="setDefault(item.id)">设默认</AppButton>
+            <AppButton variant="ghost" size="sm" @click="startEdit(item)">编辑</AppButton>
+            <AppButton variant="danger" size="sm" @click="deleteTarget = item">删除</AppButton>
+          </div>
         </div>
-        <div v-else class="grid flex-1 gap-2 md:grid-cols-2">
-          <input v-model="editForm.name" class="rounded-md border border-slate-300 bg-white px-3 py-2" placeholder="显示名称（可空）" autocomplete="off" />
-          <input v-model="editForm.api_base_url" class="rounded-md border border-slate-300 bg-white px-3 py-2" placeholder="API Base URL" autocomplete="off" />
-          <input v-model="editForm.model" class="rounded-md border border-slate-300 bg-white px-3 py-2" placeholder="模型名称" autocomplete="off" />
-          <label class="flex items-center gap-2"><input v-model="editForm.is_default" type="checkbox" /> 默认配置</label>
-          <span class="text-sm text-slate-500">API Key 保存后不可修改</span>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <button v-if="editingId !== item.id" class="rounded-md bg-slate-100 px-3 py-2 text-slate-700" @click="testConfig(item.id)">测试</button>
-          <button v-if="editingId !== item.id" class="rounded-md bg-slate-100 px-3 py-2 text-slate-700" @click="setDefault(item.id)">设默认</button>
-          <button v-if="editingId !== item.id" class="rounded-md bg-slate-100 px-3 py-2 text-slate-700" @click="startEdit(item)">编辑</button>
-          <button v-if="editingId === item.id" class="rounded-md bg-blue-600 px-3 py-2 text-white" @click="updateConfig(item.id)">保存</button>
-          <button v-if="editingId === item.id" class="rounded-md bg-slate-100 px-3 py-2 text-slate-700" @click="editingId = null">取消</button>
-          <button class="rounded-md bg-red-50 px-3 py-2 text-red-700" @click="remove(item.id)">删除</button>
+        <div v-else class="grid gap-3 sm:grid-cols-2">
+          <input v-model="editForm.name" class="rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="显示名称" autocomplete="off" />
+          <input v-model="editForm.model" class="rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="模型名称" autocomplete="off" />
+          <input v-model="editForm.api_base_url" class="rounded-input border border-slate-300 bg-white px-3 py-2 sm:col-span-2" placeholder="API Base URL" autocomplete="off" />
+          <label class="flex items-center gap-2 text-sm sm:col-span-2">
+            <input v-model="editForm.is_default" type="checkbox" class="rounded" /> 默认配置
+          </label>
+          <div class="flex gap-2 sm:col-span-2">
+            <AppButton size="sm" @click="updateConfig(item.id)">保存</AppButton>
+            <AppButton variant="ghost" size="sm" @click="editingId = null">取消</AppButton>
+          </div>
         </div>
       </article>
     </div>
+
+    <AppModal :model-value="!!deleteTarget" :key="deleteTarget?.id" title="删除配置" @update:model-value="val => !val && (deleteTarget = null)">
+      <template v-if="deleteTarget">
+        <p class="text-slate-600">确定要删除「{{ deleteTarget.name || deleteTarget.model }}」吗？</p>
+      </template>
+      <template #footer>
+        <AppButton variant="ghost" @click="deleteTarget = null">取消</AppButton>
+        <AppButton variant="danger" @click="remove(deleteTarget!.id)">删除</AppButton>
+      </template>
+    </AppModal>
   </section>
 </template>

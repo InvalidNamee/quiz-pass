@@ -2,6 +2,11 @@
 import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, type Page, type UserMe } from '../api/client'
+import AppBadge from '../components/AppBadge.vue'
+import AppButton from '../components/AppButton.vue'
+import AppPagination from '../components/AppPagination.vue'
+import AppLoading from '../components/AppLoading.vue'
+import AppEmpty from '../components/AppEmpty.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -10,6 +15,7 @@ const keyword = ref('')
 const role = ref('')
 const isActive = ref('')
 const pageInfo = ref<Page<UserMe> | null>(null)
+const loading = ref(true)
 
 async function load() {
   keyword.value = String(route.query.keyword || '')
@@ -20,9 +26,14 @@ async function load() {
   if (keyword.value) params.set('keyword', keyword.value)
   if (role.value) params.set('role', role.value)
   if (isActive.value) params.set('is_active', isActive.value)
-  const data = await api<Page<UserMe>>(`/api/v1/admin/users?${params}`)
-  pageInfo.value = data
-  users.value = data.items
+  loading.value = true
+  try {
+    const data = await api<Page<UserMe>>(`/api/v1/admin/users?${params}`)
+    pageInfo.value = data
+    users.value = data.items
+  } finally {
+    loading.value = false
+  }
 }
 
 function applyFilters(page = 1) {
@@ -39,35 +50,49 @@ watch(() => route.fullPath, load)
 </script>
 
 <template>
-  <section>
-    <h1 class="text-2xl font-bold">用户管理</h1>
-    <div class="my-4 grid max-w-3xl gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <input v-model="keyword" class="rounded-md border border-slate-300 bg-white px-3 py-2" placeholder="邮箱、用户名、显示名" />
-      <select v-model="role" class="rounded-md border border-slate-300 bg-white px-3 py-2">
-        <option value="">全部角色</option>
-        <option value="user">user</option>
-        <option value="admin">admin</option>
-      </select>
-      <select v-model="isActive" class="rounded-md border border-slate-300 bg-white px-3 py-2">
-        <option value="">全部状态</option>
-        <option value="true">启用</option>
-        <option value="false">禁用</option>
-      </select>
-      <button class="rounded-md bg-slate-200 px-4 py-2 text-slate-900" @click="applyFilters()">筛选</button>
+  <section class="grid gap-5">
+    <div class="page-card p-6">
+      <h1 class="text-2xl font-bold">用户管理</h1>
+      <div class="mt-5 grid max-w-3xl gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <input v-model="keyword" class="rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="搜索用户" />
+        <select v-model="role" class="rounded-input border border-slate-300 bg-white px-3 py-2">
+          <option value="">全部角色</option>
+          <option value="user">user</option>
+          <option value="admin">admin</option>
+        </select>
+        <select v-model="isActive" class="rounded-input border border-slate-300 bg-white px-3 py-2">
+          <option value="">全部状态</option>
+          <option value="true">启用</option>
+          <option value="false">禁用</option>
+        </select>
+        <AppButton variant="secondary" @click="applyFilters()">筛选</AppButton>
+      </div>
     </div>
-    <div class="mt-4 grid gap-3">
-      <RouterLink v-for="user in users" :key="user.id" class="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm hover:border-blue-300" :to="`/users/${user.id}`">
-        <div>
-          <strong>{{ user.username }}</strong>
-          <span class="block text-sm text-slate-500">{{ user.email }}</span>
-        </div>
-        <span class="text-sm text-slate-500">{{ user.role }} · {{ user.is_active ? '启用' : '禁用' }}</span>
-      </RouterLink>
-    </div>
-    <div v-if="pageInfo" class="mt-4 flex items-center justify-end gap-3 text-sm text-slate-600">
-      <button class="rounded-md bg-slate-200 px-3 py-2 text-slate-900 disabled:opacity-50" :disabled="pageInfo.page <= 1" @click="applyFilters(pageInfo.page - 1)">上一页</button>
-      <span>第 {{ pageInfo.page }} / {{ pageInfo.total_pages || 1 }} 页，共 {{ pageInfo.total }} 个</span>
-      <button class="rounded-md bg-slate-200 px-3 py-2 text-slate-900 disabled:opacity-50" :disabled="pageInfo.page >= pageInfo.total_pages" @click="applyFilters(pageInfo.page + 1)">下一页</button>
-    </div>
+
+    <AppLoading v-if="loading" />
+    <AppEmpty v-else-if="!users.length" title="没有匹配的用户" />
+
+    <template v-else>
+      <div class="grid gap-3">
+        <RouterLink v-for="user in users" :key="user.id" class="page-card flex items-center justify-between gap-4 p-4 hover:border-brand-500/30" :to="`/users/${user.id}`">
+          <div>
+            <strong>{{ user.username }}</strong>
+            <span class="ml-2 text-sm text-slate-500">{{ user.email }}</span>
+          </div>
+          <div class="flex items-center gap-2">
+            <AppBadge :variant="user.role === 'admin' ? 'info' : 'default'">{{ user.role }}</AppBadge>
+            <AppBadge :variant="user.is_active ? 'success' : 'danger'">{{ user.is_active ? '启用' : '禁用' }}</AppBadge>
+          </div>
+        </RouterLink>
+      </div>
+
+      <AppPagination
+        v-if="pageInfo"
+        :page="pageInfo.page"
+        :total-pages="pageInfo.total_pages || 1"
+        :total="pageInfo.total"
+        @update:page="applyFilters"
+      />
+    </template>
   </section>
 </template>

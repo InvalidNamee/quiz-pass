@@ -2,6 +2,13 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, type Page, type QuestionBank } from '../api/client'
+import AppAvatar from './AppAvatar.vue'
+import AppBadge from './AppBadge.vue'
+import AppButton from './AppButton.vue'
+import AppPagination from './AppPagination.vue'
+import AppLoading from './AppLoading.vue'
+import AppEmpty from './AppEmpty.vue'
+import AppModal from './AppModal.vue'
 import AuthorSelect from './AuthorSelect.vue'
 
 const props = defineProps<{
@@ -25,6 +32,9 @@ const ownerId = ref<number | null>(null)
 const visibility = ref('')
 const generationStatus = ref('')
 const loading = ref(false)
+const createModalOpen = ref(false)
+const createTitle = ref('')
+const creating = ref(false)
 
 const totalPages = computed(() => pageInfo.value?.total_pages || 1)
 
@@ -63,6 +73,12 @@ async function load() {
   }
 }
 
+let debounceTimer: ReturnType<typeof setTimeout>
+function onKeywordInput() {
+  clearTimeout(debounceTimer)
+  debounceTimer = setTimeout(search, 300)
+}
+
 function search() {
   router.push({ query: buildQuery(1) })
 }
@@ -84,23 +100,32 @@ async function toggleFavorite(bank: QuestionBank) {
   await load()
 }
 
-async function createBank() {
-  const title = prompt('题库名称')
-  if (!title?.trim()) return
-  await api<QuestionBank>('/api/v1/question-banks', { method: 'POST', body: JSON.stringify({ title: title.trim(), visibility: 'private' }) })
-  await load()
+async function doCreate() {
+  if (!createTitle.value.trim()) return
+  creating.value = true
+  try {
+    await api<QuestionBank>('/api/v1/question-banks', { method: 'POST', body: JSON.stringify({ title: createTitle.value.trim(), visibility: 'private' }) })
+    createModalOpen.value = false
+    createTitle.value = ''
+    await load()
+  } finally {
+    creating.value = false
+  }
 }
 
 function statusText(bank: QuestionBank) {
   const visibilityText = bank.visibility === 'public' ? '公开' : '私有'
   const generationMap: Record<string, string> = {
-    none: '普通题库',
-    pending: '等待生成',
-    processing: '生成中',
-    succeeded: '生成成功',
-    failed: '生成失败',
+    none: '普通题库', pending: '等待生成', processing: '生成中', succeeded: '生成成功', failed: '生成失败',
   }
   return `${visibilityText} · ${generationMap[bank.generation_status] || bank.generation_status}`
+}
+
+function statusVariant(status: string): 'default' | 'success' | 'warning' | 'danger' | 'info' {
+  const map: Record<string, 'default' | 'success' | 'warning' | 'danger' | 'info'> = {
+    none: 'default', pending: 'warning', processing: 'info', succeeded: 'success', failed: 'danger',
+  }
+  return map[status] || 'default'
 }
 
 onMounted(load)
@@ -109,27 +134,27 @@ watch(() => route.fullPath, load)
 
 <template>
   <section class="grid gap-5">
-    <div class="rounded-xl border border-slate-200 bg-white p-6">
+    <div class="page-card p-6">
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div>
           <h1 class="text-2xl font-bold">{{ title }}</h1>
           <p class="mt-1 text-slate-600">{{ subtitle }}</p>
         </div>
         <div class="flex flex-wrap gap-2">
-          <button v-if="allowCreate" class="rounded-md bg-slate-900 px-4 py-2 text-white" type="button" @click="createBank">新建题库</button>
-          <RouterLink v-if="primaryTo" class="rounded-md bg-blue-600 px-4 py-2 text-white" :to="primaryTo">{{ primaryLabel }}</RouterLink>
+          <AppButton v-if="allowCreate" @click="createModalOpen = true">新建题库</AppButton>
+          <RouterLink v-if="primaryTo" class="inline-flex items-center rounded-btn bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700" :to="primaryTo">{{ primaryLabel }}</RouterLink>
         </div>
       </div>
 
       <div class="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
         <label class="block">
           <span class="mb-1 block text-xs font-medium text-slate-500">关键词</span>
-          <input v-model="keyword" class="w-full rounded-md border border-slate-300 bg-white px-3 py-2" placeholder="标题或描述" @keyup.enter="search" />
+          <input v-model="keyword" class="w-full rounded-input border border-slate-300 bg-white px-3 py-2 text-sm" placeholder="标题或描述" @input="onKeywordInput" @keyup.enter="search" />
         </label>
         <AuthorSelect v-if="showAuthorFilter" v-model="ownerId" />
         <label v-if="showVisibilityFilter" class="block">
           <span class="mb-1 block text-xs font-medium text-slate-500">可见性</span>
-          <select v-model="visibility" class="w-full rounded-md border border-slate-300 bg-white px-3 py-2">
+          <select v-model="visibility" class="w-full rounded-input border border-slate-300 bg-white px-3 py-2 text-sm">
             <option value="">全部</option>
             <option value="private">私有</option>
             <option value="public">公开</option>
@@ -137,7 +162,7 @@ watch(() => route.fullPath, load)
         </label>
         <label v-if="showGenerationFilter" class="block">
           <span class="mb-1 block text-xs font-medium text-slate-500">生成状态</span>
-          <select v-model="generationStatus" class="w-full rounded-md border border-slate-300 bg-white px-3 py-2">
+          <select v-model="generationStatus" class="w-full rounded-input border border-slate-300 bg-white px-3 py-2 text-sm">
             <option value="">全部</option>
             <option value="none">普通题库</option>
             <option value="pending">等待生成</option>
@@ -148,46 +173,65 @@ watch(() => route.fullPath, load)
         </label>
       </div>
       <div class="mt-4 flex flex-wrap gap-2">
-        <button class="rounded-md bg-slate-900 px-4 py-2 text-white" type="button" @click="search">筛选</button>
-        <button class="rounded-md bg-slate-100 px-4 py-2 text-slate-700" type="button" @click="clearFilters">清空</button>
+        <AppButton @click="search">筛选</AppButton>
+        <AppButton variant="ghost" @click="clearFilters">清空</AppButton>
       </div>
     </div>
 
-    <div class="grid gap-3">
-      <article v-for="bank in banks" :key="bank.id" class="rounded-xl border border-slate-200 bg-white p-5 hover:border-blue-300">
-        <div class="flex flex-wrap items-start justify-between gap-4">
-          <RouterLink class="min-w-0 flex-1" :to="`/banks/${bank.id}`">
-            <div class="flex flex-wrap items-center gap-2">
-              <h2 class="truncate text-lg font-semibold">{{ bank.title }}</h2>
-              <span class="rounded-full bg-slate-100 px-2 py-0.5 text-xs text-slate-600">{{ statusText(bank) }}</span>
-            </div>
-            <p class="mt-2 line-clamp-2 text-sm text-slate-600">{{ bank.description || '暂无描述' }}</p>
-          </RouterLink>
-          <button class="rounded-md bg-slate-100 px-3 py-2 text-sm text-slate-700 hover:bg-slate-200" type="button" @click="toggleFavorite(bank)">
-            {{ bank.is_favorited ? '已收藏' : '收藏' }}
-          </button>
-        </div>
+    <AppLoading v-if="loading" message="加载中…" />
 
-        <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
-          <RouterLink class="flex min-w-0 items-center gap-2 hover:text-blue-700" :to="`/users/${bank.owner_id}`">
-            <img v-if="bank.owner_avatar_url" class="h-8 w-8 rounded-full object-cover" :src="bank.owner_avatar_url" alt="" />
-            <span v-else class="grid h-8 w-8 place-items-center rounded-full bg-slate-800 text-xs font-bold text-white">{{ (bank.owner_display_name || bank.owner_username || 'U').slice(0, 1).toUpperCase() }}</span>
-            <span class="truncate">{{ bank.owner_display_name || bank.owner_username || `#${bank.owner_id}` }}</span>
-          </RouterLink>
-          <div class="flex flex-wrap gap-3">
-            <span>{{ bank.question_count }} 题</span>
-            <span>{{ bank.favorite_count }} 收藏</span>
-            <span v-if="bank.ai_model_name">{{ bank.ai_model_name }}</span>
+    <template v-else-if="!banks.length">
+      <AppEmpty title="暂无题库" :description="allowCreate ? '点击上方按钮创建第一个题库' : ''" />
+    </template>
+
+    <template v-else>
+      <div class="grid gap-3">
+        <article v-for="bank in banks" :key="bank.id" class="page-card p-5 transition-colors hover:border-brand-500/30">
+          <div class="flex flex-wrap items-start justify-between gap-4">
+            <RouterLink class="min-w-0 flex-1" :to="`/banks/${bank.id}`">
+              <div class="flex flex-wrap items-center gap-2">
+                <h2 class="truncate text-lg font-semibold hover:text-brand-600">{{ bank.title }}</h2>
+                <AppBadge :variant="statusVariant(bank.generation_status)">{{ statusText(bank) }}</AppBadge>
+              </div>
+              <p class="mt-2 line-clamp-2 text-sm text-slate-600">{{ bank.description || '暂无描述' }}</p>
+            </RouterLink>
+            <AppButton variant="ghost" size="sm" @click="toggleFavorite(bank)">
+              {{ bank.is_favorited ? '已收藏' : '收藏' }}
+            </AppButton>
           </div>
-        </div>
-      </article>
-      <div v-if="!banks.length && !loading" class="rounded-xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-500">暂无题库</div>
-    </div>
 
-    <div v-if="pageInfo" class="flex flex-wrap items-center justify-end gap-3 text-sm text-slate-600">
-      <button class="rounded-md bg-slate-200 px-3 py-2 text-slate-900 disabled:opacity-50" :disabled="pageInfo.page <= 1" @click="goPage(pageInfo.page - 1)">上一页</button>
-      <span>第 {{ pageInfo.page }} / {{ totalPages }} 页，共 {{ pageInfo.total }} 个</span>
-      <button class="rounded-md bg-slate-200 px-3 py-2 text-slate-900 disabled:opacity-50" :disabled="pageInfo.page >= totalPages" @click="goPage(pageInfo.page + 1)">下一页</button>
-    </div>
+          <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
+            <RouterLink class="flex min-w-0 items-center gap-2 hover:text-brand-600" :to="`/users/${bank.owner_id}`">
+              <AppAvatar :src="bank.owner_avatar_url" :username="bank.owner_display_name || bank.owner_username" size="sm" />
+              <span class="truncate">{{ bank.owner_display_name || bank.owner_username || `#${bank.owner_id}` }}</span>
+            </RouterLink>
+            <div class="flex flex-wrap gap-3">
+              <span>{{ bank.question_count }} 题</span>
+              <span>{{ bank.favorite_count }} 收藏</span>
+              <span v-if="bank.ai_model_name">{{ bank.ai_model_name }}</span>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <AppPagination
+        v-if="pageInfo && pageInfo.total_pages > 1"
+        :page="pageInfo.page"
+        :total-pages="pageInfo.total_pages"
+        :total="pageInfo.total"
+        @update:page="goPage"
+      />
+    </template>
+
+    <AppModal v-model="createModalOpen" title="新建题库" @update:model-value="val => !val && (createTitle = '')">
+      <label class="block">
+        <span class="mb-1 block text-sm font-medium text-slate-700">题库名称</span>
+        <input v-model="createTitle" class="w-full rounded-input border border-slate-300 px-3 py-2 text-sm" placeholder="输入名称" @keyup.enter="doCreate" />
+      </label>
+      <template #footer>
+        <AppButton variant="ghost" @click="createModalOpen = false">取消</AppButton>
+        <AppButton :loading="creating" :disabled="!createTitle.trim()" @click="doCreate">创建</AppButton>
+      </template>
+    </AppModal>
   </section>
 </template>

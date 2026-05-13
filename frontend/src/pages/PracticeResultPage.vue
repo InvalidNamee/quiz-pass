@@ -2,6 +2,8 @@
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { api, type PracticeSession } from '../api/client'
+import AppBadge from '../components/AppBadge.vue'
+import AppLoading from '../components/AppLoading.vue'
 
 type ResultOption = { id: number; label: string; content: string }
 type Result = {
@@ -17,40 +19,59 @@ type Result = {
   is_unanswered: boolean
   explanation: string | null
 }
+
 const route = useRoute()
 const sessionId = Number(route.params.sessionId)
 const session = ref<PracticeSession | null>(null)
 const results = ref<Result[]>([])
+const loading = ref(true)
 
 onMounted(async () => {
-  session.value = await api<PracticeSession>(`/api/v1/practice/sessions/${sessionId}`)
-  results.value = await api<Result[]>(`/api/v1/practice/sessions/${sessionId}/result`)
+  try {
+    session.value = await api<PracticeSession>(`/api/v1/practice/sessions/${sessionId}`)
+    results.value = await api<Result[]>(`/api/v1/practice/sessions/${sessionId}/result`)
+  } finally {
+    loading.value = false
+  }
 })
 </script>
 
 <template>
-  <section>
-    <h1 class="text-2xl font-bold">练习结果</h1>
-    <p v-if="session" class="mt-2 text-slate-600">得分 {{ session.score }}，正确 {{ session.correct_count }} / {{ session.total_questions }}</p>
-    <div class="mt-5 grid gap-3">
+  <section class="grid gap-5">
+    <div class="page-card p-6">
+      <h1 class="text-2xl font-bold">练习结果</h1>
+      <p v-if="session" class="mt-2 text-slate-600">
+        得分 <strong class="text-slate-900">{{ session.score }}</strong>，正确 {{ session.correct_count }} / {{ session.total_questions }}
+      </p>
+    </div>
+
+    <AppLoading v-if="loading" />
+
+    <div v-else class="grid gap-3">
       <article
         v-for="(item, index) in results"
         :key="item.question_id"
-        class="grid gap-3 rounded-lg border bg-white p-4 shadow-sm"
-        :class="{ 'border-green-300': item.is_correct, 'border-red-300': !item.is_correct && !item.is_unanswered, 'border-yellow-500 bg-yellow-50': item.is_unanswered }"
+        class="page-card p-5"
+        :class="{
+          'border-l-4 border-l-green-500': item.is_correct,
+          'border-l-4 border-l-red-500': !item.is_correct && !item.is_unanswered,
+          'border-l-4 border-l-yellow-500': item.is_unanswered,
+        }"
       >
-        <div class="flex items-center justify-between gap-4">
-          <strong>{{ index + 1 }}. [{{ item.type === 'single' ? '单选' : '多选' }}] {{ item.stem }}</strong>
-          <span class="text-sm font-bold">{{ item.is_unanswered ? '未作答' : item.is_correct ? '正确' : '错误' }}</span>
+        <div class="flex items-start justify-between gap-4">
+          <strong class="text-slate-900">{{ index + 1 }}. [{{ item.type === 'single' ? '单选' : '多选' }}] {{ item.stem }}</strong>
+          <AppBadge :variant="item.is_unanswered ? 'warning' : item.is_correct ? 'success' : 'danger'">
+            {{ item.is_unanswered ? '未作答' : item.is_correct ? '正确' : '错误' }}
+          </AppBadge>
         </div>
-        <div class="grid gap-1 text-sm text-slate-700">
+        <div class="mt-3 grid gap-1 text-sm text-slate-700">
           <p v-for="option in item.options" :key="option.id" class="m-0">{{ option.label }}. {{ option.content }}</p>
         </div>
-        <div class="flex flex-wrap gap-3 text-sm text-slate-500">
-          <span>当时选择：{{ item.is_unanswered ? '未作答' : item.selected_labels.join('、') }}</span>
-          <span>正确答案：{{ item.correct_labels.join('、') }}</span>
+        <div class="mt-3 flex flex-wrap gap-3 text-sm">
+          <span class="text-slate-500">你的选择：{{ item.is_unanswered ? '未作答' : item.selected_labels.join('、') || '无' }}</span>
+          <span class="font-medium text-slate-700">正确答案：{{ item.correct_labels.join('、') }}</span>
         </div>
-        <p v-if="item.explanation" class="m-0 text-slate-700">{{ item.explanation }}</p>
+        <p v-if="item.explanation" class="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-800">{{ item.explanation }}</p>
       </article>
     </div>
   </section>

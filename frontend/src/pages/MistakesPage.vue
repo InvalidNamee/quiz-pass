@@ -2,19 +2,32 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, type MistakeRecord, type Page, type PracticeSession } from '../api/client'
+import AppButton from '../components/AppButton.vue'
+import AppBadge from '../components/AppBadge.vue'
+import AppLoading from '../components/AppLoading.vue'
+import AppEmpty from '../components/AppEmpty.vue'
 
 const route = useRoute()
 const router = useRouter()
 const bankId = Number(route.params.bankId)
 const mistakes = ref<MistakeRecord[]>([])
+const loading = ref(true)
+const resolving = ref<Set<number>>(new Set())
 
 async function load() {
-  const data = await api<Page<MistakeRecord>>(`/api/v1/question-banks/${bankId}/mistakes?resolved=false`)
-  mistakes.value = data.items
+  loading.value = true
+  try {
+    const data = await api<Page<MistakeRecord>>(`/api/v1/question-banks/${bankId}/mistakes?resolved=false`)
+    mistakes.value = data.items
+  } finally {
+    loading.value = false
+  }
 }
 
 async function resolve(questionId: number) {
+  resolving.value.add(questionId)
   await api(`/api/v1/question-banks/${bankId}/mistakes/${questionId}/resolve`, { method: 'POST' })
+  resolving.value.delete(questionId)
   await load()
 }
 
@@ -27,16 +40,25 @@ onMounted(load)
 </script>
 
 <template>
-  <section>
-    <div class="flex items-center justify-between gap-4">
-      <h1 class="text-2xl font-bold">错题</h1>
-      <button class="rounded-md bg-blue-600 px-4 py-2 text-white disabled:opacity-50" :disabled="!mistakes.length" @click="practice">错题练习</button>
+  <section class="grid gap-5">
+    <div class="page-card flex flex-wrap items-center justify-between gap-4 p-6">
+      <div>
+        <h1 class="text-2xl font-bold">错题</h1>
+        <p class="mt-1 text-slate-600">未掌握的错题 {{ mistakes.length }} 道</p>
+      </div>
+      <AppButton :disabled="!mistakes.length" @click="practice">错题练习</AppButton>
     </div>
-    <div class="mt-4 grid gap-3">
-      <article v-for="item in mistakes" :key="item.id" class="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <strong>题目 #{{ item.question_id }}</strong>
-        <span class="text-sm text-slate-500">错误 {{ item.wrong_count }} 次</span>
-        <button class="rounded-md bg-slate-200 px-4 py-2 text-slate-900" @click="resolve(item.question_id)">已掌握</button>
+
+    <AppLoading v-if="loading" />
+    <AppEmpty v-else-if="!mistakes.length" title="没有错题" description="继续练习，这里会记录你做错的题目。" />
+
+    <div v-else class="grid gap-3">
+      <article v-for="item in mistakes" :key="item.id" class="page-card flex items-center justify-between gap-4 p-4">
+        <div>
+          <strong>题目 #{{ item.question_id }}</strong>
+          <AppBadge variant="danger" class="ml-2">错误 {{ item.wrong_count }} 次</AppBadge>
+        </div>
+        <AppButton variant="ghost" size="sm" :loading="resolving.has(item.question_id)" @click="resolve(item.question_id)">已掌握</AppButton>
       </article>
     </div>
   </section>
