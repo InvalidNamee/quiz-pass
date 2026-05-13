@@ -26,7 +26,7 @@ npm install
 npm run dev
 ```
 
-The Vite dev server proxies `/api` and `/health` to `http://127.0.0.1:8000`.
+The Vite dev server listens on `0.0.0.0` and proxies `/api` and `/health` to `http://127.0.0.1:8000` by default. Set `VITE_DEV_API_PROXY_TARGET` if the backend is reachable at another address.
 
 ## Current Scope
 

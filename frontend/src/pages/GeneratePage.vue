@@ -50,7 +50,7 @@ onMounted(load)
         <option value="public">生成成功后公开</option>
       </select>
       <select v-model="aiProviderConfigId" class="rounded-md border border-slate-300 bg-white px-3 py-2">
-        <option v-for="config in configs" :key="config.id" :value="config.id">{{ config.name }} · {{ config.model }}</option>
+        <option v-for="config in configs" :key="config.id" :value="config.id">{{ config.name ? `${config.name} · ${config.model}` : config.model }}</option>
       </select>
       <select v-model="questionCountMode" class="rounded-md border border-slate-300 bg-white px-3 py-2">
         <option value="fixed">指定题数</option>

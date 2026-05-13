@@ -81,7 +81,15 @@ def list_public_banks(
 
 
 @router.get("/favorites", response_model=Page[QuestionBankOut])
-def list_favorite_banks(page: int = 1, page_size: int = 20, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+def list_favorite_banks(
+    page: int = 1,
+    page_size: int = 20,
+    keyword: str | None = None,
+    visibility: str | None = None,
+    generation_status: str | None = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     stmt = (
         select(QuestionBank)
         .join(QuestionBankFavorite, QuestionBankFavorite.bank_id == QuestionBank.id)
@@ -94,6 +102,12 @@ def list_favorite_banks(page: int = 1, page_size: int = 20, current_user: User =
         )
         .order_by(QuestionBankFavorite.created_at.desc())
     )
+    if keyword:
+        stmt = stmt.where(or_(QuestionBank.title.contains(keyword), QuestionBank.description.contains(keyword)))
+    if visibility:
+        stmt = stmt.where(QuestionBank.visibility == visibility)
+    if generation_status:
+        stmt = stmt.where(QuestionBank.generation_status == generation_status)
     items, total, page, page_size = paginate(db, stmt, page, page_size)
     return page_response([to_bank_out(db, item, current_user) for item in items], total, page, page_size)
 

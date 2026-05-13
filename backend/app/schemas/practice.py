@@ -32,6 +32,24 @@ class PracticeAnswerCreate(BaseModel):
     selected_option_ids: list[int]
 
 
+class PracticeAnswerOut(BaseModel):
+    is_submitted: bool = True
+    reveal: bool
+    is_correct: bool | None = None
+    correct_option_ids: list[int] = Field(default_factory=list)
+    correct_labels: list[str] = Field(default_factory=list)
+    explanation: str | None
+
+
+class PracticeQuestionAnswerStateOut(BaseModel):
+    is_answered: bool = False
+    selected_option_ids: list[int] = Field(default_factory=list)
+    reveal: bool = False
+    is_correct: bool | None = None
+    correct_labels: list[str] = Field(default_factory=list)
+    explanation: str | None = None
+
+
 class PracticeQuestionOptionOut(BaseModel):
     id: int
     label: str
@@ -46,6 +64,7 @@ class PracticeQuestionOut(BaseModel):
     type: str
     stem: str
     options: list[PracticeQuestionOptionOut]
+    answer_state: PracticeQuestionAnswerStateOut = Field(default_factory=PracticeQuestionAnswerStateOut)
 
     model_config = {"from_attributes": True}
 

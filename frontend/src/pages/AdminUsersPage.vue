@@ -37,10 +37,13 @@ onMounted(load)
       <button class="rounded-md bg-slate-200 px-4 py-2 text-slate-900" @click="load">筛选</button>
     </div>
     <div class="mt-4 grid gap-3">
-      <article v-for="user in users" :key="user.id" class="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
-        <strong>{{ user.email }}</strong>
-        <span class="text-sm text-slate-500">{{ user.username }} · {{ user.role }} · {{ user.is_active ? '启用' : '禁用' }}</span>
-      </article>
+      <RouterLink v-for="user in users" :key="user.id" class="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm hover:border-blue-300" :to="`/users/${user.id}`">
+        <div>
+          <strong>{{ user.username }}</strong>
+          <span class="block text-sm text-slate-500">{{ user.email }}</span>
+        </div>
+        <span class="text-sm text-slate-500">{{ user.role }} · {{ user.is_active ? '启用' : '禁用' }}</span>
+      </RouterLink>
     </div>
   </section>
 </template>

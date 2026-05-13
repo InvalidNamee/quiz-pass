@@ -81,7 +81,23 @@ def test_auth_bank_favorite_question_practice_and_mistake(monkeypatch):
             json={"question_id": question["id"], "selected_option_ids": [question["options"][1]["id"]]},
         )
         assert answer.status_code == 200
+        assert answer.json()["reveal"] is True
         assert answer.json()["is_correct"] is False
+        assert answer.json()["correct_labels"] == ["A"]
+        assert answer.json()["explanation"] == "basic math"
+        question_states = client.get(f"/api/v1/practice/sessions/{session['id']}/questions", headers=headers).json()
+        answered_state = next(item for item in question_states if item["id"] == question["id"])["answer_state"]
+        assert answered_state["is_answered"] is True
+        assert answered_state["selected_option_ids"] == [question["options"][1]["id"]]
+        assert answered_state["reveal"] is True
+        assert answered_state["correct_labels"] == ["A"]
+        repeat = client.post(
+            f"/api/v1/practice/sessions/{session['id']}/answers",
+            headers=headers,
+            json={"question_id": question["id"], "selected_option_ids": [question["options"][0]["id"]]},
+        )
+        assert repeat.status_code == 400
+        assert "不能重复" in repeat.json()["detail"]
         updated_session = client.get(f"/api/v1/practice/sessions/{session['id']}", headers=headers).json()
         assert updated_session["answered_count"] == 1
         submitted = client.post(f"/api/v1/practice/sessions/{session['id']}/submit", headers=headers).json()
@@ -99,18 +115,59 @@ def test_auth_bank_favorite_question_practice_and_mistake(monkeypatch):
         assert mistakes["total"] == 1
 
 
+def test_register_validation_and_exam_hides_answer_until_submit():
+    with TestClient(app) as client:
+        invalid = client.post("/api/v1/auth/register", json={"email": "bad", "username": "ab", "password": "short"})
+        assert invalid.status_code == 422
+        headers = _register(client, "exam@example.com", "examuser")
+        bank = client.post("/api/v1/question-banks", headers=headers, json={"title": "Exam Bank", "visibility": "private"}).json()
+        question = client.post(
+            f"/api/v1/question-banks/{bank['id']}/questions",
+            headers=headers,
+            json={
+                "type": "single",
+                "stem": "2+2=?",
+                "options": [
+                    {"label": "A", "content": "3", "is_correct": False},
+                    {"label": "B", "content": "4", "is_correct": True},
+                ],
+                "explanation": "basic arithmetic",
+            },
+        ).json()
+        session = client.post("/api/v1/practice/sessions", headers=headers, json={"bank_id": bank["id"], "mode": "exam"}).json()
+        answer = client.post(
+            f"/api/v1/practice/sessions/{session['id']}/answers",
+            headers=headers,
+            json={"question_id": question["id"], "selected_option_ids": [question["options"][0]["id"]]},
+        )
+        assert answer.status_code == 200
+        assert answer.json()["reveal"] is False
+        assert answer.json()["is_correct"] is None
+        assert answer.json()["correct_labels"] == []
+        state = client.get(f"/api/v1/practice/sessions/{session['id']}/questions", headers=headers).json()[0]["answer_state"]
+        assert state["is_answered"] is True
+        assert state["reveal"] is False
+        client.post(f"/api/v1/practice/sessions/{session['id']}/submit", headers=headers)
+        revealed = client.get(f"/api/v1/practice/sessions/{session['id']}/questions", headers=headers).json()[0]["answer_state"]
+        assert revealed["reveal"] is True
+        assert revealed["correct_labels"] == ["B"]
+        result = client.get(f"/api/v1/practice/sessions/{session['id']}/result", headers=headers).json()[0]
+        assert result["correct_labels"] == ["B"]
+        assert result["explanation"] == "basic arithmetic"
+
+
 def test_ai_config_api_key_cannot_be_updated_and_list_has_only_real_configs():
     with TestClient(app) as client:
         headers = _register(client, "config@example.com", "configuser")
         created = client.post(
             "/api/v1/users/me/ai-provider-configs",
             headers=headers,
-            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+            json={"name": "", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
         )
         assert created.status_code == 200
         configs = client.get("/api/v1/users/me/ai-provider-configs", headers=headers).json()
         assert len(configs) == 1
-        assert configs[0]["name"] == "mock"
+        assert configs[0]["name"] == ""
         assert configs[0]["has_api_key"] is True
         blocked = client.patch(
             f"/api/v1/users/me/ai-provider-configs/{created.json()['id']}",

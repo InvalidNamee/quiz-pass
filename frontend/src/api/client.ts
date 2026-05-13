@@ -19,7 +19,17 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   const response = await fetch(`${API_BASE}${path}`, { ...options, headers })
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: response.statusText }))
-    throw new Error(typeof error.detail === 'string' ? error.detail : '请求失败')
+    if (typeof error.detail === 'string') throw new Error(error.detail)
+    if (Array.isArray(error.detail)) {
+      const message = error.detail
+        .map((item: { loc?: unknown[]; msg?: string }) => {
+          const field = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : ''
+          return field ? `${field}: ${item.msg ?? '校验失败'}` : item.msg ?? '校验失败'
+        })
+        .join('；')
+      throw new Error(message || '请求参数校验失败')
+    }
+    throw new Error('请求失败')
   }
   return response.json()
 }
@@ -34,6 +44,16 @@ export type UserMe = {
   bio: string | null
   role: string
   is_active: boolean
+}
+
+export type UserPublic = {
+  id: number
+  username: string
+  display_name: string | null
+  avatar_url: string | null
+  bio: string | null
+  created_at: string
+  public_bank_count: number
 }
 
 export type QuestionBank = {

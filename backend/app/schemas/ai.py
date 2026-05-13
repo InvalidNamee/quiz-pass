@@ -4,7 +4,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class AIProviderConfigCreate(BaseModel):
-    name: str = Field(min_length=1, max_length=128)
+    name: str = Field(default="", max_length=128)
     api_base_url: str = Field(min_length=1, max_length=512)
     api_key: str = Field(min_length=1, max_length=2048)
     model: str = Field(min_length=1, max_length=128)
@@ -12,7 +12,7 @@ class AIProviderConfigCreate(BaseModel):
 
 
 class AIProviderConfigUpdate(BaseModel):
-    name: str | None = Field(default=None, min_length=1, max_length=128)
+    name: str | None = Field(default=None, max_length=128)
     api_base_url: str | None = Field(default=None, min_length=1, max_length=512)
     api_key: str | None = Field(default=None, min_length=1, max_length=2048)
     model: str | None = Field(default=None, min_length=1, max_length=128)

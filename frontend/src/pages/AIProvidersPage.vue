@@ -56,7 +56,7 @@ onMounted(load)
   <section>
     <h1 class="text-2xl font-bold">AI 配置</h1>
     <div class="my-4 grid max-w-2xl gap-3" autocomplete="off">
-      <input v-model="form.name" class="rounded-md border border-slate-300 bg-white px-3 py-2" name="ai-config-name" placeholder="名称" autocomplete="off" />
+      <input v-model="form.name" class="rounded-md border border-slate-300 bg-white px-3 py-2" name="ai-config-name" placeholder="显示名称（可空）" autocomplete="off" />
       <input v-model="form.api_base_url" class="rounded-md border border-slate-300 bg-white px-3 py-2" name="ai-base-url" placeholder="API Base URL，例如 https://api.openai.com/v1" autocomplete="off" />
       <input v-model="form.api_key" class="rounded-md border border-slate-300 bg-white px-3 py-2" name="ai-access-token" placeholder="API Key（保存后不可修改，只能删除重建）" type="text" autocomplete="off" spellcheck="false" />
       <input v-model="form.model" class="rounded-md border border-slate-300 bg-white px-3 py-2" name="ai-model-name" placeholder="模型名称" autocomplete="off" />
@@ -67,11 +67,11 @@ onMounted(load)
     <div class="grid gap-3">
       <article v-for="item in configs" :key="item.id" class="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
         <div v-if="editingId !== item.id">
-          <strong>{{ item.name }}</strong>
+          <strong>{{ item.name || item.model }}</strong>
           <span class="block text-sm text-slate-500">{{ item.model }} · {{ item.api_base_url }} · {{ item.is_default ? '默认' : '非默认' }} · Key 已保存</span>
         </div>
         <div v-else class="grid flex-1 gap-2 md:grid-cols-2">
-          <input v-model="editForm.name" class="rounded-md border border-slate-300 bg-white px-3 py-2" placeholder="名称" autocomplete="off" />
+          <input v-model="editForm.name" class="rounded-md border border-slate-300 bg-white px-3 py-2" placeholder="显示名称（可空）" autocomplete="off" />
           <input v-model="editForm.api_base_url" class="rounded-md border border-slate-300 bg-white px-3 py-2" placeholder="API Base URL" autocomplete="off" />
           <input v-model="editForm.model" class="rounded-md border border-slate-300 bg-white px-3 py-2" placeholder="模型名称" autocomplete="off" />
           <label class="flex items-center gap-2"><input v-model="editForm.is_default" type="checkbox" /> 默认配置</label>

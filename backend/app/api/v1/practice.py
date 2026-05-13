@@ -15,6 +15,8 @@ from app.schemas.common import Page, page_response
 from app.schemas.practice import (
     MistakeRecordOut,
     PracticeAnswerCreate,
+    PracticeAnswerOut,
+    PracticeQuestionAnswerStateOut,
     PracticeQuestionOut,
     PracticeResultOptionOut,
     PracticeResultAnswerOut,
@@ -49,6 +51,10 @@ def _record_wrong_answer(db: Session, user_id: int, bank_id: int, question_id: i
 def _session_out(db: Session, session: PracticeSession) -> PracticeSessionOut:
     answered_count = db.query(PracticeAnswer).filter(PracticeAnswer.session_id == session.id).count()
     return PracticeSessionOut.model_validate(session, from_attributes=True).model_copy(update={"answered_count": answered_count})
+
+
+def _should_reveal(session: PracticeSession) -> bool:
+    return session.mode != "exam" or session.status == "submitted"
 
 
 @router.post("/practice/sessions", response_model=PracticeSessionOut)
@@ -105,10 +111,28 @@ def get_session_questions(session_id: int, shuffle_options: bool = False, curren
     if shuffle_options:
         for question in ordered:
             random.shuffle(question.options)
-    return ordered
+    answers = db.scalars(select(PracticeAnswer).where(PracticeAnswer.session_id == session.id)).all()
+    answers_by_question = {answer.question_id: answer for answer in answers}
+    reveal = _should_reveal(session)
+    result = []
+    for question in ordered:
+        options = sorted(question.options, key=lambda item: item.sort_order)
+        answer = answers_by_question.get(question.id)
+        state = PracticeQuestionAnswerStateOut()
+        if answer:
+            state = PracticeQuestionAnswerStateOut(
+                is_answered=True,
+                selected_option_ids=answer.selected_option_ids,
+                reveal=reveal,
+                is_correct=answer.is_correct if reveal else None,
+                correct_labels=[option.label for option in options if option.is_correct] if reveal else [],
+                explanation=question.explanation if reveal else None,
+            )
+        result.append(PracticeQuestionOut.model_validate(question, from_attributes=True).model_copy(update={"answer_state": state}))
+    return result
 
 
-@router.post("/practice/sessions/{session_id}/answers")
+@router.post("/practice/sessions/{session_id}/answers", response_model=PracticeAnswerOut)
 def answer_question(session_id: int, payload: PracticeAnswerCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     session = db.get(PracticeSession, session_id)
     if not session or session.user_id != current_user.id:
@@ -123,19 +147,28 @@ def answer_question(session_id: int, payload: PracticeAnswerCreate, current_user
     if not in_session or not question or question.bank_id != session.bank_id:
         raise HTTPException(status_code=400, detail="题目不属于当前练习")
 
-    correct_ids = set(db.scalars(select(QuestionOption.id).where(QuestionOption.question_id == payload.question_id, QuestionOption.is_correct.is_(True))).all())
-    is_correct = set(payload.selected_option_ids) == correct_ids
     existing = db.scalar(select(PracticeAnswer).where(PracticeAnswer.session_id == session.id, PracticeAnswer.question_id == payload.question_id))
     if existing:
-        existing.selected_option_ids = payload.selected_option_ids
-        existing.is_correct = is_correct
-        existing.answered_at = datetime.now(UTC)
-    else:
-        db.add(PracticeAnswer(session_id=session.id, question_id=payload.question_id, selected_option_ids=payload.selected_option_ids, is_correct=is_correct))
-    if not is_correct:
+        raise HTTPException(status_code=400, detail="这道题已经作答，不能重复修改")
+
+    options = db.scalars(select(QuestionOption).where(QuestionOption.question_id == payload.question_id).order_by(QuestionOption.sort_order)).all()
+    option_ids = {option.id for option in options}
+    if any(option_id not in option_ids for option_id in payload.selected_option_ids):
+        raise HTTPException(status_code=400, detail="选项不属于当前题目")
+    correct_ids = [option.id for option in options if option.is_correct]
+    is_correct = set(payload.selected_option_ids) == set(correct_ids)
+    db.add(PracticeAnswer(session_id=session.id, question_id=payload.question_id, selected_option_ids=payload.selected_option_ids, is_correct=is_correct))
+    if not is_correct and session.mode != "exam":
         _record_wrong_answer(db, current_user.id, session.bank_id, payload.question_id)
     db.commit()
-    return {"is_correct": is_correct}
+    reveal = _should_reveal(session)
+    return PracticeAnswerOut(
+        reveal=reveal,
+        is_correct=is_correct if reveal else None,
+        correct_option_ids=correct_ids if reveal else [],
+        correct_labels=[option.label for option in options if option.is_correct] if reveal else [],
+        explanation=question.explanation if reveal else None,
+    )
 
 
 @router.post("/practice/sessions/{session_id}/submit", response_model=PracticeSessionOut)
@@ -146,6 +179,10 @@ def submit_session(session_id: int, current_user: User = Depends(get_current_use
     answers = db.scalars(select(PracticeAnswer).where(PracticeAnswer.session_id == session.id)).all()
     session.correct_count = sum(1 for answer in answers if answer.is_correct)
     session.score = round(session.correct_count / session.total_questions * 100, 2) if session.total_questions else 0
+    if session.mode == "exam":
+        for answer in answers:
+            if not answer.is_correct:
+                _record_wrong_answer(db, current_user.id, session.bank_id, answer.question_id)
     session.status = "submitted"
     session.submitted_at = datetime.now(UTC)
     db.commit()

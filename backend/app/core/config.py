@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     ai_config_encryption_key: str = ""
     upload_max_mb: int = 10
     ai_max_text_chars: int = 30000
-    cors_origins: list[str] = ["http://localhost:5173", "http://127.0.0.1:5173"]
+    cors_origins: list[str] = ["*"]
 
     model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8")
 
