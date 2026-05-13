@@ -54,9 +54,9 @@ async function testConfig(id: number) {
   testingId.value = id
   try {
     await api(`/api/v1/users/me/ai-provider-configs/${id}/test`, { method: 'POST' })
-    toast.show('连通性测试成功', 'success')
+    toast.show('连接成功', 'success')
   } catch (err) {
-    toast.show(err instanceof Error ? err.message : '测试失败', 'error')
+    toast.show(err instanceof Error ? err.message : '连接失败', 'error')
   } finally {
     testingId.value = null
   }
@@ -76,37 +76,38 @@ onMounted(load)
   <section class="grid gap-5">
     <div class="page-card p-6">
       <h1 class="text-2xl font-bold">AI 配置</h1>
-      <p class="mt-2 text-slate-600">配置 OpenAI 兼容模型，用于 AI 生成题库。</p>
+      <p class="mt-2 text-slate-600">添加 OpenAI 兼容接口，用于 AI 生成题库。</p>
     </div>
 
     <form class="page-card grid gap-4 p-6" autocomplete="off" @submit.prevent>
-      <h2 class="text-lg font-semibold">添加配置</h2>
+      <h2 class="text-lg font-semibold">添加新配置</h2>
       <div class="grid gap-3 sm:grid-cols-2">
         <label class="grid gap-1">
-          <span class="text-sm font-medium text-slate-700">显示名称</span>
-          <input v-model="form.name" class="rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="如：我的 OpenAI" autocomplete="off" />
+          <span class="text-sm font-medium text-slate-700">配置名称</span>
+          <input v-model="form.name" name="ai-provider-name" class="rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="起个别名，方便区分（可选）" autocomplete="off" />
         </label>
         <label class="grid gap-1">
-          <span class="text-sm font-medium text-slate-700">模型名称</span>
-          <input v-model="form.model" class="rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="如：gpt-4o" autocomplete="off" />
+          <span class="text-sm font-medium text-slate-700">模型</span>
+          <input v-model="form.model" name="ai-provider-model" class="rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="如 gpt-4o、deepseek-v4-flash" autocomplete="off" />
         </label>
         <label class="grid gap-1 sm:col-span-2">
-          <span class="text-sm font-medium text-slate-700">API Base URL</span>
-          <input v-model="form.api_base_url" class="rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="https://api.openai.com/v1" autocomplete="off" />
+          <span class="text-sm font-medium text-slate-700">接口地址</span>
+          <input v-model="form.api_base_url" name="ai-provider-url" class="rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="https://api.openai.com/v1" autocomplete="off" />
         </label>
         <label class="grid gap-1 sm:col-span-2">
-          <span class="text-sm font-medium text-slate-700">API Key（保存后不可查看，只能删除重建）</span>
-          <input v-model="form.api_key" class="rounded-input border border-slate-300 bg-white px-3 py-2" type="password" placeholder="sk-..." autocomplete="off" />
+          <span class="text-sm font-medium text-slate-700">API Key</span>
+          <input v-model="form.api_key" name="ai-provider-key" class="rounded-input border border-slate-300 bg-white px-3 py-2" type="password" placeholder="sk-..." autocomplete="new-password" />
+          <span class="text-xs text-slate-400">保存后不可查看，只能删除重建。</span>
         </label>
       </div>
       <label class="flex items-center gap-2 text-sm text-slate-700">
-        <input v-model="form.is_default" type="checkbox" class="rounded" /> 设为默认配置
+        <input v-model="form.is_default" type="checkbox" class="rounded" /> 设为默认
       </label>
-      <AppButton @click="save">保存配置</AppButton>
+      <AppButton @click="save">添加</AppButton>
     </form>
 
     <div class="grid gap-3">
-      <AppBadge v-if="!configs.length" variant="default">暂无配置，请先添加</AppBadge>
+      <p v-if="!configs.length" class="page-card p-6 text-center text-sm text-slate-400">暂无配置，请先添加一个接口</p>
       <article v-for="item in configs" :key="item.id" class="page-card p-5">
         <div v-if="editingId !== item.id" class="flex flex-wrap items-center justify-between gap-4">
           <div class="min-w-0">
@@ -115,21 +116,21 @@ onMounted(load)
               <AppBadge v-if="item.is_default" variant="info">默认</AppBadge>
               <AppBadge :variant="item.is_active ? 'success' : 'warning'">{{ item.is_active ? '启用' : '未启用' }}</AppBadge>
             </div>
-            <p class="text-sm text-slate-500">{{ item.model }} · {{ item.api_base_url }} · API Key 已保存</p>
+            <p class="text-sm text-slate-500">{{ item.model }} · {{ item.api_base_url }}</p>
           </div>
           <div class="flex flex-wrap gap-2">
-            <AppButton variant="ghost" size="sm" :loading="testingId === item.id" @click="testConfig(item.id)">测试</AppButton>
-            <AppButton variant="ghost" size="sm" @click="setDefault(item.id)">设默认</AppButton>
+            <AppButton variant="ghost" size="sm" :loading="testingId === item.id" @click="testConfig(item.id)">测试连接</AppButton>
+            <AppButton variant="ghost" size="sm" @click="setDefault(item.id)">设为默认</AppButton>
             <AppButton variant="ghost" size="sm" @click="startEdit(item)">编辑</AppButton>
             <AppButton variant="danger" size="sm" @click="deleteTarget = item">删除</AppButton>
           </div>
         </div>
         <div v-else class="grid gap-3 sm:grid-cols-2">
-          <input v-model="editForm.name" class="rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="显示名称" autocomplete="off" />
-          <input v-model="editForm.model" class="rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="模型名称" autocomplete="off" />
-          <input v-model="editForm.api_base_url" class="rounded-input border border-slate-300 bg-white px-3 py-2 sm:col-span-2" placeholder="API Base URL" autocomplete="off" />
+          <input v-model="editForm.name" name="ai-edit-name" class="rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="配置名称" autocomplete="off" />
+          <input v-model="editForm.model" name="ai-edit-model" class="rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="模型名称" autocomplete="off" />
+          <input v-model="editForm.api_base_url" name="ai-edit-url" class="rounded-input border border-slate-300 bg-white px-3 py-2 sm:col-span-2" placeholder="接口地址" autocomplete="off" />
           <label class="flex items-center gap-2 text-sm sm:col-span-2">
-            <input v-model="editForm.is_default" type="checkbox" class="rounded" /> 默认配置
+            <input v-model="editForm.is_default" type="checkbox" class="rounded" /> 设为默认
           </label>
           <div class="flex gap-2 sm:col-span-2">
             <AppButton size="sm" @click="updateConfig(item.id)">保存</AppButton>

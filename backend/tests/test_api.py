@@ -81,6 +81,10 @@ def test_auth_bank_favorite_question_practice_and_mistake(monkeypatch):
         ).json()
         session = client.post("/api/v1/practice/sessions", headers=headers, json={"bank_id": bank["id"], "mode": "practice"}).json()
         assert session["answered_count"] == 0
+        assert session["bank_title"] == "Bank"
+        assert session["bank_visibility"] == "private"
+        assert session["bank_generation_status"] == "none"
+        assert session["last_answered_at"] is None
         answer = client.post(
             f"/api/v1/practice/sessions/{session['id']}/answers",
             headers=headers,
@@ -106,8 +110,15 @@ def test_auth_bank_favorite_question_practice_and_mistake(monkeypatch):
         assert "不能重复" in repeat.json()["detail"]
         updated_session = client.get(f"/api/v1/practice/sessions/{session['id']}", headers=headers).json()
         assert updated_session["answered_count"] == 1
+        assert updated_session["last_answered_at"] is not None
+        history = client.get("/api/v1/history/sessions", headers=headers).json()
+        history_item = history["items"][0]
+        assert history_item["bank_title"] == "Bank"
+        assert history_item["started_at"] is not None
+        assert history_item["last_answered_at"] == updated_session["last_answered_at"]
         submitted = client.post(f"/api/v1/practice/sessions/{session['id']}/submit", headers=headers).json()
         assert submitted["answered_count"] == 1
+        assert submitted["submitted_at"] is not None
         result = client.get(f"/api/v1/practice/sessions/{session['id']}/result", headers=headers).json()
         answered = next(item for item in result if item["question_id"] == question["id"])
         unanswered = next(item for item in result if item["question_id"] == unanswered_question["id"])
@@ -228,9 +239,11 @@ def test_bank_parse_mode_without_question_count_and_detailed_errors(monkeypatch)
         from app.services import ai_generation
 
         seen_modes = []
+        seen_extra = []
 
         def parsed_ai(*args, **kwargs):
             seen_modes.append(args[4])
+            seen_extra.append(args[5])
             return {
                 "questions": [
                     {
@@ -245,11 +258,12 @@ def test_bank_parse_mode_without_question_count_and_detailed_errors(monkeypatch)
         response = client.post(
             "/api/v1/ai-generation/question-bank-jobs",
             headers=headers,
-            data={"title": "Parsed Bank", "desired_visibility": "private", "generation_mode": "bank_parse"},
+            data={"title": "Parsed Bank", "desired_visibility": "private", "generation_mode": "bank_parse", "extra_instruction": "保留原题编号"},
             files={"file": ("bank.txt", b"Q1 Parsed question", "text/plain")},
         )
         assert response.status_code == 200
         assert seen_modes == ["bank_parse"]
+        assert seen_extra == ["保留原题编号"]
         job = client.get(f"/api/v1/ai-generation/jobs/{response.json()['job_id']}", headers=headers).json()
         assert job["type"] == "bank_parse_ai"
         bank = client.get(f"/api/v1/question-banks/{response.json()['bank_id']}", headers=headers).json()
@@ -272,6 +286,15 @@ def test_bank_parse_mode_without_question_count_and_detailed_errors(monkeypatch)
         assert bad_job["status"] == "failed"
         assert "题库解析失败" in bad_job["error_message"]
         assert "缺少 questions" in bad_job["error_message"]
+
+        too_long = client.post(
+            "/api/v1/ai-generation/question-bank-jobs",
+            headers=headers,
+            data={"title": "Too Long", "desired_visibility": "private", "generation_mode": "bank_parse", "extra_instruction": "x" * 2001},
+            files={"file": ("bank.txt", b"bad", "text/plain")},
+        )
+        assert too_long.status_code == 422
+        assert "额外指令" in too_long.json()["detail"]
 
 
 def test_ai_generation_success_public_after_write(monkeypatch):

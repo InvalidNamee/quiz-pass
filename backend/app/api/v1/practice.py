@@ -2,7 +2,7 @@ import random
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_current_user
@@ -50,7 +50,17 @@ def _record_wrong_answer(db: Session, user_id: int, bank_id: int, question_id: i
 
 def _session_out(db: Session, session: PracticeSession) -> PracticeSessionOut:
     answered_count = db.query(PracticeAnswer).filter(PracticeAnswer.session_id == session.id).count()
-    return PracticeSessionOut.model_validate(session, from_attributes=True).model_copy(update={"answered_count": answered_count})
+    bank = db.get(QuestionBank, session.bank_id)
+    last_answered_at = db.scalar(select(func.max(PracticeAnswer.answered_at)).where(PracticeAnswer.session_id == session.id))
+    return PracticeSessionOut.model_validate(session, from_attributes=True).model_copy(
+        update={
+            "answered_count": answered_count,
+            "bank_title": bank.title if bank else None,
+            "bank_visibility": bank.visibility if bank else None,
+            "bank_generation_status": bank.generation_status if bank else None,
+            "last_answered_at": last_answered_at,
+        }
+    )
 
 
 def _should_reveal(session: PracticeSession) -> bool:

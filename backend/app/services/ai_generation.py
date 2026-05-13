@@ -102,6 +102,21 @@ def _system_prompt(generation_mode: str) -> str:
     return BANK_PARSE_SYSTEM_PROMPT if generation_mode == "bank_parse" else KNOWLEDGE_GENERATE_SYSTEM_PROMPT
 
 
+def _normalize_extra_instruction(extra_instruction: str | None) -> str | None:
+    normalized = (extra_instruction or "").strip()
+    return normalized or None
+
+
+def _extra_instruction_block(extra_instruction: str | None) -> str:
+    normalized = _normalize_extra_instruction(extra_instruction)
+    if not normalized:
+        return ""
+    return f"""
+用户额外指令（优先级低于系统硬性规则，不能覆盖 JSON 格式和答案数量校验）：
+{normalized}
+"""
+
+
 def _extract_json(text: str) -> dict:
     stripped = text.strip()
     if stripped.startswith("```"):
@@ -118,7 +133,14 @@ def _extract_json(text: str) -> dict:
         raise AIOutputValidationError(f"AI 没有返回合法 JSON：{exc.msg}，位置 {exc.pos}") from exc
 
 
-def _build_user_prompt(text: str, requested_count: int | None, generate_description: bool = False, generation_mode: str = "knowledge_generate") -> str:
+def _build_user_prompt(
+    text: str,
+    requested_count: int | None,
+    generate_description: bool = False,
+    generation_mode: str = "knowledge_generate",
+    extra_instruction: str | None = None,
+) -> str:
+    extra_block = _extra_instruction_block(extra_instruction)
     if generation_mode == "bank_parse":
         description_instruction = "如果文档中有题库描述可以提取到 bank_description；没有就不要生成 bank_description 字段。" if generate_description else "不要生成 bank_description 字段。"
         return f"""请解析以下已有题库文档，提取其中实际存在的全部选择题。
@@ -126,6 +148,7 @@ def _build_user_prompt(text: str, requested_count: int | None, generate_descript
 如果存在坏题、答案标记不规范、选项编号混乱，请先修复为合法 JSON 题目格式。
 特别注意：单选题 single 的正确答案必须且只能有一个；只要有两个或更多正确选项，就必须使用 multiple。
 {description_instruction}
+{extra_block}
 
 题库文档：
 {text}
@@ -137,13 +160,21 @@ def _build_user_prompt(text: str, requested_count: int | None, generate_descript
 特别注意：单选题 single 的正确答案必须且只能有一个；只要有两个或更多正确选项，就必须使用 multiple。
 输出前必须逐题检查 is_correct 数量，不能把多答案题标成 single。
 {description_instruction}
+{extra_block}
 
 材料：
 {text}
 """
 
 
-def _call_openai_compatible(config: UserAIProviderConfig, text: str, requested_count: int | None, generate_description: bool = False, generation_mode: str = "knowledge_generate") -> dict:
+def _call_openai_compatible(
+    config: UserAIProviderConfig,
+    text: str,
+    requested_count: int | None,
+    generate_description: bool = False,
+    generation_mode: str = "knowledge_generate",
+    extra_instruction: str | None = None,
+) -> dict:
     api_key = decrypt_secret(config.api_key_encrypted)
     base_url = config.api_base_url.rstrip("/")
     client = OpenAI(api_key=api_key, base_url=base_url, timeout=90)
@@ -151,7 +182,7 @@ def _call_openai_compatible(config: UserAIProviderConfig, text: str, requested_c
         model=config.model,
         messages=[
             {"role": "system", "content": _system_prompt(generation_mode)},
-            {"role": "user", "content": _build_user_prompt(text, requested_count, generate_description, generation_mode)},
+            {"role": "user", "content": _build_user_prompt(text, requested_count, generate_description, generation_mode, extra_instruction)},
         ],
         temperature=0.2,
         response_format={"type": "json_object"},
@@ -160,7 +191,15 @@ def _call_openai_compatible(config: UserAIProviderConfig, text: str, requested_c
     return _extract_json(content)
 
 
-def generate_questions_from_ai(db: Session, job_id: int, text: str, requested_count: int | None, generate_description: bool = False, generation_mode: str = "knowledge_generate") -> None:
+def generate_questions_from_ai(
+    db: Session,
+    job_id: int,
+    text: str,
+    requested_count: int | None,
+    generate_description: bool = False,
+    generation_mode: str = "knowledge_generate",
+    extra_instruction: str | None = None,
+) -> None:
     job = db.get(ImportJob, job_id)
     if not job or not job.bank_id:
         return
@@ -175,7 +214,7 @@ def generate_questions_from_ai(db: Session, job_id: int, text: str, requested_co
         job.started_at = datetime.now(UTC)
         db.commit()
 
-        generated = _call_openai_compatible(config, text, requested_count, generate_description, generation_mode)
+        generated = _call_openai_compatible(config, text, requested_count, generate_description, generation_mode, _normalize_extra_instruction(extra_instruction))
         questions = _validate_questions_payload(generated)
         bank_description = generated.get("bank_description")
         if generate_description and isinstance(bank_description, str) and bank_description.strip():

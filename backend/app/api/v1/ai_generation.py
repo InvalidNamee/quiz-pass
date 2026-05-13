@@ -19,10 +19,10 @@ from app.utils.pagination import paginate
 router = APIRouter()
 
 
-def _run_generation(job_id: int, text: str, question_count: int | None, generate_description: bool, generation_mode: str) -> None:
+def _run_generation(job_id: int, text: str, question_count: int | None, generate_description: bool, generation_mode: str, extra_instruction: str | None) -> None:
     db = SessionLocal()
     try:
-        generate_questions_from_ai(db, job_id, text, question_count, generate_description, generation_mode)
+        generate_questions_from_ai(db, job_id, text, question_count, generate_description, generation_mode, extra_instruction)
     finally:
         db.close()
 
@@ -50,6 +50,7 @@ async def create_question_bank_job(
     question_count: int | None = Form(None),
     generate_description: bool = Form(False),
     generation_mode: str = Form("knowledge_generate"),
+    extra_instruction: str | None = Form(None),
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -60,6 +61,9 @@ async def create_question_bank_job(
         raise HTTPException(status_code=422, detail="Invalid generation_mode")
     if question_count_mode not in ("fixed", "adaptive"):
         raise HTTPException(status_code=422, detail="Invalid question_count_mode")
+    normalized_extra_instruction = (extra_instruction or "").strip() or None
+    if normalized_extra_instruction and len(normalized_extra_instruction) > 2000:
+        raise HTTPException(status_code=422, detail="额外指令不能超过 2000 字")
     if generation_mode == "knowledge_generate" and question_count_mode == "fixed" and not question_count:
         raise HTTPException(status_code=422, detail="固定题数模式必须指定题数")
     effective_count = question_count if generation_mode == "knowledge_generate" and question_count_mode == "fixed" else None
@@ -100,7 +104,7 @@ async def create_question_bank_job(
     db.flush()
     bank.active_generation_job_id = job.id
     db.commit()
-    background_tasks.add_task(_run_generation, job.id, text, effective_count, generate_description, generation_mode)
+    background_tasks.add_task(_run_generation, job.id, text, effective_count, generate_description, generation_mode, normalized_extra_instruction)
     return AIGenerationBankJobOut(bank_id=bank.id, job_id=job.id)
 
 

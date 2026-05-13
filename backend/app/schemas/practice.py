@@ -15,6 +15,9 @@ class PracticeSessionOut(BaseModel):
     id: int
     user_id: int
     bank_id: int
+    bank_title: str | None = None
+    bank_visibility: str | None = None
+    bank_generation_status: str | None = None
     mode: str
     status: str
     total_questions: int
@@ -23,6 +26,7 @@ class PracticeSessionOut(BaseModel):
     score: float
     started_at: datetime
     submitted_at: datetime | None
+    last_answered_at: datetime | None = None
 
     model_config = {"from_attributes": True}
 

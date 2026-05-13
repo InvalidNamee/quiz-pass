@@ -28,6 +28,17 @@ function modeText(m: string) {
   return map[m] || m
 }
 
+function formatTime(value: string | null) {
+  if (!value) return ''
+  return new Date(value).toLocaleString()
+}
+
+function activityDesc(item: PracticeSession) {
+  if (item.submitted_at) return `交卷于 ${formatTime(item.submitted_at)}`
+  if (item.last_answered_at) return `最近作答 ${formatTime(item.last_answered_at)}`
+  return `${formatTime(item.started_at)} 开始`
+}
+
 async function load() {
   mode.value = String(route.query.mode || '')
   status.value = String(route.query.status || '')
@@ -60,8 +71,8 @@ watch(() => route.fullPath, load)
 <template>
   <section class="grid gap-5">
     <div class="page-card p-6">
-      <h1 class="text-2xl font-bold">练习历史</h1>
-      <p class="mt-1 text-slate-600">回顾你的练习记录和成绩。</p>
+      <h1 class="text-2xl font-bold">刷题记录</h1>
+      <p class="mt-1 text-slate-600">回顾练习历史和成绩。</p>
       <div class="mt-5 grid max-w-xl gap-3 sm:grid-cols-[1fr_1fr_auto]">
         <select v-model="mode" class="rounded-input border border-slate-300 bg-white px-3 py-2">
           <option value="">全部模式</option>
@@ -86,16 +97,27 @@ watch(() => route.fullPath, load)
         <RouterLink
           v-for="item in sessions"
           :key="item.id"
-          class="page-card flex items-center justify-between gap-4 p-4"
+          class="page-card group grid gap-2 p-4"
           :to="item.status === 'in_progress' ? `/practice/session/${item.id}` : `/practice/result/${item.id}`"
         >
-          <div class="flex items-center gap-3">
-            <strong>#{{ item.id }}</strong>
-            <AppBadge :variant="modeBadge(item.mode)">{{ modeText(item.mode) }}</AppBadge>
-            <AppBadge :variant="item.status === 'submitted' ? 'success' : 'warning'">{{ item.status === 'submitted' ? '已提交' : '进行中' }}</AppBadge>
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex flex-wrap items-center gap-2 min-w-0">
+              <RouterLink :to="`/banks/${item.bank_id}`" class="truncate font-semibold text-slate-900 hover:text-brand-600" @click.stop>{{ item.bank_title || `题库 #${item.bank_id}` }}</RouterLink>
+              <AppBadge v-if="item.bank_visibility === 'public'" variant="default" size="sm">公开</AppBadge>
+            </div>
+            <div class="flex flex-wrap items-center gap-2">
+              <AppBadge :variant="modeBadge(item.mode)">{{ modeText(item.mode) }}</AppBadge>
+              <AppBadge :variant="item.status === 'submitted' ? 'success' : 'warning'">{{ item.status === 'submitted' ? '已提交' : '进行中' }}</AppBadge>
+            </div>
           </div>
-          <span v-if="item.status === 'in_progress'" class="text-sm text-slate-500">已做 {{ item.answered_count }} / {{ item.total_questions }}</span>
-          <span v-else class="text-sm text-slate-500">{{ item.score }} 分 · {{ item.correct_count }}/{{ item.total_questions }}</span>
+
+          <div class="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
+            <span>#{{ item.id }} · {{ activityDesc(item) }}</span>
+            <span v-if="item.status === 'in_progress'" class="font-medium text-slate-700">已答 {{ item.answered_count }} / {{ item.total_questions }}</span>
+            <span v-else class="font-medium" :class="(item.score || 0) >= 80 ? 'text-emerald-600' : (item.score || 0) >= 60 ? 'text-yellow-600' : 'text-red-600'">
+              {{ item.score }} 分 · {{ item.correct_count }}/{{ item.total_questions }}
+            </span>
+          </div>
         </RouterLink>
       </div>
 

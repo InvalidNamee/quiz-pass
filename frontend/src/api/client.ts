@@ -107,6 +107,9 @@ export type PracticeSession = {
   id: number
   user_id: number
   bank_id: number
+  bank_title: string | null
+  bank_visibility: string | null
+  bank_generation_status: string | null
   mode: string
   status: string
   total_questions: number
@@ -115,6 +118,7 @@ export type PracticeSession = {
   score: number
   started_at: string
   submitted_at: string | null
+  last_answered_at: string | null
 }
 
 export type MistakeRecord = {

@@ -12,6 +12,7 @@ const aiProviderConfigId = ref('')
 const questionCountMode = ref('fixed')
 const questionCount = ref(10)
 const generateDescription = ref(false)
+const extraInstruction = ref('')
 const file = ref<File | null>(null)
 const configs = ref<AIProviderConfig[]>([])
 const submitting = ref(false)
@@ -45,11 +46,13 @@ async function submit() {
       form.set('question_count_mode', questionCountMode.value)
       if (questionCountMode.value === 'fixed') form.set('question_count', String(questionCount.value))
     }
+    if (extraInstruction.value.trim()) form.set('extra_instruction', extraInstruction.value.trim())
     form.set('generate_description', String(generateDescription.value))
     form.set('file', file.value)
     const data = await api<{ bank_id: number; job_id: number }>('/api/v1/ai-generation/question-bank-jobs', { method: 'POST', body: form })
     toast.show(`已创建生成任务 #${data.job_id}`, 'success')
     title.value = ''
+    extraInstruction.value = ''
     file.value = null
     await load()
   } catch (err) {
@@ -129,6 +132,17 @@ onMounted(load)
           <input v-model="generateDescription" type="checkbox" class="rounded" /> 让 AI 生成题库描述
         </label>
       </div>
+
+      <label class="grid gap-1">
+        <span class="text-sm font-medium text-slate-700">额外指令（可选）</span>
+        <textarea
+          v-model="extraInstruction"
+          class="min-h-24 rounded-input border border-slate-300 bg-white px-3 py-2"
+          maxlength="2000"
+          placeholder="例如：题目偏实战场景；解析更详细；解析题库时保留原编号。硬性 JSON 和答案规则仍会优先。"
+        />
+        <span class="text-xs text-slate-500">{{ extraInstruction.length }} / 2000</span>
+      </label>
 
       <label class="grid gap-1">
         <span class="text-sm font-medium text-slate-700">文档文件（.txt / .docx / .pdf）</span>
