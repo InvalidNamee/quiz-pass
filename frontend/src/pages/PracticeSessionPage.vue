@@ -119,18 +119,28 @@ async function submit() {
   router.push(`/practice/result/${sessionId}`)
 }
 
+function previousQuestion() {
+  if (currentIndex.value > 0) currentIndex.value -= 1
+}
+
+function nextQuestion() {
+  if (currentIndex.value < questions.value.length - 1) currentIndex.value += 1
+}
+
 onMounted(load)
 </script>
 
 <template>
-  <section v-if="questions.length">
-    <div class="flex items-center justify-between gap-4">
-      <h1 class="text-2xl font-bold">第 {{ currentIndex + 1 }} / {{ questions.length }} 题</h1>
-      <button class="rounded-md bg-slate-200 px-4 py-2 text-slate-900" @click="submit">交卷</button>
+  <section v-if="questions.length" class="grid gap-5">
+    <div class="rounded-xl border border-slate-200 bg-white p-6">
+      <div class="flex items-center justify-between gap-4">
+        <h1 class="text-2xl font-bold">第 {{ currentIndex + 1 }} / {{ questions.length }} 题</h1>
+        <button class="rounded-md bg-slate-900 px-4 py-2 text-white" @click="submit">交卷</button>
+      </div>
     </div>
-    <div class="mt-5 grid gap-5 lg:grid-cols-[minmax(0,1fr)_220px]">
+    <div class="grid items-start gap-5 lg:grid-cols-[minmax(0,1fr)_220px]">
     <article
-      class="grid gap-4 rounded-lg border bg-white p-5 shadow-sm"
+      class="grid self-start rounded-xl border bg-white p-6"
       :class="{ 'border-green-300 bg-green-50': answerStatus[questions[currentIndex].id] === 'correct', 'border-red-300 bg-red-50': answerStatus[questions[currentIndex].id] === 'wrong', 'border-slate-200': !answerStatus[questions[currentIndex].id] }"
     >
       <div class="w-fit rounded-md bg-cyan-50 px-2 py-1 text-sm font-bold text-cyan-900">{{ questions[currentIndex].type === 'single' ? '单选' : '多选' }}</div>
@@ -160,17 +170,23 @@ onMounted(load)
         <p class="m-0 font-bold">正确答案：{{ answerResults[questions[currentIndex].id].correct_labels.join('、') }}</p>
         <p v-if="answerResults[questions[currentIndex].id].explanation" class="m-0">解析：{{ answerResults[questions[currentIndex].id].explanation }}</p>
       </div>
+      <div class="mt-2 flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
+        <button class="rounded-md bg-slate-100 px-4 py-2 text-slate-700 disabled:opacity-50" :disabled="currentIndex <= 0" @click="previousQuestion">上一题</button>
+        <button class="rounded-md bg-slate-900 px-4 py-2 text-white disabled:opacity-50" :disabled="currentIndex >= questions.length - 1" @click="nextQuestion">下一题</button>
+      </div>
     </article>
-    <aside class="sticky top-5 grid grid-cols-5 gap-2 self-start rounded-lg border border-slate-200 bg-white p-4 shadow-sm lg:grid-cols-4">
-      <button
-        v-for="(question, index) in questions"
-        :key="question.id"
-        class="min-h-10 rounded-md"
-        :class="cardClass(question, index)"
-        @click="currentIndex = index"
-      >
-        {{ index + 1 }}
-      </button>
+    <aside class="sticky top-5 self-start rounded-xl border border-slate-200 bg-white p-4">
+      <div class="grid max-h-[calc(100vh-9rem)] grid-cols-5 gap-2 overflow-y-auto pr-1 lg:grid-cols-4">
+        <button
+          v-for="(question, index) in questions"
+          :key="question.id"
+          class="min-h-10 rounded-md"
+          :class="cardClass(question, index)"
+          @click="currentIndex = index"
+        >
+          {{ index + 1 }}
+        </button>
+      </div>
     </aside>
     </div>
   </section>

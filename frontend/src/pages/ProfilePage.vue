@@ -40,26 +40,33 @@ async function changePassword() {
 </script>
 
 <template>
-  <section>
-    <h1 class="text-2xl font-bold">个人资料</h1>
-    <div class="my-4 grid max-w-2xl gap-3">
-      <input v-model="displayName" class="rounded-md border border-slate-300 bg-white px-3 py-2" placeholder="显示名称" />
-      <textarea v-model="bio" class="min-h-28 rounded-md border border-slate-300 bg-white px-3 py-2" placeholder="简介" />
-      <select v-model="avatarSource" class="rounded-md border border-slate-300 bg-white px-3 py-2">
-        <option value="default">默认头像</option>
-        <option value="qq_email">使用 QQ 邮箱头像</option>
-        <option value="manual">手动头像 URL</option>
-      </select>
-      <button class="w-fit rounded-md bg-blue-600 px-4 py-2 text-white" @click="save">保存</button>
-      <p v-if="profileMessage" class="font-bold text-green-700">{{ profileMessage }}</p>
+  <section class="mx-auto grid max-w-4xl gap-5">
+    <div class="rounded-xl border border-slate-200 bg-white p-6">
+      <h1 class="text-2xl font-bold">账号设置</h1>
+      <p class="mt-2 text-slate-600">维护个人资料、头像来源和登录密码。</p>
     </div>
 
-    <h2 id="password" class="text-xl font-semibold">修改密码</h2>
-    <div class="my-4 grid max-w-2xl gap-3">
-      <input v-model="oldPassword" class="rounded-md border border-slate-300 bg-white px-3 py-2" type="password" autocomplete="current-password" placeholder="当前密码" />
-      <input v-model="newPassword" class="rounded-md border border-slate-300 bg-white px-3 py-2" type="password" autocomplete="new-password" placeholder="新密码（至少 8 位）" />
-      <button class="w-fit rounded-md bg-blue-600 px-4 py-2 text-white" @click="changePassword">更新密码</button>
-      <p v-if="passwordMessage" class="font-bold text-green-700">{{ passwordMessage }}</p>
+    <div class="grid gap-5 lg:grid-cols-2">
+      <div class="grid gap-3 rounded-xl border border-slate-200 bg-white p-6">
+        <h2 class="text-lg font-semibold">个人资料</h2>
+        <input v-model="displayName" class="rounded-md border border-slate-300 bg-white px-3 py-2" placeholder="显示名称" />
+        <textarea v-model="bio" class="min-h-28 rounded-md border border-slate-300 bg-white px-3 py-2" placeholder="简介" />
+        <select v-model="avatarSource" class="rounded-md border border-slate-300 bg-white px-3 py-2">
+          <option value="default">默认头像</option>
+          <option value="qq_email">使用 QQ 邮箱头像</option>
+          <option value="manual">手动头像 URL</option>
+        </select>
+        <button class="w-fit rounded-md bg-blue-600 px-4 py-2 text-white" @click="save">保存资料</button>
+        <p v-if="profileMessage" class="font-bold text-green-700">{{ profileMessage }}</p>
+      </div>
+
+      <div id="password" class="grid content-start gap-3 rounded-xl border border-slate-200 bg-white p-6">
+        <h2 class="text-lg font-semibold">修改密码</h2>
+        <input v-model="oldPassword" class="rounded-md border border-slate-300 bg-white px-3 py-2" type="password" autocomplete="current-password" placeholder="当前密码" />
+        <input v-model="newPassword" class="rounded-md border border-slate-300 bg-white px-3 py-2" type="password" autocomplete="new-password" placeholder="新密码（至少 8 位）" />
+        <button class="w-fit rounded-md bg-blue-600 px-4 py-2 text-white" @click="changePassword">更新密码</button>
+        <p v-if="passwordMessage" class="font-bold text-green-700">{{ passwordMessage }}</p>
+      </div>
     </div>
   </section>
 </template>

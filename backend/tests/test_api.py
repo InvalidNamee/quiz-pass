@@ -46,9 +46,15 @@ def test_auth_bank_favorite_question_practice_and_mistake(monkeypatch):
         bank = client.post("/api/v1/question-banks", headers=headers, json={"title": "Bank", "visibility": "private"}).json()
         bank_detail = client.get(f"/api/v1/question-banks/{bank['id']}", headers=headers).json()
         assert bank_detail["owner_username"] == "demo"
+        search_users = client.get("/api/v1/users/search?keyword=dem", headers=headers).json()
+        assert search_users["total"] == 1
+        assert search_users["items"][0]["username"] == "demo"
+        assert "email" not in search_users["items"][0]
         assert client.get(f"/api/v1/question-banks/{bank['id']}", headers=other_headers).status_code == 404
         assert client.post(f"/api/v1/question-banks/{bank['id']}/favorite", headers=other_headers).status_code == 404
         assert client.post(f"/api/v1/question-banks/{bank['id']}/favorite", headers=headers).status_code == 200
+        favorites_by_owner = client.get(f"/api/v1/question-banks/favorites?owner_id={bank['owner_id']}", headers=headers).json()
+        assert favorites_by_owner["total"] == 1
 
         question_payload = {
             "type": "single",
@@ -203,7 +209,69 @@ def test_ai_generation_validation_failure(monkeypatch):
         assert response.status_code == 200
         job = client.get(f"/api/v1/ai-generation/jobs/{response.json()['job_id']}", headers=headers).json()
         assert job["status"] == "failed"
-        assert "单选题" in job["error_message"]
+        assert "知识库生成失败" in job["error_message"]
+        assert "第 1 题" in job["error_message"]
+        assert "题干：bad" in job["error_message"]
+        assert "题型：single" in job["error_message"]
+        assert "single 有 2 个正确答案" in job["error_message"]
+
+
+def test_bank_parse_mode_without_question_count_and_detailed_errors(monkeypatch):
+    with TestClient(app) as client:
+        headers = _register(client, "parse@example.com", "parseuser")
+        client.post(
+            "/api/v1/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+
+        from app.services import ai_generation
+
+        seen_modes = []
+
+        def parsed_ai(*args, **kwargs):
+            seen_modes.append(args[4])
+            return {
+                "questions": [
+                    {
+                        "type": "single",
+                        "stem": "Parsed question",
+                        "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
+                    }
+                ]
+            }
+
+        monkeypatch.setattr(ai_generation, "_call_openai_compatible", parsed_ai)
+        response = client.post(
+            "/api/v1/ai-generation/question-bank-jobs",
+            headers=headers,
+            data={"title": "Parsed Bank", "desired_visibility": "private", "generation_mode": "bank_parse"},
+            files={"file": ("bank.txt", b"Q1 Parsed question", "text/plain")},
+        )
+        assert response.status_code == 200
+        assert seen_modes == ["bank_parse"]
+        job = client.get(f"/api/v1/ai-generation/jobs/{response.json()['job_id']}", headers=headers).json()
+        assert job["type"] == "bank_parse_ai"
+        bank = client.get(f"/api/v1/question-banks/{response.json()['bank_id']}", headers=headers).json()
+        assert bank["question_count"] == 1
+        questions = client.get(f"/api/v1/question-banks/{bank['id']}/questions", headers=headers).json()
+        assert questions["items"][0]["source"] == "ai_generated"
+        assert questions["items"][0]["generated_model"] == "mock"
+
+        def bad_json(*args, **kwargs):
+            return {}
+
+        monkeypatch.setattr(ai_generation, "_call_openai_compatible", bad_json)
+        bad_response = client.post(
+            "/api/v1/ai-generation/question-bank-jobs",
+            headers=headers,
+            data={"title": "Bad Parsed Bank", "desired_visibility": "private", "generation_mode": "bank_parse"},
+            files={"file": ("bank.txt", b"bad", "text/plain")},
+        )
+        bad_job = client.get(f"/api/v1/ai-generation/jobs/{bad_response.json()['job_id']}", headers=headers).json()
+        assert bad_job["status"] == "failed"
+        assert "题库解析失败" in bad_job["error_message"]
+        assert "缺少 questions" in bad_job["error_message"]
 
 
 def test_ai_generation_success_public_after_write(monkeypatch):
@@ -219,6 +287,7 @@ def test_ai_generation_success_public_after_write(monkeypatch):
 
         def good_ai(*args, **kwargs):
             return {
+                "bank_description": "AI generated description",
                 "questions": [
                     {
                         "type": "single",
@@ -240,3 +309,13 @@ def test_ai_generation_success_public_after_write(monkeypatch):
         assert bank["generation_status"] == "succeeded"
         assert bank["visibility"] == "public"
         assert bank["question_count"] == 1
+        assert bank["description"] is None
+
+        response_with_description = client.post(
+            "/api/v1/ai-generation/question-bank-jobs",
+            headers=headers,
+            data={"title": "AI Bank With Description", "desired_visibility": "private", "question_count": "1", "generate_description": "true"},
+            files={"file": ("material.txt", b"content", "text/plain")},
+        )
+        described = client.get(f"/api/v1/question-banks/{response_with_description.json()['bank_id']}", headers=headers).json()
+        assert described["description"] == "AI generated description"

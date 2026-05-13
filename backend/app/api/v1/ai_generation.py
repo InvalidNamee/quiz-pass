@@ -19,10 +19,10 @@ from app.utils.pagination import paginate
 router = APIRouter()
 
 
-def _run_generation(job_id: int, text: str, question_count: int | None) -> None:
+def _run_generation(job_id: int, text: str, question_count: int | None, generate_description: bool, generation_mode: str) -> None:
     db = SessionLocal()
     try:
-        generate_questions_from_ai(db, job_id, text, question_count)
+        generate_questions_from_ai(db, job_id, text, question_count, generate_description, generation_mode)
     finally:
         db.close()
 
@@ -48,17 +48,21 @@ async def create_question_bank_job(
     ai_provider_config_id: int | None = Form(None),
     question_count_mode: str = Form("fixed"),
     question_count: int | None = Form(None),
+    generate_description: bool = Form(False),
+    generation_mode: str = Form("knowledge_generate"),
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     if desired_visibility not in ("private", "public"):
         raise HTTPException(status_code=422, detail="Invalid desired_visibility")
+    if generation_mode not in ("knowledge_generate", "bank_parse"):
+        raise HTTPException(status_code=422, detail="Invalid generation_mode")
     if question_count_mode not in ("fixed", "adaptive"):
         raise HTTPException(status_code=422, detail="Invalid question_count_mode")
-    if question_count_mode == "fixed" and not question_count:
+    if generation_mode == "knowledge_generate" and question_count_mode == "fixed" and not question_count:
         raise HTTPException(status_code=422, detail="固定题数模式必须指定题数")
-    effective_count = question_count if question_count_mode == "fixed" else None
+    effective_count = question_count if generation_mode == "knowledge_generate" and question_count_mode == "fixed" else None
     config = _pick_ai_config(db, current_user.id, ai_provider_config_id)
     content = await file.read()
     try:
@@ -84,7 +88,7 @@ async def create_question_bank_job(
     job = ImportJob(
         user_id=current_user.id,
         bank_id=bank.id,
-        type="document_ai",
+        type="bank_parse_ai" if generation_mode == "bank_parse" else "document_ai",
         status="pending",
         desired_visibility=desired_visibility,
         file_name=file.filename,
@@ -96,7 +100,7 @@ async def create_question_bank_job(
     db.flush()
     bank.active_generation_job_id = job.id
     db.commit()
-    background_tasks.add_task(_run_generation, job.id, text, effective_count)
+    background_tasks.add_task(_run_generation, job.id, text, effective_count, generate_description, generation_mode)
     return AIGenerationBankJobOut(bank_id=bank.id, job_id=job.id)
 
 

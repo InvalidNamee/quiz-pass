@@ -53,19 +53,22 @@ onMounted(load)
 </script>
 
 <template>
-  <section>
-    <h1 class="text-2xl font-bold">AI 配置</h1>
-    <div class="my-4 grid max-w-2xl gap-3" autocomplete="off">
+  <section class="grid gap-5">
+    <div class="rounded-xl border border-slate-200 bg-white p-6">
+      <h1 class="text-2xl font-bold">AI 配置</h1>
+      <p class="mt-2 text-slate-600">配置用于新建题库的 OpenAI 兼容模型。API Key 保存后不可修改。</p>
+    </div>
+    <div class="grid gap-3 rounded-xl border border-slate-200 bg-white p-6" autocomplete="off">
       <input v-model="form.name" class="rounded-md border border-slate-300 bg-white px-3 py-2" name="ai-config-name" placeholder="显示名称（可空）" autocomplete="off" />
       <input v-model="form.api_base_url" class="rounded-md border border-slate-300 bg-white px-3 py-2" name="ai-base-url" placeholder="API Base URL，例如 https://api.openai.com/v1" autocomplete="off" />
       <input v-model="form.api_key" class="rounded-md border border-slate-300 bg-white px-3 py-2" name="ai-access-token" placeholder="API Key（保存后不可修改，只能删除重建）" type="text" autocomplete="off" spellcheck="false" />
       <input v-model="form.model" class="rounded-md border border-slate-300 bg-white px-3 py-2" name="ai-model-name" placeholder="模型名称" autocomplete="off" />
       <label class="flex items-center gap-2"><input v-model="form.is_default" type="checkbox" /> 默认配置</label>
       <button class="w-fit rounded-md bg-blue-600 px-4 py-2 text-white" @click="save">保存配置</button>
-      <p v-if="message">{{ message }}</p>
+      <p v-if="message" class="rounded-md bg-slate-50 px-3 py-2 text-sm text-slate-700">{{ message }}</p>
     </div>
     <div class="grid gap-3">
-      <article v-for="item in configs" :key="item.id" class="flex items-center justify-between gap-4 rounded-lg border border-slate-200 bg-white p-4 shadow-sm">
+      <article v-for="item in configs" :key="item.id" class="flex flex-wrap items-center justify-between gap-4 rounded-xl border border-slate-200 bg-white p-5">
         <div v-if="editingId !== item.id">
           <strong>{{ item.name || item.model }}</strong>
           <span class="block text-sm text-slate-500">{{ item.model }} · {{ item.api_base_url }} · {{ item.is_default ? '默认' : '非默认' }} · Key 已保存</span>
@@ -78,12 +81,12 @@ onMounted(load)
           <span class="text-sm text-slate-500">API Key 保存后不可修改</span>
         </div>
         <div class="flex flex-wrap gap-2">
-          <button v-if="editingId !== item.id" class="rounded-md bg-slate-200 px-3 py-2 text-slate-900" @click="testConfig(item.id)">测试</button>
-          <button v-if="editingId !== item.id" class="rounded-md bg-slate-200 px-3 py-2 text-slate-900" @click="setDefault(item.id)">设默认</button>
-          <button v-if="editingId !== item.id" class="rounded-md bg-slate-200 px-3 py-2 text-slate-900" @click="startEdit(item)">编辑</button>
-          <button v-if="editingId === item.id" class="rounded-md bg-slate-200 px-3 py-2 text-slate-900" @click="updateConfig(item.id)">保存</button>
-          <button v-if="editingId === item.id" class="rounded-md bg-slate-200 px-3 py-2 text-slate-900" @click="editingId = null">取消</button>
-          <button class="rounded-md bg-slate-200 px-3 py-2 text-slate-900" @click="remove(item.id)">删除</button>
+          <button v-if="editingId !== item.id" class="rounded-md bg-slate-100 px-3 py-2 text-slate-700" @click="testConfig(item.id)">测试</button>
+          <button v-if="editingId !== item.id" class="rounded-md bg-slate-100 px-3 py-2 text-slate-700" @click="setDefault(item.id)">设默认</button>
+          <button v-if="editingId !== item.id" class="rounded-md bg-slate-100 px-3 py-2 text-slate-700" @click="startEdit(item)">编辑</button>
+          <button v-if="editingId === item.id" class="rounded-md bg-blue-600 px-3 py-2 text-white" @click="updateConfig(item.id)">保存</button>
+          <button v-if="editingId === item.id" class="rounded-md bg-slate-100 px-3 py-2 text-slate-700" @click="editingId = null">取消</button>
+          <button class="rounded-md bg-red-50 px-3 py-2 text-red-700" @click="remove(item.id)">删除</button>
         </div>
       </article>
     </div>

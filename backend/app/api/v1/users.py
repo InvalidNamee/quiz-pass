@@ -1,6 +1,6 @@
-import httpx
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy import func, select
+from openai import OpenAI
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user
@@ -10,10 +10,12 @@ from app.models.ai_provider_config import UserAIProviderConfig
 from app.models.question_bank import QuestionBank
 from app.models.user import User
 from app.schemas.ai import AIProviderConfigCreate, AIProviderConfigOut, AIProviderConfigUpdate
+from app.schemas.common import Page, page_response
 from app.schemas.question_bank import QuestionBankOut
 from app.schemas.user import PasswordChange, UserMe, UserPublic, UserUpdate
 from app.utils.avatar import build_qq_avatar_url
 from app.utils.crypto import decrypt_secret, encrypt_secret
+from app.utils.pagination import paginate
 
 router = APIRouter()
 
@@ -50,6 +52,34 @@ def change_password(payload: PasswordChange, current_user: User = Depends(get_cu
     current_user.password_hash = get_password_hash(payload.new_password)
     db.commit()
     return {"ok": True}
+
+
+@router.get("/search", response_model=Page[UserPublic])
+def search_users(
+    page: int = 1,
+    page_size: int = 10,
+    keyword: str | None = None,
+    _: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    stmt = select(User).where(User.is_active.is_(True))
+    if keyword:
+        stmt = stmt.where(or_(User.username.contains(keyword), User.display_name.contains(keyword)))
+    stmt = stmt.order_by(User.username.asc())
+    users, total, page, page_size = paginate(db, stmt, page, page_size)
+    counts = dict(
+        db.execute(
+            select(QuestionBank.owner_id, func.count())
+            .where(
+                QuestionBank.owner_id.in_([user.id for user in users] or [-1]),
+                QuestionBank.visibility == "public",
+                QuestionBank.generation_status.in_(["none", "succeeded"]),
+            )
+            .group_by(QuestionBank.owner_id)
+        ).all()
+    )
+    items = [UserPublic.model_validate(user, from_attributes=True).model_copy(update={"public_bank_count": counts.get(user.id, 0)}) for user in users]
+    return page_response(items, total, page, page_size)
 
 
 @router.get("/{user_id}", response_model=UserPublic)
@@ -148,12 +178,8 @@ def test_ai_config(config_id: int, current_user: User = Depends(get_current_user
     if not config or config.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="AI config not found")
     try:
-        with httpx.Client(timeout=20) as client:
-            response = client.get(
-                f"{config.api_base_url.rstrip('/')}/models",
-                headers={"Authorization": f"Bearer {decrypt_secret(config.api_key_encrypted)}"},
-            )
-            response.raise_for_status()
+        client = OpenAI(api_key=decrypt_secret(config.api_key_encrypted), base_url=config.api_base_url.rstrip("/"), timeout=20)
+        client.models.list()
         return {"ok": True}
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"AI 配置连通性测试失败: {exc}") from exc

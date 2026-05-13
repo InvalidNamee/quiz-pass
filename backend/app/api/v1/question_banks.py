@@ -85,6 +85,7 @@ def list_favorite_banks(
     page: int = 1,
     page_size: int = 20,
     keyword: str | None = None,
+    owner_id: int | None = None,
     visibility: str | None = None,
     generation_status: str | None = None,
     current_user: User = Depends(get_current_user),
@@ -104,6 +105,8 @@ def list_favorite_banks(
     )
     if keyword:
         stmt = stmt.where(or_(QuestionBank.title.contains(keyword), QuestionBank.description.contains(keyword)))
+    if owner_id:
+        stmt = stmt.where(QuestionBank.owner_id == owner_id)
     if visibility:
         stmt = stmt.where(QuestionBank.visibility == visibility)
     if generation_status:

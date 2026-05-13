@@ -37,14 +37,19 @@ async function exportJson() {
 </script>
 
 <template>
-  <section>
-    <h1 class="text-2xl font-bold">导入导出</h1>
-    <div class="my-4 grid max-w-xl gap-3">
+  <section class="mx-auto grid max-w-3xl gap-5">
+    <div class="rounded-xl border border-slate-200 bg-white p-6">
+      <h1 class="text-2xl font-bold">导入导出</h1>
+      <p class="mt-2 text-slate-600">把 JSON 题目追加到当前题库，或导出当前题库备份。</p>
+    </div>
+    <div class="grid gap-3 rounded-xl border border-slate-200 bg-white p-6">
       <input class="rounded-md border border-slate-300 bg-white px-3 py-2" type="file" accept=".json" @change="onFile" />
-      <button class="w-fit rounded-md bg-blue-600 px-4 py-2 text-white" @click="submit">导入 JSON</button>
-      <button class="w-fit rounded-md bg-slate-200 px-4 py-2 text-slate-900" @click="exportJson">导出 JSON</button>
-      <button class="w-fit rounded-md bg-slate-200 px-4 py-2 text-slate-900" @click="router.push(`/banks/${bankId}`)">返回</button>
-      <p v-if="message">{{ message }}</p>
+      <div class="flex flex-wrap gap-2">
+        <button class="rounded-md bg-blue-600 px-4 py-2 text-white" @click="submit">导入 JSON</button>
+        <button class="rounded-md bg-slate-100 px-4 py-2 text-slate-700" @click="exportJson">导出 JSON</button>
+        <button class="rounded-md bg-slate-100 px-4 py-2 text-slate-700" @click="router.push(`/banks/${bankId}`)">返回题库</button>
+      </div>
+      <p v-if="message" class="rounded-md bg-green-50 px-3 py-2 text-sm font-medium text-green-800">{{ message }}</p>
     </div>
   </section>
 </template>
