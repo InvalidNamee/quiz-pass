@@ -1,0 +1,39 @@
+from datetime import datetime
+
+from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db.base import Base
+
+
+class QuestionBank(Base):
+    __tablename__ = "question_banks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    owner_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    title: Mapped[str] = mapped_column(String(255), index=True)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    visibility: Mapped[str] = mapped_column(String(32), default="private", index=True)
+    desired_visibility: Mapped[str] = mapped_column(String(32), default="private")
+    generation_status: Mapped[str] = mapped_column(String(32), default="none", index=True)
+    active_generation_job_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    question_count: Mapped[int] = mapped_column(Integer, default=0)
+    favorite_count: Mapped[int] = mapped_column(Integer, default=0)
+    ai_provider_config_id: Mapped[int | None] = mapped_column(ForeignKey("user_ai_provider_configs.id"), nullable=True)
+    ai_model_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    ai_base_url_host: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    owner = relationship("User", back_populates="question_banks")
+    questions = relationship("Question", back_populates="bank", cascade="all, delete-orphan")
+
+
+class QuestionBankFavorite(Base):
+    __tablename__ = "question_bank_favorites"
+    __table_args__ = (UniqueConstraint("user_id", "bank_id", name="uq_question_bank_favorite"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
+    bank_id: Mapped[int] = mapped_column(ForeignKey("question_banks.id"), index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
