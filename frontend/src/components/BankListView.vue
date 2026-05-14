@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, type Page, type QuestionBank } from '../api/client'
+import { api, type Page, type QuestionBank, type QuestionBankTag } from '../api/client'
 import AppAvatar from './AppAvatar.vue'
 import AppBadge from './AppBadge.vue'
 import AppButton from './AppButton.vue'
@@ -10,6 +10,7 @@ import AppLoading from './AppLoading.vue'
 import AppEmpty from './AppEmpty.vue'
 import AppModal from './AppModal.vue'
 import AuthorSelect from './AuthorSelect.vue'
+import BankTagInput from './BankTagInput.vue'
 
 const props = defineProps<{
   title: string
@@ -29,11 +30,13 @@ const banks = ref<QuestionBank[]>([])
 const pageInfo = ref<Page<QuestionBank> | null>(null)
 const keyword = ref('')
 const ownerId = ref<number | null>(null)
+const selectedTags = ref<QuestionBankTag[]>([])
 const visibility = ref('')
 const generationStatus = ref('')
 const loading = ref(false)
 const createModalOpen = ref(false)
 const createTitle = ref('')
+const createTags = ref<QuestionBankTag[]>([])
 const creating = ref(false)
 
 const totalPages = computed(() => pageInfo.value?.total_pages || 1)
@@ -45,11 +48,26 @@ function readQuery() {
   generationStatus.value = String(route.query.generation_status || '')
 }
 
+async function syncTagsFromQuery() {
+  const rawTagIds = String(route.query.tag_ids || '')
+  const ids = rawTagIds.split(',').map(item => Number(item)).filter(Boolean)
+  if (!ids.length) {
+    selectedTags.value = []
+    return
+  }
+  const currentIds = selectedTags.value.map(item => item.id).filter(Boolean).join(',')
+  if (currentIds === ids.join(',')) return
+  const params = new URLSearchParams({ ids: ids.join(','), page_size: '100' })
+  selectedTags.value = (await api<Page<QuestionBankTag>>(`/api/v1/question-banks/tags?${params}`)).items
+}
+
 function buildQuery(page = Number(route.query.page || 1)) {
   const query: Record<string, string> = {}
   if (page > 1) query.page = String(page)
   if (keyword.value.trim()) query.keyword = keyword.value.trim()
   if (props.showAuthorFilter && ownerId.value) query.owner_id = String(ownerId.value)
+  const tagIds = selectedTags.value.map(tag => tag.id).filter(Boolean)
+  if (tagIds.length) query.tag_ids = tagIds.join(',')
   if (props.showVisibilityFilter && visibility.value) query.visibility = visibility.value
   if (props.showGenerationFilter && generationStatus.value) query.generation_status = generationStatus.value
   return query
@@ -57,10 +75,13 @@ function buildQuery(page = Number(route.query.page || 1)) {
 
 async function load() {
   readQuery()
+  await syncTagsFromQuery()
   const params = new URLSearchParams()
   params.set('page', String(route.query.page || 1))
   if (keyword.value.trim()) params.set('keyword', keyword.value.trim())
   if (props.showAuthorFilter && ownerId.value) params.set('owner_id', String(ownerId.value))
+  const tagIds = selectedTags.value.map(tag => tag.id).filter(Boolean)
+  if (tagIds.length) params.set('tag_ids', tagIds.join(','))
   if (props.showVisibilityFilter && visibility.value) params.set('visibility', visibility.value)
   if (props.showGenerationFilter && generationStatus.value) params.set('generation_status', generationStatus.value)
   loading.value = true
@@ -86,6 +107,7 @@ function search() {
 function clearFilters() {
   keyword.value = ''
   ownerId.value = null
+  selectedTags.value = []
   visibility.value = ''
   generationStatus.value = ''
   router.push({ query: {} })
@@ -104,9 +126,17 @@ async function doCreate() {
   if (!createTitle.value.trim()) return
   creating.value = true
   try {
-    await api<QuestionBank>('/api/v1/question-banks', { method: 'POST', body: JSON.stringify({ title: createTitle.value.trim(), visibility: 'private' }) })
+    await api<QuestionBank>('/api/v1/question-banks', {
+      method: 'POST',
+      body: JSON.stringify({
+        title: createTitle.value.trim(),
+        visibility: 'private',
+        tag_names: createTags.value.map(tag => tag.name),
+      }),
+    })
     createModalOpen.value = false
     createTitle.value = ''
+    createTags.value = []
     await load()
   } finally {
     creating.value = false
@@ -152,6 +182,7 @@ watch(() => route.fullPath, load)
           <input v-model="keyword" class="w-full rounded-input border border-slate-300 bg-white px-3 py-2 text-sm" placeholder="标题或描述" @input="onKeywordInput" @keyup.enter="search" />
         </label>
         <AuthorSelect v-if="showAuthorFilter" v-model="ownerId" />
+        <BankTagInput v-model="selectedTags" label="标签" placeholder="按标签筛选" />
         <label v-if="showVisibilityFilter" class="block">
           <span class="mb-1 block text-xs font-medium text-slate-500">可见性</span>
           <select v-model="visibility" class="w-full rounded-input border border-slate-300 bg-white px-3 py-2 text-sm">
@@ -194,6 +225,9 @@ watch(() => route.fullPath, load)
                 <AppBadge :variant="statusVariant(bank.generation_status)">{{ statusText(bank) }}</AppBadge>
               </div>
               <p class="mt-2 line-clamp-2 text-sm text-slate-600">{{ bank.description || '暂无描述' }}</p>
+              <div v-if="bank.tags.length" class="mt-3 flex flex-wrap gap-1.5">
+                <span v-for="tag in bank.tags" :key="tag.id" class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600">{{ tag.name }}</span>
+              </div>
             </RouterLink>
             <AppButton variant="ghost" size="sm" @click="toggleFavorite(bank)">
               {{ bank.is_favorited ? '已收藏' : '收藏' }}
@@ -223,11 +257,14 @@ watch(() => route.fullPath, load)
       />
     </template>
 
-    <AppModal v-model="createModalOpen" title="新建题库" @update:model-value="val => !val && (createTitle = '')">
+    <AppModal v-model="createModalOpen" title="新建题库" @update:model-value="val => !val && (createTitle = '', createTags = [])">
       <label class="block">
         <span class="mb-1 block text-sm font-medium text-slate-700">题库名称</span>
         <input v-model="createTitle" class="w-full rounded-input border border-slate-300 px-3 py-2 text-sm" placeholder="输入名称" @keyup.enter="doCreate" />
       </label>
+      <div class="mt-4">
+        <BankTagInput v-model="createTags" allow-create label="标签" />
+      </div>
       <template #footer>
         <AppButton variant="ghost" @click="createModalOpen = false">取消</AppButton>
         <AppButton :loading="creating" :disabled="!createTitle.trim()" @click="doCreate">创建</AppButton>

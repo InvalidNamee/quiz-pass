@@ -98,6 +98,12 @@ class MistakeRecordOut(BaseModel):
     user_id: int
     bank_id: int
     question_id: int
+    type: str
+    stem: str
+    options: list[PracticeResultOptionOut] = Field(default_factory=list)
+    correct_option_ids: list[int] = Field(default_factory=list)
+    correct_labels: list[str] = Field(default_factory=list)
+    explanation: str | None = None
     wrong_count: int
     last_wrong_at: datetime
     resolved_at: datetime | None

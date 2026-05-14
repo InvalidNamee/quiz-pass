@@ -70,7 +70,13 @@ export type QuestionBank = {
   question_count: number
   favorite_count: number
   ai_model_name: string | null
+  tags: QuestionBankTag[]
   is_favorited: boolean
+}
+
+export type QuestionBankTag = {
+  id: number
+  name: string
 }
 
 export type AIProviderConfig = {
@@ -123,8 +129,15 @@ export type PracticeSession = {
 
 export type MistakeRecord = {
   id: number
+  user_id: number
   bank_id: number
   question_id: number
+  type: 'single' | 'multiple'
+  stem: string
+  options: Array<{ id: number; label: string; content: string }>
+  correct_option_ids: number[]
+  correct_labels: string[]
+  explanation: string | null
   wrong_count: number
   last_wrong_at: string
   resolved_at: string | null

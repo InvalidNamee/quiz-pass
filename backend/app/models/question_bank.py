@@ -1,9 +1,18 @@
 from datetime import datetime
 
-from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, UniqueConstraint, func
+from sqlalchemy import Column, DateTime, ForeignKey, Integer, String, Table, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+
+
+question_bank_tag_links = Table(
+    "question_bank_tag_links",
+    Base.metadata,
+    Column("bank_id", ForeignKey("question_banks.id"), primary_key=True),
+    Column("tag_id", ForeignKey("question_bank_tags.id"), primary_key=True),
+    UniqueConstraint("bank_id", "tag_id", name="uq_question_bank_tag_link"),
+)
 
 
 class QuestionBank(Base):
@@ -27,6 +36,18 @@ class QuestionBank(Base):
 
     owner = relationship("User", back_populates="question_banks")
     questions = relationship("Question", back_populates="bank", cascade="all, delete-orphan")
+    tags = relationship("QuestionBankTag", secondary=question_bank_tag_links, back_populates="banks")
+
+
+class QuestionBankTag(Base):
+    __tablename__ = "question_bank_tags"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    name: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now(), onupdate=func.now())
+
+    banks = relationship("QuestionBank", secondary=question_bank_tag_links, back_populates="tags")
 
 
 class QuestionBankFavorite(Base):

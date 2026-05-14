@@ -1,13 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, type QuestionBank } from '../api/client'
+import { api, type QuestionBank, type QuestionBankTag } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import AppBadge from '../components/AppBadge.vue'
 import AppButton from '../components/AppButton.vue'
 import AppAvatar from '../components/AppAvatar.vue'
 import AppModal from '../components/AppModal.vue'
 import AppLoading from '../components/AppLoading.vue'
+import BankTagInput from '../components/BankTagInput.vue'
 import { useToast } from '../composables/useToast'
 
 const route = useRoute()
@@ -19,6 +20,7 @@ const loading = ref(true)
 const editing = ref(false)
 const deleteModal = ref(false)
 const editForm = ref({ title: '', description: '', visibility: 'private' })
+const editTags = ref<QuestionBankTag[]>([])
 const editIsPublic = computed({
   get: () => editForm.value.visibility === 'public',
   set: (val: boolean) => { editForm.value.visibility = val ? 'public' : 'private' },
@@ -37,6 +39,7 @@ async function load() {
       description: bank.value.description || '',
       visibility: bank.value.visibility,
     }
+    editTags.value = bank.value.tags || []
   } finally {
     loading.value = false
   }
@@ -52,7 +55,10 @@ async function saveEdit() {
   if (!bank.value) return
   saving.value = true
   try {
-    await api<QuestionBank>(`/api/v1/question-banks/${bank.value.id}`, { method: 'PATCH', body: JSON.stringify(editForm.value) })
+    await api<QuestionBank>(`/api/v1/question-banks/${bank.value.id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ ...editForm.value, tag_names: editTags.value.map(tag => tag.name) }),
+    })
     editing.value = false
     toast.show('题库已更新', 'success')
     await load()
@@ -124,6 +130,9 @@ onMounted(load)
             <AppBadge :variant="statusVariant(bank.generation_status)">{{ bank.generation_status }}</AppBadge>
           </div>
           <p class="mt-3 max-w-3xl text-slate-600">{{ bank.description || '暂无描述' }}</p>
+          <div v-if="bank.tags.length" class="mt-3 flex flex-wrap gap-1.5">
+            <span v-for="tag in bank.tags" :key="tag.id" class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">{{ tag.name }}</span>
+          </div>
           <RouterLink class="mt-4 inline-flex items-center gap-2 text-sm text-slate-600 hover:text-brand-600" :to="`/users/${bank.owner_id}`">
             <AppAvatar :src="bank.owner_avatar_url" :username="bank.owner_display_name || bank.owner_username" size="sm" />
             <span>{{ bank.owner_display_name || bank.owner_username || `#${bank.owner_id}` }}</span>
@@ -170,6 +179,7 @@ onMounted(load)
       <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm text-slate-700">
         <input v-model="editIsPublic" type="checkbox" class="rounded" /> 公开题库
       </label>
+      <BankTagInput v-model="editTags" allow-create label="标签" />
       <AppButton :loading="saving" @click="saveEdit">保存</AppButton>
     </div>
 

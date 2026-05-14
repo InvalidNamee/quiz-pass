@@ -7,12 +7,21 @@ class QuestionBankCreate(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str | None = None
     visibility: str = Field(default="private", pattern="^(private|public)$")
+    tag_names: list[str] | None = None
 
 
 class QuestionBankUpdate(BaseModel):
     title: str | None = Field(default=None, min_length=1, max_length=255)
     description: str | None = None
     visibility: str | None = Field(default=None, pattern="^(private|public)$")
+    tag_names: list[str] | None = None
+
+
+class QuestionBankTagOut(BaseModel):
+    id: int
+    name: str
+
+    model_config = {"from_attributes": True}
 
 
 class QuestionBankOut(BaseModel):
@@ -29,6 +38,7 @@ class QuestionBankOut(BaseModel):
     question_count: int
     favorite_count: int
     ai_model_name: str | None
+    tags: list[QuestionBankTagOut] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
     is_favorited: bool = False

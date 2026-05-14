@@ -1,3 +1,4 @@
+import json
 import os
 from pathlib import Path
 
@@ -57,14 +58,26 @@ def test_auth_bank_favorite_question_practice_and_mistake(monkeypatch):
         headers = _register(client, "demo@example.com", "demo")
         other_headers = _register(client, "other@example.com", "other")
 
-        bank = client.post("/api/v1/question-banks", headers=headers, json={"title": "Bank", "visibility": "private"}).json()
+        bank = client.post(
+            "/api/v1/question-banks",
+            headers=headers,
+            json={"title": "Bank", "visibility": "private", "tag_names": [" 计算机组成原理 ", "", "深度学习基础", "计算机组成原理"]},
+        ).json()
+        assert [tag["name"] for tag in bank["tags"]] == ["深度学习基础", "计算机组成原理"]
+        first_tag_id = bank["tags"][0]["id"]
         bank_detail = client.get(f"/api/v1/question-banks/{bank['id']}", headers=headers).json()
         assert bank_detail["owner_username"] == "demo"
+        assert [tag["name"] for tag in bank_detail["tags"]] == ["深度学习基础", "计算机组成原理"]
+        tag_search = client.get("/api/v1/question-banks/tags?keyword=深度", headers=headers).json()
+        assert tag_search["total"] == 1
+        assert tag_search["items"][0]["name"] == "深度学习基础"
+        assert client.get(f"/api/v1/question-banks?tag_ids={first_tag_id}", headers=headers).json()["total"] == 1
         search_users = client.get("/api/v1/users/search?keyword=dem", headers=headers).json()
         assert search_users["total"] == 1
         assert search_users["items"][0]["username"] == "demo"
         assert "email" not in search_users["items"][0]
         assert client.get(f"/api/v1/question-banks/{bank['id']}", headers=other_headers).status_code == 404
+        assert client.get(f"/api/v1/question-banks?tag_ids={first_tag_id}", headers=other_headers).json()["total"] == 0
         assert client.post(f"/api/v1/question-banks/{bank['id']}/favorite", headers=other_headers).status_code == 404
         assert client.post(f"/api/v1/question-banks/{bank['id']}/favorite", headers=headers).status_code == 200
         favorites_by_owner = client.get(f"/api/v1/question-banks/favorites?owner_id={bank['owner_id']}", headers=headers).json()
@@ -144,6 +157,31 @@ def test_auth_bank_favorite_question_practice_and_mistake(monkeypatch):
         assert unanswered["correct_labels"] == ["A", "C"]
         mistakes = client.get(f"/api/v1/question-banks/{bank['id']}/mistakes", headers=headers).json()
         assert mistakes["total"] == 1
+        mistake = mistakes["items"][0]
+        assert mistake["stem"] == "1+1=?"
+        assert mistake["type"] == "single"
+        assert mistake["options"][0]["label"] == "A"
+        assert mistake["correct_labels"] == ["A"]
+        assert mistake["correct_option_ids"] == [question["options"][0]["id"]]
+        assert mistake["explanation"] == "basic math"
+        assert mistake["wrong_count"] == 1
+        exported = client.get(f"/api/v1/question-banks/{bank['id']}/export", headers=headers).json()
+        assert exported["bank"]["tags"] == ["深度学习基础", "计算机组成原理"]
+        imported = client.post(
+            "/api/v1/question-banks/import-json",
+            headers=headers,
+            data={"visibility": "private", "tag_names": '["手动导入标签"]'},
+            files={"file": ("bank.json", json.dumps(exported).encode("utf-8"), "application/json")},
+        )
+        assert imported.status_code == 200
+        imported_tag_names = [tag["name"] for tag in imported.json()["tags"]]
+        assert "深度学习基础" in imported_tag_names
+        assert "手动导入标签" in imported_tag_names
+        patched_tags = client.patch(f"/api/v1/question-banks/{bank['id']}", headers=headers, json={"tag_names": ["操作系统"]})
+        assert patched_tags.status_code == 200
+        assert [tag["name"] for tag in patched_tags.json()["tags"]] == ["操作系统"]
+        too_many_tags = client.patch(f"/api/v1/question-banks/{bank['id']}", headers=headers, json={"tag_names": [f"tag-{index}" for index in range(21)]})
+        assert too_many_tags.status_code == 422
 
 
 def test_register_validation_and_exam_hides_answer_until_submit():
@@ -254,7 +292,9 @@ def test_admin_user_management_and_bank_permissions():
 
         assert client.get(f"/api/v1/question-banks/{private_bank['id']}", headers=other_headers).status_code == 404
         assert client.get(f"/api/v1/question-banks/{public_bank['id']}/export", headers=other_headers).status_code == 200
-        assert client.get(f"/api/v1/question-banks/{public_bank['id']}/mistakes", headers=other_headers).status_code == 200
+        other_public_mistakes = client.get(f"/api/v1/question-banks/{public_bank['id']}/mistakes", headers=other_headers)
+        assert other_public_mistakes.status_code == 200
+        assert other_public_mistakes.json()["total"] == 0
         assert client.patch(f"/api/v1/question-banks/{public_bank['id']}", headers=other_headers, json={"title": "Nope"}).status_code == 404
         assert client.post(
             f"/api/v1/question-banks/{public_bank['id']}/questions",
@@ -267,10 +307,29 @@ def test_admin_user_management_and_bank_permissions():
         ).status_code == 404
         assert client.delete(f"/api/v1/questions/{question['id']}", headers=other_headers).status_code == 404
 
+        other_session = client.post("/api/v1/practice/sessions", headers=other_headers, json={"bank_id": public_bank["id"], "mode": "practice"}).json()
+        other_answer = client.post(
+            f"/api/v1/practice/sessions/{other_session['id']}/answers",
+            headers=other_headers,
+            json={"question_id": question["id"], "selected_option_ids": [question["options"][1]["id"]]},
+        )
+        assert other_answer.status_code == 200
+        other_public_mistakes = client.get(f"/api/v1/question-banks/{public_bank['id']}/mistakes", headers=other_headers).json()
+        owner_public_mistakes = client.get(f"/api/v1/question-banks/{public_bank['id']}/mistakes", headers=owner_headers).json()
+        assert other_public_mistakes["total"] == 1
+        assert other_public_mistakes["items"][0]["stem"] == "Public Q"
+        assert other_public_mistakes["items"][0]["correct_labels"] == ["A"]
+        assert owner_public_mistakes["total"] == 0
+        other_patch_tags = client.patch(f"/api/v1/question-banks/{public_bank['id']}", headers=other_headers, json={"tag_names": ["Nope"]})
+        assert other_patch_tags.status_code == 404
+
         assert client.get(f"/api/v1/question-banks/{private_bank['id']}", headers=admin_headers).status_code == 200
         admin_update = client.patch(f"/api/v1/question-banks/{private_bank['id']}", headers=admin_headers, json={"title": "Admin Edited"})
         assert admin_update.status_code == 200
         assert admin_update.json()["title"] == "Admin Edited"
+        admin_tag_update = client.patch(f"/api/v1/question-banks/{private_bank['id']}", headers=admin_headers, json={"tag_names": ["管理员标签"]})
+        assert admin_tag_update.status_code == 200
+        assert admin_tag_update.json()["tags"][0]["name"] == "管理员标签"
         admin_question = client.post(
             f"/api/v1/question-banks/{private_bank['id']}/questions",
             headers=admin_headers,
@@ -302,10 +361,12 @@ def test_ai_generation_validation_failure(monkeypatch):
         response = client.post(
             "/api/v1/ai-generation/question-bank-jobs",
             headers=headers,
-            data={"title": "AI Bank", "desired_visibility": "public", "question_count": "1"},
+            data={"title": "AI Bank", "desired_visibility": "public", "question_count": "1", "tag_names": '["AI标签"]'},
             files={"file": ("material.txt", b"content", "text/plain")},
         )
         assert response.status_code == 200
+        bank = client.get(f"/api/v1/question-banks/{response.json()['bank_id']}", headers=headers).json()
+        assert bank["tags"][0]["name"] == "AI标签"
         job = client.get(f"/api/v1/ai-generation/jobs/{response.json()['job_id']}", headers=headers).json()
         assert job["status"] == "failed"
         assert "知识库生成失败" in job["error_message"]

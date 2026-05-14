@@ -1,3 +1,4 @@
+import json
 from urllib.parse import urlparse
 
 from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
@@ -12,6 +13,7 @@ from app.models.question_bank import QuestionBank
 from app.models.user import User
 from app.schemas.ai import AIGenerationBankJobOut, ImportJobOut
 from app.schemas.common import Page, page_response
+from app.services.question_bank_tags import set_bank_tags
 from app.services.ai_generation import generate_questions_from_ai
 from app.utils.document_extractors import extract_text
 from app.utils.pagination import paginate
@@ -51,6 +53,7 @@ async def create_question_bank_job(
     generate_description: bool = Form(False),
     generation_mode: str = Form("knowledge_generate"),
     extra_instruction: str | None = Form(None),
+    tag_names: str | None = Form(None),
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -66,6 +69,12 @@ async def create_question_bank_job(
         raise HTTPException(status_code=422, detail="额外指令不能超过 2000 字")
     if generation_mode == "knowledge_generate" and question_count_mode == "fixed" and not question_count:
         raise HTTPException(status_code=422, detail="固定题数模式必须指定题数")
+    try:
+        parsed_tag_names = json.loads(tag_names) if tag_names else []
+    except json.JSONDecodeError as exc:
+        raise HTTPException(status_code=422, detail="tag_names 必须是字符串数组") from exc
+    if not isinstance(parsed_tag_names, list):
+        raise HTTPException(status_code=422, detail="tag_names 必须是字符串数组")
     effective_count = question_count if generation_mode == "knowledge_generate" and question_count_mode == "fixed" else None
     config = _pick_ai_config(db, current_user.id, ai_provider_config_id)
     content = await file.read()
@@ -89,6 +98,10 @@ async def create_question_bank_job(
     )
     db.add(bank)
     db.flush()
+    try:
+        set_bank_tags(db, bank, parsed_tag_names)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
     job = ImportJob(
         user_id=current_user.id,
         bank_id=bank.id,
