@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import AppButton from '../AppButton.vue'
+import MathText from '../MathText.vue'
 
 type Question = {
   id: number
@@ -46,7 +47,7 @@ function optionClass(optionId: number) {
       {{ question.type === 'single' ? '单选题' : '多选题' }}
     </span>
 
-    <h2 class="text-lg font-semibold leading-relaxed text-slate-900">{{ question.stem }}</h2>
+    <MathText as="h2" class="text-lg font-semibold leading-relaxed text-slate-900" :text="question.stem" />
 
     <div class="grid gap-2">
       <label
@@ -62,7 +63,10 @@ function optionClass(optionId: number) {
           class="h-4 w-4 accent-brand-600"
           @change="emit('toggle', option.id)"
         />
-        <span class="text-sm">{{ option.label }}. {{ option.content }}</span>
+        <span class="text-sm">
+          <span class="font-medium">{{ option.label }}.</span>
+          <MathText class="inline" :text="option.content" />
+        </span>
       </label>
     </div>
 
@@ -94,12 +98,15 @@ function optionClass(optionId: number) {
       <p class="font-bold" :class="answerStatus === 'correct' ? 'text-emerald-800' : 'text-red-800'">
         正确答案：{{ correctLabels.join('、') }}
       </p>
-      <p v-if="explanation" class="text-slate-600">解析：{{ explanation }}</p>
+      <p v-if="explanation" class="text-slate-600">
+        <span class="font-medium">解析：</span>
+        <MathText class="inline" :text="explanation" />
+      </p>
     </div>
 
     <div class="flex items-center justify-between gap-3 border-t border-slate-100 pt-4">
       <AppButton variant="ghost" :disabled="!canGoPrev" @click="emit('prev')">上一题</AppButton>
-      <span class="hidden text-xs text-slate-400 sm:inline">A/D 或 ← → 切换</span>
+      <span class="hidden text-xs text-slate-400 sm:inline">A/D 或 ←/→ 切换 · W/S 跳行</span>
       <AppButton :disabled="!canGoNext" @click="emit('next')">下一题</AppButton>
     </div>
   </article>

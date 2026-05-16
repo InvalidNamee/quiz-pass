@@ -30,9 +30,14 @@ async function handleSubmit() {
 }
 
 function onKeydown(e: KeyboardEvent) {
-  if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return
-  if (e.key === 'ArrowLeft' || e.key === 'a') previousQuestion()
-  else if (e.key === 'ArrowRight' || e.key === 'd') nextQuestion()
+  const target = e.target as HTMLElement | null
+  if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target?.isContentEditable || target?.closest('[contenteditable="true"]')) return
+  if (!totalQuestions.value) return
+  const key = e.key.toLowerCase()
+  if (e.key === 'ArrowLeft' || key === 'a') previousQuestion()
+  else if (e.key === 'ArrowRight' || key === 'd') nextQuestion()
+  else if (key === 'w') goToQuestion(Math.max(currentIndex.value - 5, 0))
+  else if (key === 's') goToQuestion(Math.min(currentIndex.value + 5, totalQuestions.value - 1))
   else if (e.key === 'Enter' && showSubmitButton.value) submitAnswer()
   else {
     const num = parseInt(e.key)

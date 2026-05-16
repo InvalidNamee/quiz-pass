@@ -4,6 +4,7 @@ import { useRoute } from 'vue-router'
 import { api, type PracticeSession } from '../api/client'
 import AppBadge from '../components/AppBadge.vue'
 import AppLoading from '../components/AppLoading.vue'
+import MathText from '../components/MathText.vue'
 
 type ResultOption = { id: number; label: string; content: string }
 type Result = {
@@ -59,19 +60,27 @@ onMounted(async () => {
         }"
       >
         <div class="flex items-start justify-between gap-4">
-          <strong class="text-slate-900">{{ index + 1 }}. [{{ item.type === 'single' ? '单选' : '多选' }}] {{ item.stem }}</strong>
+          <strong class="text-slate-900">
+            {{ index + 1 }}. [{{ item.type === 'single' ? '单选' : '多选' }}]
+            <MathText class="inline" :text="item.stem" />
+          </strong>
           <AppBadge :variant="item.is_unanswered ? 'warning' : item.is_correct ? 'success' : 'danger'">
             {{ item.is_unanswered ? '未作答' : item.is_correct ? '正确' : '错误' }}
           </AppBadge>
         </div>
         <div class="mt-3 grid gap-1 text-sm text-slate-700">
-          <p v-for="option in item.options" :key="option.id" class="m-0">{{ option.label }}. {{ option.content }}</p>
+          <p v-for="option in item.options" :key="option.id" class="m-0">
+            <span class="font-medium">{{ option.label }}.</span>
+            <MathText class="inline" :text="option.content" />
+          </p>
         </div>
         <div class="mt-3 flex flex-wrap gap-3 text-sm">
           <span class="text-slate-500">你的选择：{{ item.is_unanswered ? '未作答' : item.selected_labels.join('、') || '无' }}</span>
           <span class="font-medium text-slate-700">正确答案：{{ item.correct_labels.join('、') }}</span>
         </div>
-        <p v-if="item.explanation" class="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-800">{{ item.explanation }}</p>
+        <p v-if="item.explanation" class="mt-2 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-800">
+          <MathText :text="item.explanation" />
+        </p>
       </article>
     </div>
   </section>

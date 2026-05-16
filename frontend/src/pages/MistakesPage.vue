@@ -7,6 +7,7 @@ import AppBadge from '../components/AppBadge.vue'
 import AppLoading from '../components/AppLoading.vue'
 import AppEmpty from '../components/AppEmpty.vue'
 import AppPagination from '../components/AppPagination.vue'
+import MathText from '../components/MathText.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -79,7 +80,8 @@ onMounted(load)
             </div>
             <strong class="mt-3 block text-slate-900">
               {{ ((pageInfo?.page || 1) - 1) * (pageInfo?.page_size || mistakes.length) + index + 1 }}.
-              [{{ item.type === 'single' ? '单选' : '多选' }}] {{ item.stem }}
+              [{{ item.type === 'single' ? '单选' : '多选' }}]
+              <MathText class="inline" :text="item.stem" />
             </strong>
           </div>
           <AppButton variant="ghost" size="sm" :loading="resolving.has(item.question_id)" @click="resolve(item.question_id)">已掌握</AppButton>
@@ -88,7 +90,7 @@ onMounted(load)
         <div class="mt-4 grid gap-2 text-sm text-slate-700">
           <p v-for="option in item.options" :key="option.id" class="m-0 rounded-lg bg-white px-3 py-2 ring-1 ring-slate-200">
             <span class="font-semibold text-slate-900">{{ option.label }}.</span>
-            {{ option.content }}
+            <MathText class="inline" :text="option.content" />
           </p>
         </div>
 
@@ -97,7 +99,9 @@ onMounted(load)
           <span class="text-slate-500">题目 #{{ item.question_id }}</span>
         </div>
 
-        <p v-if="item.explanation" class="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-800">{{ item.explanation }}</p>
+        <p v-if="item.explanation" class="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-800">
+          <MathText :text="item.explanation" />
+        </p>
       </article>
 
       <AppPagination

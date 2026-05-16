@@ -5,6 +5,7 @@ import { api, type Page, type Question, type QuestionBank } from '../api/client'
 import { useAuthStore } from '../stores/auth'
 import AppBadge from '../components/AppBadge.vue'
 import AppButton from '../components/AppButton.vue'
+import MathText from '../components/MathText.vue'
 import { useToast } from '../composables/useToast'
 
 const route = useRoute()
@@ -143,11 +144,11 @@ onMounted(load)
           <article v-for="question in questions" :key="question.id" class="page-card flex items-start justify-between gap-4 p-4">
             <div class="min-w-0">
               <div class="flex flex-wrap items-center gap-2">
-                <strong class="truncate">{{ question.stem }}</strong>
+                <MathText as="strong" class="truncate" :text="question.stem" />
                 <AppBadge :variant="question.type === 'single' ? 'info' : 'warning'">{{ question.type === 'single' ? '单选' : '多选' }}</AppBadge>
                 <AppBadge variant="default">{{ question.options.length }} 个选项</AppBadge>
               </div>
-              <p v-if="question.explanation" class="mt-1 text-sm text-slate-500 truncate">{{ question.explanation }}</p>
+              <MathText v-if="question.explanation" as="p" class="mt-1 text-sm text-slate-500 line-clamp-1" :text="question.explanation" />
             </div>
             <div class="flex shrink-0 gap-2">
               <AppButton variant="ghost" size="sm" @click="editQuestion(question)">编辑</AppButton>
