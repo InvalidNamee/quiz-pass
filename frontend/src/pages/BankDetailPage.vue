@@ -155,7 +155,14 @@ onMounted(load)
         <RouterLink :to="`/banks/${bank.id}/mistakes`" class="inline-flex items-center rounded-btn bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">我的错题</RouterLink>
         <AppButton variant="secondary" :loading="exporting" @click="exportJson">导出题库</AppButton>
         <RouterLink v-if="canManage" :to="`/banks/${bank.id}/questions`" class="inline-flex items-center rounded-btn bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">题目管理</RouterLink>
-        <RouterLink v-if="canManage" :to="`/banks/${bank.id}/import`" class="inline-flex items-center rounded-btn bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">导入追加</RouterLink>
+        <RouterLink v-if="canManage" :to="`/banks/${bank.id}/generate`" class="inline-flex items-center rounded-btn bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">扩展题库</RouterLink>
+        <RouterLink
+          v-if="canManage && bank.active_generation_job_id && bank.generation_status === 'processing'"
+          :to="`/ai-generation/jobs/${bank.active_generation_job_id}/draft`"
+          class="inline-flex items-center rounded-btn bg-amber-100 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-200"
+        >
+          继续确认草稿
+        </RouterLink>
       </div>
     </div>
 

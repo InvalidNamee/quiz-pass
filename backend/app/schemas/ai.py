@@ -52,12 +52,17 @@ class ImportJobOut(BaseModel):
     id: int
     user_id: int
     bank_id: int | None
+    workflow_id: int | None = None
     type: str
     status: str
     desired_visibility: str
     file_name: str | None
     ai_model_snapshot: str | None
     error_message: str | None
+    workflow_status: str | None = None
+    draft_question_count: int = 0
+    repair_attempts: int = 0
+    can_confirm: bool = False
     started_at: datetime | None
     finished_at: datetime | None
     created_at: datetime
@@ -69,3 +74,63 @@ class ImportJobOut(BaseModel):
 class AIGenerationBankJobOut(BaseModel):
     bank_id: int
     job_id: int
+
+
+class AIGenerationWorkflowOut(BaseModel):
+    id: int
+    bank_id: int
+    user_id: int
+    job_id: int | None
+    purpose: str
+    generation_mode: str
+    status: str
+    source_file_name: str | None
+    requested_count: int | None
+    generate_description: str
+    extra_instruction: str | None
+    ai_model_snapshot: str | None
+    ai_base_url_snapshot: str | None
+    repair_attempts: int
+    error_message: str | None
+    finished_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AIGenerationWorkflowStepOut(BaseModel):
+    id: int
+    workflow_id: int
+    step_name: str
+    status: str
+    input_json: str | None
+    output_json: str | None
+    error_message: str | None
+    started_at: datetime | None
+    finished_at: datetime | None
+    created_at: datetime
+
+    model_config = {"from_attributes": True}
+
+
+class AIGenerationDraftQuestionOut(BaseModel):
+    id: int
+    type: str
+    stem: str
+    explanation: str | None
+    difficulty: str | None
+    options: list[dict]
+    validation_status: str
+    validation_message: str | None
+
+
+class AIGenerationDraftOut(BaseModel):
+    id: int
+    workflow_id: int
+    job_id: int
+    bank_id: int
+    bank_description: str | None
+    validation_summary: str | None
+    status: str
+    questions: list[AIGenerationDraftQuestionOut]

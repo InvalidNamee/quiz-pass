@@ -9,7 +9,7 @@ import AppPagination from './AppPagination.vue'
 import AppLoading from './AppLoading.vue'
 import AppEmpty from './AppEmpty.vue'
 import AppModal from './AppModal.vue'
-import AuthorSelect from './AuthorSelect.vue'
+import BankFilterModal from './BankFilterModal.vue'
 import BankTagInput from './BankTagInput.vue'
 
 const props = defineProps<{
@@ -34,6 +34,7 @@ const selectedTags = ref<QuestionBankTag[]>([])
 const visibility = ref('')
 const generationStatus = ref('')
 const loading = ref(false)
+const filterOpen = ref(false)
 const createModalOpen = ref(false)
 const createTitle = ref('')
 const createTags = ref<QuestionBankTag[]>([])
@@ -94,23 +95,13 @@ async function load() {
   }
 }
 
-let debounceTimer: ReturnType<typeof setTimeout>
-function onKeywordInput() {
-  clearTimeout(debounceTimer)
-  debounceTimer = setTimeout(search, 300)
-}
-
-function search() {
+function applyFilters(filters: { keyword: string; ownerId: number | null; selectedTags: QuestionBankTag[]; visibility: string; generationStatus: string }) {
+  keyword.value = filters.keyword
+  ownerId.value = filters.ownerId
+  selectedTags.value = filters.selectedTags
+  visibility.value = filters.visibility
+  generationStatus.value = filters.generationStatus
   router.push({ query: buildQuery(1) })
-}
-
-function clearFilters() {
-  keyword.value = ''
-  ownerId.value = null
-  selectedTags.value = []
-  visibility.value = ''
-  generationStatus.value = ''
-  router.push({ query: {} })
 }
 
 function goPage(page: number) {
@@ -158,6 +149,19 @@ function statusVariant(status: string): 'default' | 'success' | 'warning' | 'dan
   return map[status] || 'default'
 }
 
+const hasActiveFilters = computed(() =>
+  keyword.value || ownerId.value || selectedTags.value.length || visibility.value || generationStatus.value
+)
+
+function clearAll() {
+  keyword.value = ''
+  ownerId.value = null
+  selectedTags.value = []
+  visibility.value = ''
+  generationStatus.value = ''
+  router.push({ query: {} })
+}
+
 onMounted(load)
 watch(() => route.fullPath, load)
 </script>
@@ -171,41 +175,18 @@ watch(() => route.fullPath, load)
           <p class="mt-1 text-slate-600">{{ subtitle }}</p>
         </div>
         <div class="flex flex-wrap gap-2">
+          <AppButton variant="ghost" @click="filterOpen = true">筛选</AppButton>
           <AppButton v-if="allowCreate" @click="createModalOpen = true">新建题库</AppButton>
           <RouterLink v-if="primaryTo" class="inline-flex items-center rounded-btn bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700" :to="primaryTo">{{ primaryLabel }}</RouterLink>
         </div>
       </div>
-
-      <div class="mt-5 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <label class="block">
-          <span class="mb-1 block text-xs font-medium text-slate-500">关键词</span>
-          <input v-model="keyword" class="w-full rounded-input border border-slate-300 bg-white px-3 py-2 text-sm" placeholder="标题或描述" @input="onKeywordInput" @keyup.enter="search" />
-        </label>
-        <AuthorSelect v-if="showAuthorFilter" v-model="ownerId" />
-        <BankTagInput v-model="selectedTags" label="标签" placeholder="按标签筛选" />
-        <label v-if="showVisibilityFilter" class="block">
-          <span class="mb-1 block text-xs font-medium text-slate-500">可见性</span>
-          <select v-model="visibility" class="w-full rounded-input border border-slate-300 bg-white px-3 py-2 text-sm">
-            <option value="">全部</option>
-            <option value="private">私有</option>
-            <option value="public">公开</option>
-          </select>
-        </label>
-        <label v-if="showGenerationFilter" class="block">
-          <span class="mb-1 block text-xs font-medium text-slate-500">生成状态</span>
-          <select v-model="generationStatus" class="w-full rounded-input border border-slate-300 bg-white px-3 py-2 text-sm">
-            <option value="">全部</option>
-            <option value="none">普通题库</option>
-            <option value="pending">等待生成</option>
-            <option value="processing">生成中</option>
-            <option value="succeeded">生成成功</option>
-            <option value="failed">生成失败</option>
-          </select>
-        </label>
-      </div>
-      <div class="mt-4 flex flex-wrap gap-2">
-        <AppButton @click="search">筛选</AppButton>
-        <AppButton variant="ghost" @click="clearFilters">清空</AppButton>
+      <div v-if="hasActiveFilters" class="mt-3 flex flex-wrap items-center gap-1.5 text-xs">
+        <span class="text-slate-400">已筛选：</span>
+        <span v-if="keyword" class="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">"{{ keyword }}"</span>
+        <span v-if="visibility" class="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">{{ visibility === 'public' ? '公开' : '私有' }}</span>
+        <span v-if="generationStatus" class="rounded-full bg-slate-100 px-2 py-0.5 text-slate-600">{{ generationStatus }}</span>
+        <span v-for="tag in selectedTags" :key="tag.id" class="rounded-full bg-brand-50 px-2 py-0.5 text-brand-700">{{ tag.name }}</span>
+        <button class="text-brand-600 hover:text-brand-700" @click="clearAll">清除</button>
       </div>
     </div>
 
@@ -256,6 +237,19 @@ watch(() => route.fullPath, load)
         @update:page="goPage"
       />
     </template>
+
+    <BankFilterModal
+      v-model="filterOpen"
+      :keyword="keyword"
+      :owner-id="ownerId"
+      :selected-tags="selectedTags"
+      :visibility="visibility"
+      :generation-status="generationStatus"
+      :show-author-filter="showAuthorFilter"
+      :show-visibility-filter="showVisibilityFilter"
+      :show-generation-filter="showGenerationFilter"
+      @apply="applyFilters"
+    />
 
     <AppModal v-model="createModalOpen" title="新建题库" @update:model-value="val => !val && (createTitle = '', createTags = [])">
       <label class="block">

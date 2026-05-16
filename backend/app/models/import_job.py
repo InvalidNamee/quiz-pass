@@ -12,6 +12,7 @@ class ImportJob(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     bank_id: Mapped[int | None] = mapped_column(ForeignKey("question_banks.id"), nullable=True, index=True)
+    workflow_id: Mapped[int | None] = mapped_column(ForeignKey("ai_generation_workflows.id"), nullable=True, index=True)
     type: Mapped[str] = mapped_column(String(32), default="document_ai")
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
     desired_visibility: Mapped[str] = mapped_column(String(32), default="private")

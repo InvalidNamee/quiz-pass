@@ -369,11 +369,179 @@ def test_ai_generation_validation_failure(monkeypatch):
         assert bank["tags"][0]["name"] == "AI标签"
         job = client.get(f"/api/v1/ai-generation/jobs/{response.json()['job_id']}", headers=headers).json()
         assert job["status"] == "failed"
+        assert job["workflow_id"] is not None
+        assert job["workflow_status"] == "failed"
+        assert job["repair_attempts"] == 2
+        assert job["can_confirm"] is False
         assert "知识库生成失败" in job["error_message"]
+        assert "已自动修复 2 次仍失败" in job["error_message"]
         assert "第 1 题" in job["error_message"]
         assert "题干：bad" in job["error_message"]
         assert "题型：single" in job["error_message"]
         assert "single 有 2 个正确答案" in job["error_message"]
+        steps = client.get(f"/api/v1/ai-generation/workflows/{job['workflow_id']}/steps", headers=headers).json()
+        assert any(step["step_name"] == "validate_payload" and step["status"] == "failed" for step in steps)
+
+
+def test_ai_generation_repair_draft_confirm_and_extend(monkeypatch):
+    with TestClient(app) as client:
+        headers = _register(client, "workflow@example.com", "workflowuser")
+        other_headers = _register(client, "workflow-other@example.com", "workflowother")
+        client.post(
+            "/api/v1/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+
+        from app.services import ai_generation
+
+        calls = []
+        outputs = [
+            {
+                "questions": [
+                    {
+                        "type": "single",
+                        "stem": "Broken question",
+                        "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": True}],
+                    }
+                ]
+            },
+            {
+                "bank_description": "Draft description",
+                "questions": [
+                    {
+                        "type": "single",
+                        "stem": "Fixed question",
+                        "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
+                        "explanation": "Fixed explanation",
+                    }
+                ],
+            },
+            {
+                "questions": [
+                    {
+                        "type": "single",
+                        "stem": "Extended question",
+                        "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
+                    }
+                ]
+            },
+        ]
+
+        def workflow_ai(*args, **kwargs):
+            calls.append(args)
+            return outputs.pop(0)
+
+        monkeypatch.setattr(ai_generation, "_call_openai_compatible", workflow_ai)
+        response = client.post(
+            "/api/v1/ai-generation/question-bank-jobs",
+            headers=headers,
+            data={"title": "Workflow Bank", "desired_visibility": "public", "question_count": "1", "generate_description": "true"},
+            files={"file": ("material.txt", b"content", "text/plain")},
+        )
+        assert response.status_code == 200
+        bank = client.get(f"/api/v1/question-banks/{response.json()['bank_id']}", headers=headers).json()
+        assert bank["generation_status"] == "processing"
+        assert bank["visibility"] == "private"
+        assert bank["question_count"] == 0
+        job = client.get(f"/api/v1/ai-generation/jobs/{response.json()['job_id']}", headers=headers).json()
+        assert job["status"] == "draft_ready"
+        assert job["workflow_status"] == "draft_ready"
+        assert job["draft_question_count"] == 1
+        assert job["repair_attempts"] == 1
+        assert job["can_confirm"] is True
+        draft = client.get(f"/api/v1/ai-generation/jobs/{job['id']}/draft", headers=headers).json()
+        assert draft["bank_description"] == "Draft description"
+        assert draft["questions"][0]["stem"] == "Fixed question"
+        assert client.get(f"/api/v1/ai-generation/jobs/{job['id']}/draft", headers=other_headers).status_code == 404
+
+        edited = draft.copy()
+        edited["bank_description"] = "Edited description"
+        edited["questions"][0]["stem"] = "Edited fixed question"
+        patch = client.patch(f"/api/v1/ai-generation/jobs/{job['id']}/draft", headers=headers, json=edited)
+        assert patch.status_code == 200
+        confirmed = client.post(f"/api/v1/ai-generation/jobs/{job['id']}/confirm", headers=headers)
+        assert confirmed.status_code == 200
+        bank_after_confirm = client.get(f"/api/v1/question-banks/{bank['id']}", headers=headers).json()
+        assert bank_after_confirm["generation_status"] == "succeeded"
+        assert bank_after_confirm["visibility"] == "public"
+        assert bank_after_confirm["description"] == "Edited description"
+        assert bank_after_confirm["question_count"] == 1
+        questions = client.get(f"/api/v1/question-banks/{bank['id']}/questions", headers=headers).json()
+        assert questions["items"][0]["stem"] == "Edited fixed question"
+
+        extend = client.post(
+            f"/api/v1/question-banks/{bank['id']}/ai-generation/extend-jobs",
+            headers=headers,
+            data={"generation_mode": "knowledge_generate", "question_count": "1", "extra_instruction": "避免重复"},
+            files={"file": ("more.txt", b"more content", "text/plain")},
+        )
+        assert extend.status_code == 200
+        extend_job = client.get(f"/api/v1/ai-generation/jobs/{extend.json()['job_id']}", headers=headers).json()
+        assert extend_job["status"] == "draft_ready"
+        assert extend_job["draft_question_count"] == 1
+        assert any("Edited fixed question" in str(call) for call in calls)
+        assert client.post(f"/api/v1/ai-generation/jobs/{extend_job['id']}/confirm", headers=headers).status_code == 200
+        bank_after_extend = client.get(f"/api/v1/question-banks/{bank['id']}", headers=headers).json()
+        assert bank_after_extend["question_count"] == 2
+        assert bank_after_extend["visibility"] == "public"
+
+        forbidden = client.post(
+            f"/api/v1/question-banks/{bank['id']}/ai-generation/extend-jobs",
+            headers=other_headers,
+            data={"generation_mode": "knowledge_generate", "question_count": "1"},
+            files={"file": ("more.txt", b"more content", "text/plain")},
+        )
+        assert forbidden.status_code == 404
+
+
+def test_delete_bank_cleans_generation_and_practice_records(monkeypatch):
+    with TestClient(app) as client:
+        headers = _register(client, "delete-bank@example.com", "deletebank")
+        client.post(
+            "/api/v1/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+
+        from app.services import ai_generation
+
+        def good_ai(*args, **kwargs):
+            return {
+                "questions": [
+                    {
+                        "type": "single",
+                        "stem": "Delete me",
+                        "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
+                    }
+                ]
+            }
+
+        monkeypatch.setattr(ai_generation, "_call_openai_compatible", good_ai)
+        response = client.post(
+            "/api/v1/ai-generation/question-bank-jobs",
+            headers=headers,
+            data={"title": "Delete Workflow Bank", "desired_visibility": "private", "question_count": "1"},
+            files={"file": ("material.txt", b"content", "text/plain")},
+        )
+        assert response.status_code == 200
+        bank_id = response.json()["bank_id"]
+        job_id = response.json()["job_id"]
+        assert client.post(f"/api/v1/ai-generation/jobs/{job_id}/confirm", headers=headers).status_code == 200
+        questions = client.get(f"/api/v1/question-banks/{bank_id}/questions", headers=headers).json()
+        question = questions["items"][0]
+        session = client.post("/api/v1/practice/sessions", headers=headers, json={"bank_id": bank_id, "mode": "practice"}).json()
+        client.post(
+            f"/api/v1/practice/sessions/{session['id']}/answers",
+            headers=headers,
+            json={"question_id": question["id"], "selected_option_ids": [question["options"][1]["id"]]},
+        )
+        assert client.get(f"/api/v1/question-banks/{bank_id}/mistakes", headers=headers).json()["total"] == 1
+
+        deleted = client.delete(f"/api/v1/question-banks/{bank_id}", headers=headers)
+        assert deleted.status_code == 200, deleted.text
+        assert client.get(f"/api/v1/question-banks/{bank_id}", headers=headers).status_code == 404
+        assert client.get(f"/api/v1/ai-generation/jobs/{job_id}", headers=headers).status_code == 404
 
 
 def test_bank_parse_mode_without_question_count_and_detailed_errors(monkeypatch):
@@ -415,8 +583,13 @@ def test_bank_parse_mode_without_question_count_and_detailed_errors(monkeypatch)
         assert seen_extra == ["保留原题编号"]
         job = client.get(f"/api/v1/ai-generation/jobs/{response.json()['job_id']}", headers=headers).json()
         assert job["type"] == "bank_parse_ai"
+        assert job["status"] == "draft_ready"
+        assert job["draft_question_count"] == 1
         bank = client.get(f"/api/v1/question-banks/{response.json()['bank_id']}", headers=headers).json()
-        assert bank["question_count"] == 1
+        assert bank["question_count"] == 0
+        draft = client.get(f"/api/v1/ai-generation/jobs/{job['id']}/draft", headers=headers).json()
+        assert draft["questions"][0]["stem"] == "Parsed question"
+        assert client.post(f"/api/v1/ai-generation/jobs/{job['id']}/confirm", headers=headers).status_code == 200
         questions = client.get(f"/api/v1/question-banks/{bank['id']}/questions", headers=headers).json()
         assert questions["items"][0]["source"] == "ai_generated"
         assert questions["items"][0]["generated_model"] == "mock"
@@ -478,10 +651,15 @@ def test_ai_generation_success_public_after_write(monkeypatch):
             files={"file": ("material.txt", b"content", "text/plain")},
         )
         bank = client.get(f"/api/v1/question-banks/{response.json()['bank_id']}", headers=headers).json()
-        assert bank["generation_status"] == "succeeded"
-        assert bank["visibility"] == "public"
-        assert bank["question_count"] == 1
+        assert bank["generation_status"] == "processing"
+        assert bank["visibility"] == "private"
+        assert bank["question_count"] == 0
         assert bank["description"] is None
+        assert client.post(f"/api/v1/ai-generation/jobs/{response.json()['job_id']}/confirm", headers=headers).status_code == 200
+        imported_bank = client.get(f"/api/v1/question-banks/{response.json()['bank_id']}", headers=headers).json()
+        assert imported_bank["generation_status"] == "succeeded"
+        assert imported_bank["visibility"] == "public"
+        assert imported_bank["question_count"] == 1
 
         response_with_description = client.post(
             "/api/v1/ai-generation/question-bank-jobs",
@@ -489,5 +667,6 @@ def test_ai_generation_success_public_after_write(monkeypatch):
             data={"title": "AI Bank With Description", "desired_visibility": "private", "question_count": "1", "generate_description": "true"},
             files={"file": ("material.txt", b"content", "text/plain")},
         )
+        assert client.post(f"/api/v1/ai-generation/jobs/{response_with_description.json()['job_id']}/confirm", headers=headers).status_code == 200
         described = client.get(f"/api/v1/question-banks/{response_with_description.json()['bank_id']}", headers=headers).json()
         assert described["description"] == "AI generated description"

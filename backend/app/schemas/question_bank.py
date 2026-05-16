@@ -35,6 +35,7 @@ class QuestionBankOut(BaseModel):
     visibility: str
     desired_visibility: str
     generation_status: str
+    active_generation_job_id: int | None = None
     question_count: int
     favorite_count: int
     ai_model_name: str | None

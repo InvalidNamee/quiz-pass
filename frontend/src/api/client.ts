@@ -67,6 +67,7 @@ export type QuestionBank = {
   visibility: string
   desired_visibility: string
   generation_status: string
+  active_generation_job_id: number | null
   question_count: number
   favorite_count: number
   ai_model_name: string | null
@@ -107,6 +108,28 @@ export type Question = {
   source: string
   generated_model: string | null
   options: QuestionOption[]
+}
+
+export type AIGenerationDraftQuestion = {
+  id: number
+  type: 'single' | 'multiple'
+  stem: string
+  explanation: string | null
+  difficulty: string | null
+  options: Array<{ label: string; content: string; is_correct: boolean }>
+  validation_status: string
+  validation_message: string | null
+}
+
+export type AIGenerationDraft = {
+  id: number
+  workflow_id: number
+  job_id: number
+  bank_id: number
+  bank_description: string | null
+  validation_summary: string | null
+  status: string
+  questions: AIGenerationDraftQuestion[]
 }
 
 export type PracticeSession = {

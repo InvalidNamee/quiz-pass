@@ -1,17 +1,26 @@
 import json
+from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
+from fastapi import APIRouter, BackgroundTasks, Depends, File, Form, HTTPException, UploadFile
 from fastapi.responses import JSONResponse
-from sqlalchemy import and_, or_, select
+from sqlalchemy import and_, delete, or_, select, update
 from sqlalchemy.orm import Session, selectinload
 
 from app.api.deps import get_current_user
-from app.db.session import get_db
+from app.db.session import SessionLocal, get_db
+from app.models.ai_provider_config import UserAIProviderConfig
+from app.models.ai_workflow import AIGenerationDraft, AIGenerationDraftQuestion, AIGenerationWorkflow, AIGenerationWorkflowStep
+from app.models.import_job import ImportJob
+from app.models.practice import MistakeRecord, PracticeAnswer, PracticeSession, PracticeSessionQuestion
+from app.models.question import Question, QuestionOption
 from app.models.question_bank import QuestionBank, QuestionBankFavorite, QuestionBankTag, question_bank_tag_links
 from app.models.user import User
+from app.schemas.ai import AIGenerationBankJobOut
 from app.schemas.common import Page, page_response
 from app.schemas.question_bank import QuestionBankCreate, QuestionBankOut, QuestionBankTagOut, QuestionBankUpdate
+from app.services.ai_generation import generate_questions_from_ai
 from app.services.question_bank_tags import merge_tag_names, set_bank_tags
+from app.utils.document_extractors import extract_text
 from app.utils.json_io import create_question_from_payload, question_to_json
 from app.utils.pagination import paginate
 
@@ -68,6 +77,60 @@ def apply_tag_filter(stmt, raw_tag_ids: str | None):
         return stmt
     bank_ids = select(question_bank_tag_links.c.bank_id).where(question_bank_tag_links.c.tag_id.in_(tag_ids))
     return stmt.where(QuestionBank.id.in_(bank_ids))
+
+
+def cleanup_bank_dependencies(db: Session, bank_id: int) -> None:
+    question_ids = list(db.scalars(select(Question.id).where(Question.bank_id == bank_id)))
+    session_ids = list(db.scalars(select(PracticeSession.id).where(PracticeSession.bank_id == bank_id)))
+    workflow_ids = list(db.scalars(select(AIGenerationWorkflow.id).where(AIGenerationWorkflow.bank_id == bank_id)))
+    job_ids = list(db.scalars(select(ImportJob.id).where(ImportJob.bank_id == bank_id)))
+    draft_ids = list(db.scalars(select(AIGenerationDraft.id).where(AIGenerationDraft.bank_id == bank_id)))
+
+    if session_ids:
+        db.execute(delete(PracticeAnswer).where(PracticeAnswer.session_id.in_(session_ids)))
+        db.execute(delete(PracticeSessionQuestion).where(PracticeSessionQuestion.session_id.in_(session_ids)))
+        db.execute(delete(PracticeSession).where(PracticeSession.id.in_(session_ids)))
+    if question_ids:
+        db.execute(delete(MistakeRecord).where(MistakeRecord.question_id.in_(question_ids)))
+        db.execute(delete(QuestionOption).where(QuestionOption.question_id.in_(question_ids)))
+    db.execute(delete(MistakeRecord).where(MistakeRecord.bank_id == bank_id))
+    db.execute(delete(QuestionBankFavorite).where(QuestionBankFavorite.bank_id == bank_id))
+    db.execute(question_bank_tag_links.delete().where(question_bank_tag_links.c.bank_id == bank_id))
+
+    if draft_ids:
+        db.execute(delete(AIGenerationDraftQuestion).where(AIGenerationDraftQuestion.draft_id.in_(draft_ids)))
+        db.execute(delete(AIGenerationDraft).where(AIGenerationDraft.id.in_(draft_ids)))
+    if workflow_ids:
+        db.execute(delete(AIGenerationWorkflowStep).where(AIGenerationWorkflowStep.workflow_id.in_(workflow_ids)))
+
+    # Break the import_jobs <-> workflows circular references before deleting either side.
+    if job_ids:
+        db.execute(update(ImportJob).where(ImportJob.id.in_(job_ids)).values(workflow_id=None))
+    if workflow_ids:
+        db.execute(update(AIGenerationWorkflow).where(AIGenerationWorkflow.id.in_(workflow_ids)).values(job_id=None))
+        db.execute(delete(AIGenerationWorkflow).where(AIGenerationWorkflow.id.in_(workflow_ids)))
+    if job_ids:
+        db.execute(delete(ImportJob).where(ImportJob.id.in_(job_ids)))
+
+
+def _run_generation(job_id: int, text: str, question_count: int | None, generate_description: bool, generation_mode: str, extra_instruction: str | None) -> None:
+    db = SessionLocal()
+    try:
+        generate_questions_from_ai(db, job_id, text, question_count, generate_description, generation_mode, extra_instruction)
+    finally:
+        db.close()
+
+
+def _pick_ai_config(db: Session, user_id: int, config_id: int | None) -> UserAIProviderConfig:
+    stmt = select(UserAIProviderConfig).where(UserAIProviderConfig.user_id == user_id, UserAIProviderConfig.is_active.is_(True))
+    if config_id:
+        stmt = stmt.where(UserAIProviderConfig.id == config_id)
+    else:
+        stmt = stmt.where(UserAIProviderConfig.is_default.is_(True))
+    config = db.scalar(stmt)
+    if not config:
+        raise HTTPException(status_code=400, detail="请先配置可用的 AI Provider")
+    return config
 
 
 @router.get("", response_model=Page[QuestionBankOut])
@@ -212,6 +275,80 @@ def export_bank(bank_id: int, current_user: User = Depends(get_current_user), db
     return JSONResponse(payload, headers={"Content-Disposition": f'attachment; filename="question-bank-{bank.id}.json"'})
 
 
+@router.post("/{bank_id}/ai-generation/extend-jobs", response_model=AIGenerationBankJobOut)
+async def create_extend_job(
+    bank_id: int,
+    background_tasks: BackgroundTasks,
+    ai_provider_config_id: int | None = Form(None),
+    question_count_mode: str = Form("fixed"),
+    question_count: int | None = Form(None),
+    generate_description: bool = Form(False),
+    generation_mode: str = Form("knowledge_generate"),
+    extra_instruction: str | None = Form(None),
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    bank = db.get(QuestionBank, bank_id)
+    if not can_manage(bank, current_user):
+        raise HTTPException(status_code=404, detail="Question bank not found")
+    if generation_mode not in ("knowledge_generate", "bank_parse"):
+        raise HTTPException(status_code=422, detail="Invalid generation_mode")
+    if question_count_mode not in ("fixed", "adaptive"):
+        raise HTTPException(status_code=422, detail="Invalid question_count_mode")
+    normalized_extra_instruction = (extra_instruction or "").strip() or None
+    if normalized_extra_instruction and len(normalized_extra_instruction) > 2000:
+        raise HTTPException(status_code=422, detail="额外指令不能超过 2000 字")
+    if generation_mode == "knowledge_generate" and question_count_mode == "fixed" and not question_count:
+        raise HTTPException(status_code=422, detail="固定题数模式必须指定题数")
+    effective_count = question_count if generation_mode == "knowledge_generate" and question_count_mode == "fixed" else None
+    config = _pick_ai_config(db, current_user.id, ai_provider_config_id)
+    content = await file.read()
+    try:
+        text = extract_text(file.filename or "upload.txt", content)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    parsed = urlparse(config.api_base_url)
+    host = parsed.netloc or config.api_base_url
+    job = ImportJob(
+        user_id=current_user.id,
+        bank_id=bank.id,
+        type="bank_parse_ai" if generation_mode == "bank_parse" else "document_ai",
+        status="pending",
+        desired_visibility=bank.desired_visibility,
+        file_name=file.filename,
+        ai_provider_config_id=config.id,
+        ai_base_url_snapshot=host,
+        ai_model_snapshot=config.model,
+    )
+    db.add(job)
+    db.flush()
+    workflow = AIGenerationWorkflow(
+        bank_id=bank.id,
+        user_id=current_user.id,
+        job_id=job.id,
+        purpose="extend_bank",
+        generation_mode=generation_mode,
+        status="pending",
+        source_file_name=file.filename,
+        source_text_snapshot=text,
+        requested_count=effective_count,
+        generate_description="true" if generate_description else "false",
+        extra_instruction=normalized_extra_instruction,
+        ai_provider_config_id=config.id,
+        ai_base_url_snapshot=host,
+        ai_model_snapshot=config.model,
+    )
+    db.add(workflow)
+    db.flush()
+    job.workflow_id = workflow.id
+    bank.active_generation_job_id = job.id
+    bank.generation_status = "processing"
+    db.commit()
+    background_tasks.add_task(_run_generation, job.id, text, effective_count, generate_description, generation_mode, normalized_extra_instruction)
+    return AIGenerationBankJobOut(bank_id=bank.id, job_id=job.id)
+
+
 @router.post("/{bank_id}/import-json", response_model=QuestionBankOut)
 async def import_json_to_bank(bank_id: int, file: UploadFile = File(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     bank = db.get(QuestionBank, bank_id)
@@ -288,6 +425,7 @@ def delete_bank(bank_id: int, current_user: User = Depends(get_current_user), db
     bank = db.get(QuestionBank, bank_id)
     if not can_manage(bank, current_user):
         raise HTTPException(status_code=404, detail="Question bank not found")
+    cleanup_bank_dependencies(db, bank.id)
     db.delete(bank)
     db.commit()
     return {"ok": True}

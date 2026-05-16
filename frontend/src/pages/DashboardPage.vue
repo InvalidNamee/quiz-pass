@@ -4,8 +4,7 @@ import { useAuthStore } from '../stores/auth'
 const auth = useAuthStore()
 
 const cards = [
-  { to: '/banks/generate', icon: '✦', title: 'AI 生成题库', desc: '上传文档，AI 自动生成选择题' },
-  { to: '/banks/import', icon: '↑', title: '导入题库', desc: '从 JSON 文件导入已有题库' },
+  { to: '/banks/generate', icon: '✦', title: '新建题库', desc: 'AI 生成、题库解析或 JSON 导入' },
   { to: '/banks', icon: '☰', title: '我的题库', desc: '管理已创建和生成的题库' },
   { to: '/banks/public', icon: '◉', title: '公开题库', desc: '浏览社区分享的题库' },
   { to: '/favorites', icon: '★', title: '我的收藏', desc: '查看已收藏的题库' },

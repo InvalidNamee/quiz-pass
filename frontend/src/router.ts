@@ -8,11 +8,10 @@ import PublicBanksPage from './pages/PublicBanksPage.vue'
 import BankDetailPage from './pages/BankDetailPage.vue'
 import GeneratePage from './pages/GeneratePage.vue'
 import GenerationJobsPage from './pages/GenerationJobsPage.vue'
+import GenerationDraftPage from './pages/GenerationDraftPage.vue'
 import ProfilePage from './pages/ProfilePage.vue'
 import AIProvidersPage from './pages/AIProvidersPage.vue'
 import QuestionsPage from './pages/QuestionsPage.vue'
-import ImportPage from './pages/ImportPage.vue'
-import ImportBankPage from './pages/ImportBankPage.vue'
 import PracticeSetupPage from './pages/PracticeSetupPage.vue'
 import PracticeSessionPage from './pages/PracticeSessionPage.vue'
 import PracticeResultPage from './pages/PracticeResultPage.vue'
@@ -34,12 +33,12 @@ export const router = createRouter({
     { path: '/banks', component: BanksPage, meta: { auth: true } },
     { path: '/banks/public', component: PublicBanksPage, meta: { auth: true } },
     { path: '/favorites', component: FavoritesPage, meta: { auth: true } },
-    { path: '/banks/import', component: ImportBankPage, meta: { auth: true } },
     { path: '/banks/generate', component: GeneratePage, meta: { auth: true } },
+    { path: '/banks/:bankId/generate', component: GeneratePage, meta: { auth: true } },
     { path: '/banks/generation-jobs', component: GenerationJobsPage, meta: { auth: true } },
+    { path: '/ai-generation/jobs/:jobId/draft', component: GenerationDraftPage, meta: { auth: true } },
     { path: '/banks/:bankId', component: BankDetailPage, meta: { auth: true } },
     { path: '/banks/:bankId/questions', component: QuestionsPage, meta: { auth: true } },
-    { path: '/banks/:bankId/import', component: ImportPage, meta: { auth: true } },
     { path: '/banks/:bankId/mistakes', component: MistakesPage, meta: { auth: true } },
     { path: '/banks/:bankId/practice/setup', component: PracticeSetupPage, meta: { auth: true } },
     { path: '/practice/session/:sessionId', component: PracticeSessionPage, meta: { auth: true } },
