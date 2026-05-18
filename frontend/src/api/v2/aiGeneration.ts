@@ -1,7 +1,7 @@
 import { api } from '../http'
-import type { Page, AIGenerationDraft, QuestionBankV2 } from '../types'
+import type { Page, AIGenerationDraft } from '../types'
 
-type WorkflowListItem = {
+export type WorkflowListItem = {
   id: number; bank_id: number; purpose: string; generation_mode: string
   status: string; source_file_name: string | null; ai_model_snapshot: string | null
   repair_attempts: number; error_message: string | null
@@ -36,7 +36,7 @@ export function updateDraft(workflowId: number, data: Record<string, unknown>) {
 }
 
 export function confirmDraft(workflowId: number) {
-  return api(`/api/v2/ai/workflows/${workflowId}/draft/confirm`, { method: 'POST' })
+  return api<{ ok: boolean; bank_id: number }>(`/api/v2/ai/workflows/${workflowId}/draft/confirm`, { method: 'POST' })
 }
 
 export function discardDraft(workflowId: number) {

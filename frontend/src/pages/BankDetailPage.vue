@@ -140,7 +140,7 @@ onMounted(load)
         <RouterLink v-if="canManage" :to="`/banks/${bank.id}/generate`" class="inline-flex items-center rounded-btn bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">扩展题库</RouterLink>
         <RouterLink
           v-if="canManage && bank.active_workflow && bank.active_workflow.status === 'draft_ready'"
-          :to="`/ai-generation/jobs/${bank.active_workflow.id}/draft`"
+          :to="`/ai-generation/workflows/${bank.active_workflow.id}/draft`"
           class="inline-flex items-center rounded-btn bg-amber-100 px-4 py-2 text-sm font-medium text-amber-800 hover:bg-amber-200"
         >确认草稿</RouterLink>
       </div>

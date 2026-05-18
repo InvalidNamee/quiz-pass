@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, type Page, type Question, type QuestionBank } from '../api/client'
-import { useAuthStore } from '../stores/auth'
+import type { Question, QuestionBankV2 } from '../api/types'
+import { createQuestion, deleteQuestion, getBank, listQuestions, updateQuestion } from '../api/v2/banks'
 import AppBadge from '../components/AppBadge.vue'
 import AppButton from '../components/AppButton.vue'
 import MathText from '../components/MathText.vue'
@@ -10,10 +10,9 @@ import { useToast } from '../composables/useToast'
 
 const route = useRoute()
 const router = useRouter()
-const auth = useAuthStore()
 const toast = useToast()
 const bankId = Number(route.params.bankId)
-const bank = ref<QuestionBank | null>(null)
+const bank = ref<QuestionBankV2 | null>(null)
 const questions = ref<Question[]>([])
 const keyword = ref('')
 const loading = ref(true)
@@ -73,15 +72,17 @@ function toggleCorrect(index: number) {
 async function load() {
   loading.value = true
   try {
-    bank.value = await api<QuestionBank>(`/api/v1/question-banks/${bankId}`)
-    const canManage = auth.user && (auth.user.id === bank.value.owner_id || auth.user.role === 'admin')
-    if (!canManage) {
+    bank.value = await getBank(bankId)
+    if (!bank.value.permissions.can_manage) {
+      toast.show('你没有权限管理这个题库', 'error')
       router.replace(`/banks/${bankId}`)
       return
     }
-    const q = keyword.value ? `?keyword=${encodeURIComponent(keyword.value)}` : ''
-    const data = await api<Page<Question>>(`/api/v1/question-banks/${bankId}/questions${q}`)
+    const data = await listQuestions(bankId, { keyword: keyword.value.trim() || undefined })
     questions.value = data.items
+  } catch (err) {
+    toast.show(err instanceof Error ? err.message : '加载题目失败', 'error')
+    router.replace(`/banks/${bankId}`)
   } finally {
     loading.value = false
   }
@@ -100,10 +101,10 @@ async function saveQuestion() {
   }
   try {
     if (editingQuestion.value) {
-      await api<Question>(`/api/v1/questions/${editingQuestion.value.id}`, { method: 'PATCH', body: JSON.stringify({ ...form }) })
+      await updateQuestion(editingQuestion.value.id, { ...form })
       toast.show('题目已更新', 'success')
     } else {
-      await api<Question>(`/api/v1/question-banks/${bankId}/questions`, { method: 'POST', body: JSON.stringify({ ...form }) })
+      await createQuestion(bankId, { ...form })
       toast.show('题目已添加', 'success')
     }
     resetForm()
@@ -114,9 +115,13 @@ async function saveQuestion() {
 }
 
 async function removeQuestion(id: number) {
-  await api(`/api/v1/questions/${id}`, { method: 'DELETE' })
-  toast.show('已删除', 'info')
-  await load()
+  try {
+    await deleteQuestion(id)
+    toast.show('已删除', 'info')
+    await load()
+  } catch (err) {
+    toast.show(err instanceof Error ? err.message : '删除失败', 'error')
+  }
 }
 
 onMounted(load)

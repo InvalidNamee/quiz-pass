@@ -11,8 +11,11 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   const response = await fetch(`${API_BASE}${path}`, { ...options, headers })
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: response.statusText }))
-    if (typeof error.detail === 'string') throw new Error(error.detail)
-    if (Array.isArray(error.detail)) {
+    if (typeof error?.error?.message === 'string' && error.error.message) {
+      throw new Error(error.error.message)
+    }
+    if (typeof error?.detail === 'string') throw new Error(error.detail)
+    if (Array.isArray(error?.detail)) {
       const message = error.detail
         .map((item: { loc?: unknown[]; msg?: string }) => {
           const field = Array.isArray(item.loc) ? item.loc[item.loc.length - 1] : ''

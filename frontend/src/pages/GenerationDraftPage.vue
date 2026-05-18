@@ -1,7 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, type AIGenerationDraft } from '../api/client'
+import { api } from '../api/client'
+import type { AIGenerationDraft } from '../api/types'
+import {
+  confirmDraft as confirmWorkflowDraft,
+  getDraft as getWorkflowDraft,
+  updateDraft as updateWorkflowDraft,
+} from '../api/v2/aiGeneration'
 import AppButton from '../components/AppButton.vue'
 import AppEmpty from '../components/AppEmpty.vue'
 import AppLoading from '../components/AppLoading.vue'
@@ -15,11 +21,15 @@ const loading = ref(true)
 const saving = ref(false)
 const confirming = ref(false)
 const jobId = computed(() => Number(route.params.jobId))
+const workflowId = computed(() => Number(route.params.workflowId))
+const isWorkflowRoute = computed(() => Number.isFinite(workflowId.value) && workflowId.value > 0)
 
 async function load() {
   loading.value = true
   try {
-    draft.value = await api<AIGenerationDraft>(`/api/v1/ai-generation/jobs/${jobId.value}/draft`)
+    draft.value = isWorkflowRoute.value
+      ? await getWorkflowDraft(workflowId.value)
+      : await api<AIGenerationDraft>(`/api/v1/ai-generation/jobs/${jobId.value}/draft`)
   } catch (err) {
     toast.show(err instanceof Error ? err.message : '草稿不存在', 'error')
   } finally {
@@ -65,10 +75,7 @@ async function save() {
   if (!draft.value) return
   saving.value = true
   try {
-    draft.value = await api<AIGenerationDraft>(`/api/v1/ai-generation/jobs/${jobId.value}/draft`, {
-      method: 'PATCH',
-      body: JSON.stringify(draft.value),
-    })
+    await persistDraft()
     toast.show('草稿已保存', 'success')
   } catch (err) {
     toast.show(err instanceof Error ? err.message : '保存失败', 'error')
@@ -77,12 +84,24 @@ async function save() {
   }
 }
 
+async function persistDraft() {
+  if (!draft.value) return
+  draft.value = isWorkflowRoute.value
+    ? await updateWorkflowDraft(workflowId.value, draft.value as unknown as Record<string, unknown>)
+    : await api<AIGenerationDraft>(`/api/v1/ai-generation/jobs/${jobId.value}/draft`, {
+        method: 'PATCH',
+        body: JSON.stringify(draft.value),
+      })
+}
+
 async function confirm() {
   if (!draft.value) return
   confirming.value = true
   try {
-    await save()
-    const data = await api<{ ok: boolean; bank_id: number }>(`/api/v1/ai-generation/jobs/${jobId.value}/confirm`, { method: 'POST' })
+    await persistDraft()
+    const data = isWorkflowRoute.value
+      ? await confirmWorkflowDraft(workflowId.value)
+      : await api<{ ok: boolean; bank_id: number }>(`/api/v1/ai-generation/jobs/${jobId.value}/confirm`, { method: 'POST' })
     toast.show('草稿已入库', 'success')
     router.push(`/banks/${data.bank_id}`)
   } catch (err) {

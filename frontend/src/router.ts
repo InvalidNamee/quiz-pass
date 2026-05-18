@@ -36,6 +36,7 @@ export const router = createRouter({
     { path: '/banks/generate', component: GeneratePage, meta: { auth: true } },
     { path: '/banks/:bankId/generate', component: GeneratePage, meta: { auth: true } },
     { path: '/banks/generation-jobs', component: GenerationJobsPage, meta: { auth: true } },
+    { path: '/ai-generation/workflows/:workflowId/draft', component: GenerationDraftPage, meta: { auth: true } },
     { path: '/ai-generation/jobs/:jobId/draft', component: GenerationDraftPage, meta: { auth: true } },
     { path: '/banks/:bankId', component: BankDetailPage, meta: { auth: true } },
     { path: '/banks/:bankId/questions', component: QuestionsPage, meta: { auth: true } },

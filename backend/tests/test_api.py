@@ -93,6 +93,25 @@ def test_login_identifier_and_change_password():
         assert _login(client, "loginuser", "newpass123")
 
 
+def test_v2_errors_use_unified_shape_and_v1_stays_compatible():
+    with TestClient(app) as client:
+        headers = _register(client, "errors@example.com", "errors")
+
+        v2_missing = client.get("/api/v2/banks/999999", headers=headers)
+        assert v2_missing.status_code == 404
+        assert v2_missing.json()["error"]["code"] == "HTTP_404"
+        assert v2_missing.json()["error"]["message"] == "Question bank not found"
+
+        v2_validation = client.post("/api/v2/banks", headers=headers, json={})
+        assert v2_validation.status_code == 422
+        assert v2_validation.json()["error"]["code"] == "VALIDATION_ERROR"
+        assert v2_validation.json()["error"]["message"] == "请求参数校验失败"
+
+        v1_missing = client.get("/api/v1/question-banks/999999", headers=headers)
+        assert v1_missing.status_code == 404
+        assert "detail" in v1_missing.json()
+
+
 def test_auth_bank_favorite_question_practice_and_mistake(monkeypatch):
     with TestClient(app) as client:
         headers = _register(client, "demo@example.com", "demo")
@@ -1121,7 +1140,7 @@ def test_v2_question_crud_permissions_and_json_import_export():
             files={"file": ("bad.json", json.dumps({"questions": []}).encode("utf-8"), "application/json")},
         )
         assert bad_import.status_code == 400
-        assert "questions 不能为空" in bad_import.json()["detail"]
+        assert "questions 不能为空" in bad_import.json()["error"]["message"]
 
         deleted = client.delete(f"/api/v2/questions/{question_id}", headers=owner_headers)
         assert deleted.status_code == 200, deleted.text

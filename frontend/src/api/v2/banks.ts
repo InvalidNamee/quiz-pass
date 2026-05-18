@@ -1,5 +1,5 @@
 import { api } from '../http'
-import type { Page, QuestionBankV2, QuestionBankTag } from '../types'
+import type { Page, Question, QuestionBankV2, QuestionBankTag } from '../types'
 
 type BankListParams = { page?: number; page_size?: number; keyword?: string; owner_id?: number; tag_ids?: string; visibility?: string; generation_status?: string }
 
@@ -50,4 +50,22 @@ export function listTags(params: { keyword?: string; ids?: string; page_size?: n
   const q = new URLSearchParams()
   Object.entries(params).forEach(([k, v]) => { if (v !== undefined) q.set(k, String(v)) })
   return api<Page<QuestionBankTag>>(`/api/v2/banks/tags?${q}`)
+}
+
+export function listQuestions(bankId: number, params: { page?: number; page_size?: number; keyword?: string } = {}) {
+  const q = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== '') q.set(k, String(v)) })
+  return api<Page<Question>>(`/api/v2/banks/${bankId}/questions?${q}`)
+}
+
+export function createQuestion(bankId: number, data: Record<string, unknown>) {
+  return api<Question>(`/api/v2/banks/${bankId}/questions`, { method: 'POST', body: JSON.stringify(data) })
+}
+
+export function updateQuestion(questionId: number, data: Record<string, unknown>) {
+  return api<Question>(`/api/v2/questions/${questionId}`, { method: 'PATCH', body: JSON.stringify(data) })
+}
+
+export function deleteQuestion(questionId: number) {
+  return api(`/api/v2/questions/${questionId}`, { method: 'DELETE' })
 }

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { api, type AIProviderConfig, type QuestionBank, type QuestionBankTag } from '../api/client'
+import { importJsonNewBank, importJsonToBank } from '../api/v2/banks'
 import AppButton from '../components/AppButton.vue'
 import BankTagInput from '../components/BankTagInput.vue'
 import { useToast } from '../composables/useToast'
@@ -55,11 +56,10 @@ async function submit() {
     if (createMode.value === 'json_import') {
       form.set('visibility', isPublic.value ? 'public' : 'private')
       if (selectedTags.value.length) form.set('tag_names', JSON.stringify(selectedTags.value.map(tag => tag.name)))
-      const endpoint = isExtend.value
-        ? `/api/v1/question-banks/${extendBankId.value}/import-json`
-        : '/api/v1/question-banks/import-json'
-      const bank = await api<QuestionBank>(endpoint, { method: 'POST', body: form })
-      toast.show(`题目已导入「${bank.title}」`, 'success')
+      const importedBank = isExtend.value && extendBankId.value
+        ? await importJsonToBank(extendBankId.value, form)
+        : await importJsonNewBank(form)
+      toast.show(`题目已导入「${importedBank.title}」`, 'success')
     } else {
       if (!isExtend.value) {
         form.set('title', title.value)

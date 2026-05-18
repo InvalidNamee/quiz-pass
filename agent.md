@@ -796,3 +796,352 @@ OpenAI 兼容 API 的 `api_base_url`、`api_key`、`model` 由用户在应用内
 - 数据库迁移可重复执行。
 - 失败时返回用户可理解的错误。
 - 至少有对应的后端测试，复杂交互补前端测试。
+
+## 20. 当前实现盘点（2026-05-18）
+
+本节是对当前仓库状态和本文档初始目标的对照。前面的章节保留为初始架构意图；本节记录现在已经落地的能力、仍未完成的部分，以及后续改进方案。
+
+### 20.1 当前代码结构现状
+
+后端已经从最初的 `api/v1 + services` 单层业务编排，演进为“v1 兼容 + v2/domain 分层”的过渡结构：
+
+```text
+backend/app/
+  api/v1/                      # 兼容旧前端路径，部分已降级为 domain wrapper
+  api/v2/                      # 新资源化 API 聚合入口
+  domains/
+    question_banks/            # 题库、题目、标签、收藏、导入导出、权限、统计、生命周期
+    practice/                  # 练习 session、答题、结果、错题
+    ai_generation/             # workflow、prompt、OpenAI client、校验、修复、草稿、LangGraph runtime
+    users/                     # 用户资料、AI 配置、管理员用户管理
+  models/                      # SQLAlchemy ORM
+  schemas/                     # Pydantic DTO
+  services/ai_generation.py    # AI 兼容 facade，保留 v1/测试 monkeypatch 表面
+```
+
+前端已经从单一 `api/client.ts` 类型和请求聚合，演进为“兼容 client + domain API 模块 + v2 API 模块”的过渡结构：
+
+```text
+frontend/src/
+  api/
+    http.ts                    # fetch wrapper
+    types.ts                   # v1/v2 shared types
+    auth.ts banks.ts ...       # v1/兼容 API 模块
+    v2/                        # v2 banks/practice/users/aiGeneration
+  components/
+    App*.vue                   # 基础 UI
+    bank/                      # BankCard、CreateBankModal
+    practice/                  # 答题页组件
+  composables/                 # useBankList、usePracticeSession、useCreateOrExtendBank
+  pages/                       # 路由页面
+```
+
+数据库迁移已改为 Alembic 显式建表，不再在应用启动时默认 `Base.metadata.create_all`。当前开发路线允许重建开发库，`0001_initial.py` 是当前干净 schema。
+
+### 20.2 已完成目标
+
+#### 账号与用户
+
+- 已实现注册、登录、当前用户信息。
+- 登录支持用户名或邮箱。
+- 注册和 FastAPI 422 错误已向前端可读错误靠拢。
+- 已实现用户资料编辑、修改密码、公开用户页、用户搜索。
+- 头像支持 QQ 邮箱头像策略。
+- 管理员用户管理已具备分页检索、基础资料修改、启用/禁用、重置普通用户密码。
+- 管理员不能给其他用户授权 admin role。
+
+#### AI 配置
+
+- 用户可维护多个 OpenAI 兼容 AI Provider 配置。
+- 支持 `api_base_url`、`api_key`、`model`、默认配置、启用状态、连通性测试。
+- API key 后端加密保存，读取接口不返回明文。
+- API key 创建后禁止 patch 更新，只能删除配置重建。
+- AI Provider 删除后，历史 workflow/job 保留 model/base url snapshot，外键 `SET NULL`。
+
+#### 题库、题目、标签和收藏
+
+- 已实现题库 CRUD、题目 CRUD、JSON 新建导入、JSON 追加导入、JSON 导出。
+- 已实现公开题库、我的题库、我的收藏列表。
+- 公开题库和私有题库在有读取权限时都可收藏。
+- 已实现收藏数冗余统计和 `is_favorited`。
+- 已实现题库级标签独立表和题库-标签关联表。
+- 题库创建、编辑、AI 生成、JSON 导入支持标签。
+- 题库列表支持关键词、作者、可见性、生成状态、标签 ID 多选筛选。
+- 标签筛选 URL 使用数字 ID，如 `tag_ids=1,3,8`，不使用中文标签名。
+- v2 题库 DTO 已返回 `owner`、`tags`、`stats`、`permissions`、`active_workflow`。
+
+#### 权限模型
+
+- 题库权限已抽到 `QuestionBankPermissionService`。
+- owner 可管理自己的题库。
+- 非 owner 可读取公开题库，可收藏、练习、查看自己的错题、导出。
+- 非 owner 不可编辑/删除/导入追加/管理题目/AI 扩展公开题库。
+- 非 owner 不能读取私有题库。
+- admin 可管理所有题库。
+- 错题、练习记录仍按当前登录用户隔离。
+
+#### 练习、结果、历史和错题
+
+- 已实现普通练习、模拟考试、错题练习。
+- 创建 session 时由后端确定题目集合。
+- 答题时校验题目属于当前 session 的题库，防跨题库提交。
+- 普通/错题练习答题后即时反馈并锁定。
+- 模拟考试答题时只保存并锁定，交卷后才显示答案解析。
+- 支持恢复未完成 session。
+- 历史记录返回题库名、开始时间、提交时间、最后作答时间、已做/全部。
+- 结果页返回完整题面、选项、用户选择、正确答案 label、未作答状态、解析。
+- 错题维度已固定为 `user_id + bank_id + question_id`。
+- 题库下错题页后端返回题面、选项、正确答案 label、解析、错误次数、最后错误时间。
+
+#### AI 生成与 workflow
+
+- AI 调用已改用 OpenAI Python SDK，并支持用户配置任意 OpenAI 兼容 `base_url`。
+- 已支持两类模式：
+  - `knowledge_generate`：从知识库/文档生成题目，可固定题数或自适应题数。
+  - `bank_parse`：从已有题库文档解析题目，不要求用户指定题数。
+- 已支持用户额外指令，后端限制长度并声明不能覆盖系统硬规则。
+- 已支持 AI 生成题库描述。
+- AI prompt 已强调单选只能一个正确答案、多选至少两个正确答案。
+- AI 输出经过后端结构化校验。
+- AI 生成已升级为 workflow-first：
+  - 文档提取
+  - build context
+  - generate/parse
+  - validate
+  - repair
+  - write draft
+  - confirm draft
+- workflow、step、draft、draft questions 已持久化。
+- `ImportJob` 已降级为队列/兼容投影，单向指向 workflow。
+- 用户确认草稿前不写正式题目。
+- 草稿支持编辑后确认入库；确认失败 rollback，不增加正式题目。
+- 支持扩展已有题库，扩展时读取已有题目摘要和历史 workflow 上下文。
+- AI 服务已拆成 `prompts.py`、`client.py`、`validator.py`、`drafts.py`、`workflow_runtime.py`、`workflow_state.py`、`context.py`，旧 `app/services/ai_generation.py` 只保留兼容 facade。
+
+#### 数据库与迁移
+
+- 已移除 `AIGenerationWorkflow.job_id`、`AIGenerationDraft.job_id` 和 `QuestionBank.active_generation_job_id` 数据库字段。
+- 已解除 `ImportJob <-> AIGenerationWorkflow` 循环外键。
+- 已补核心 `ON DELETE CASCADE`：
+  - 题库删除级联 questions/options/favorites/tag links/practice/mistakes/workflows/steps/drafts/jobs。
+- AI Provider 删除对历史 workflow/job 使用 `SET NULL`，保留 snapshot。
+- SQLite 开发/测试环境已启用外键约束。
+- 后端测试通过 Alembic upgrade 创建测试库。
+
+#### 前端体验
+
+- 前端已使用 Vue 3、Pinia、Vue Router、Tailwind CSS v4。
+- 已拆出基础 UI 组件、BankListView、BankCard、CreateBankModal、练习页组件。
+- 已实现侧边栏和头像用户菜单。
+- 题库列表、公开题库、收藏题库已使用统一列表组件。
+- 多数列表筛选和分页已走 URL query，可刷新恢复。
+- 做题页已支持答题卡、上一题/下一题、W/S 跳行、A/D/方向键、数字键、Enter。
+- 题干、选项、解析展示态已接入 MathJax。
+- 已有 v2 API 模块，部分页面已经开始使用 `/api/v2`。
+
+#### 测试
+
+- 后端已有较完整的 `tests/test_api.py`，覆盖账号、题库权限、标签、收藏、练习判分、错题、AI workflow、草稿确认、v2 banks/practice/users/admin/questions/import/export。
+- 当前后端验证命令：
+
+```bash
+cd backend
+.venv/bin/python -m compileall app
+.venv/bin/python -m pytest tests -q
+```
+
+最近一次验证结果：`20 passed`。
+
+### 20.3 未完成或与初始目标不一致的部分
+
+#### 文档与实现不一致
+
+- 本文档前面章节仍有旧设计残留：
+  - `active_generation_job_id` 已不再是数据库字段。
+  - AI 生成不再是成功后直接入库，而是先生成草稿，用户确认后入库。
+  - 后端已存在 `/api/v2`，不再只有 `/api/v1`。
+  - 后端业务已进入 `domains/` 分层，不再是单纯 `services/`。
+  - JWT refresh token 仍未完整落地，当前主要是 access token。
+  - `user_prompt_templates` 模型仍在，但前端和业务流程没有成为核心能力。
+
+#### 前端迁移未完成
+
+- 前端仍处在 v1/v2 混用阶段，部分页面使用 v1 job API，部分页面使用 v2 workflow/bank API。
+- 草稿确认路由仍以 `/ai-generation/jobs/:jobId/draft` 命名，和 v2 workflow-first 语义不完全一致。
+- 部分页面仍从 `api/client.ts` 兼容层取类型或请求。
+- 前端需要继续统一到 `api/http.ts` + `api/types.ts` + domain API 模块。
+- 前端缺少系统化测试，主要依赖 `npm run build` 和手动验证。
+
+#### UI 和信息密度
+
+- 题库卡片、详情页、生成队列等已经开始压缩，但整体还需要统一到“高频工具型、信息密度适中”的风格。
+- 题库列表应继续减少大卡片感，尽量像紧凑记录行。
+- 草稿确认页在题目多时仍可能偏长，需要更强的折叠、目录或批量编辑能力。
+- AI 配置页、开始答题页、编辑题库页仍需继续检查宽度、间距和信息密度一致性。
+
+#### 后端分层仍在过渡
+
+- v1 路由已部分降级为 domain wrapper，但并未全部清理。
+- `QuestionBankImportExportService`、`QuestionService`、`PracticeSessionService`、`AIGenerationWorkflowService` 已存在，但一些兼容函数仍留在 v1 或 facade。
+- 统一错误响应 `{ error: { code, message, details } }` 尚未落地。
+- Repository 层仍不完整；当前更接近 “Domain Service + Query Service + SQLAlchemy session”。
+- 部分 DTO/schema 仍有 v1/v2 并行重复。
+
+#### AI workflow 能力仍是首版
+
+- LangGraph workflow 已落地，但未引入独立队列系统。
+- BackgroundTasks 仍是当前执行方式，重启进程时 pending/running workflow 不能自动恢复执行。
+- workflow 没有 checkpoint saver，也没有 retry/cancel/re-run 的完整产品化入口。
+- 修复策略是整包 payload 修复，不支持“只修复单道坏题”。
+- 没有多模型 fallback。
+- 没有对长文档做分块、去重、覆盖度统计和增量生成质量评估。
+
+#### 数据库与部署
+
+- 当前迁移采用开发库可重建路线，不适合直接作为生产在线迁移。
+- MySQL 本地配置示例和部署说明仍需完善。
+- `__pycache__`、构建产物、测试 DB 等需要持续确保不进入提交。
+- 生产需要明确 Alembic upgrade 流程，应用启动不再自动建表。
+
+#### 安全与权限增强
+
+- refresh token、logout token 失效机制未完整实现。
+- 文件上传大小、MIME、文本长度限制需要系统化配置和测试。
+- AI 日志敏感信息过滤需要继续审查。
+- 管理员可管理题库，但 AI workflow 源文档和额外指令默认只对创建者可见；这条规则需要在所有新接口中继续保持。
+
+### 20.4 下一步改进方案
+
+#### P0：先修正前端 workflow-first 语义和构建稳定性
+
+目标：前端清楚地区分 v1 job 和 v2 workflow，避免把 workflow id 当成 job id 使用。
+
+- 新增或调整路由：
+  - `/ai-generation/workflows/:workflowId/draft`
+  - 保留 `/ai-generation/jobs/:jobId/draft` 作为 v1 兼容入口，或在页面内部根据来源分别调用 API。
+- `BankDetailPage` 的 `active_workflow` 草稿入口应跳转 workflow 路由。
+- `GenerationDraftPage` 支持 workflow ID 调用 `/api/v2/ai/workflows/{workflow_id}/draft`、confirm、discard。
+- `GenerationJobsPage` 如果仍展示 v1 job，应使用 job id；如果切 v2 workflow 队列，则改名和数据结构。
+- 跑通：
+
+```bash
+cd frontend
+npm run build
+```
+
+#### P1：完成前端 v2 增量迁移
+
+目标：前端展示权限、题库统计、active workflow 统一以 v2 DTO 为准。
+
+- 题库列表、题库详情、题目管理、导入导出优先统一到 `/api/v2/banks`。
+- 练习 session、结果、错题优先统一到 `/api/v2/practice` 和 `/api/v2/banks/{bank_id}/mistakes`。
+- 用户资料、AI Provider、管理员用户管理逐步统一到 `/api/v2/users` 和 `/api/v2/admin/users`。
+- `api/client.ts` 最终只保留兼容 re-export 或被移除。
+- 前端按钮显示尽量使用后端 `permissions`，减少重复 owner/admin 判断。
+
+#### P1：继续压缩题库与列表 UI
+
+目标：保留功能但提升屏幕信息密度。
+
+- `BankCard.vue` 改为更接近紧凑记录行：
+  - 标题、状态、收藏按钮同一行。
+  - 描述默认一行截断。
+  - 作者、标签、题数、收藏数、模型放入紧凑 metadata 行。
+  - padding 优先 `p-3`/`p-4`，减少 `gap-4`/`p-6`。
+- `BankListView.vue` 头部继续紧凑化，筛选 chip 不占大区域。
+- 详情页保留必要信息，但操作区和统计区减少卡片堆叠。
+- 生成队列失败信息保留完整，但默认只在失败项中展开或以紧凑错误块展示。
+
+#### P1：补齐后端统一错误和 API 约定
+
+目标：前后端错误展示稳定，不依赖 FastAPI 默认结构。
+
+- 引入统一错误响应：
+
+```json
+{
+  "error": {
+    "code": "QUESTION_VALIDATION_FAILED",
+    "message": "第 3 题校验失败",
+    "details": {}
+  }
+}
+```
+
+- 先在 v2 API 落地，v1 保持兼容。
+- 前端 `api/http.ts` 同时兼容：
+  - FastAPI `detail: string`
+  - FastAPI `detail: []`
+  - 新 `{ error }`
+
+#### P2：AI workflow 产品化
+
+目标：让 AI workflow 不只是后台任务，而是可恢复、可重试、可扩展的业务资产。
+
+- 增加 workflow retry：
+  - 从失败节点或从头重跑。
+  - 保留旧 step 记录，新增 retry batch 标识。
+- 增加 cancel 的后端一致性：
+  - 已 draft_ready 的取消应变为 discarded/cancelled。
+  - running 中取消需要在节点边界检查状态。
+- 增加“只修复草稿坏题”能力：
+  - 草稿题单题校验。
+  - 对非法题调用修复 prompt。
+- 增加扩展题库去重：
+  - 读取已有题干摘要。
+  - 后端校验近似重复并提示用户。
+- 后续把 BackgroundTasks 替换为 RQ/Celery + Redis，支持进程重启后恢复 pending workflow。
+
+#### P2：完善导入导出和题库维护
+
+- JSON 导入支持更清晰的错误定位：第几题、字段、原因。
+- 追加导入可选去重策略：
+  - 跳过同题干。
+  - 覆盖同题干。
+  - 全部追加。
+- 导出格式版本升级时保持向后兼容。
+- 题库标签支持管理页：合并标签、重命名标签、清理未使用标签。
+
+#### P2：补前端测试和端到端冒烟
+
+- 引入 Vitest + Vue Test Utils 覆盖：
+  - `useBankList` query 同步。
+  - `usePracticeSession` 答题锁定、exam reveal。
+  - `GenerationDraftPage` 保存和确认。
+- 以 Playwright 或轻量脚本做冒烟：
+  - 登录
+  - 创建题库
+  - 导入 JSON
+  - 开始练习
+  - 查看结果
+  - 查看错题
+  - AI 生成队列和草稿页
+
+#### P3：部署与运维整理
+
+- 完善 `.env.example`：
+  - SQLite 开发默认。
+  - MySQL 示例。
+  - CORS、JWT、AI key encryption、上传限制。
+- README 增加：
+  - 初始化 venv。
+  - `alembic upgrade head`。
+  - 启动后端/前端。
+  - 重建开发库步骤。
+- 增加 `.gitignore` 检查项：
+  - `node_modules`
+  - `dist`
+  - `__pycache__`
+  - `*.db`
+  - `frontend/tsconfig.tsbuildinfo`
+
+### 20.5 当前优先级建议
+
+建议下一轮按以下顺序推进：
+
+1. 修正前端 workflow/job 路由语义，确保 AI 草稿确认入口稳定。
+2. 跑 `npm run build`，修复前端类型和构建错误。
+3. 把题库列表和题库详情完全稳定在 v2 DTO，并用 `permissions` 驱动按钮。
+4. 压缩题库卡片和列表 UI，提高信息密度。
+5. 补统一错误响应，先从 v2 API 和前端 `api/http.ts` 开始。
+6. 再做 AI workflow retry/cancel/partial repair。
