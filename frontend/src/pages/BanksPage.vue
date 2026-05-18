@@ -5,10 +5,9 @@ import BankListView from '../components/BankListView.vue'
 <template>
   <BankListView
     title="我的题库"
-    subtitle="管理你创建、生成或导入的题库。"
-    endpoint="/api/v1/question-banks"
-    primary-label="新建题库"
-    primary-to="/banks/generate"
+    subtitle="管理你创建的题库。"
+    scope="mine"
+    allow-create
     show-visibility-filter
     show-generation-filter
   />

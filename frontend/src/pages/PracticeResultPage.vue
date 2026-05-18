@@ -39,8 +39,8 @@ onMounted(async () => {
 
 <template>
   <section class="grid gap-5">
-    <div class="page-card p-6">
-      <h1 class="text-2xl font-bold">练习结果</h1>
+    <div class="page-card p-4">
+      <h1 class="text-lg font-bold">练习结果</h1>
       <p v-if="session" class="mt-2 text-slate-600">
         得分 <strong class="text-slate-900">{{ session.score }}</strong>，正确 {{ session.correct_count }} / {{ session.total_questions }}
       </p>
@@ -48,18 +48,18 @@ onMounted(async () => {
 
     <AppLoading v-if="loading" />
 
-    <div v-else class="grid gap-3">
+    <div v-else class="grid gap-2">
       <article
         v-for="(item, index) in results"
         :key="item.question_id"
-        class="page-card p-5"
+        class="page-card p-4"
         :class="{
           'border-l-4 border-l-green-500': item.is_correct,
           'border-l-4 border-l-red-500': !item.is_correct && !item.is_unanswered,
           'border-l-4 border-l-yellow-500': item.is_unanswered,
         }"
       >
-        <div class="flex items-start justify-between gap-4">
+        <div class="flex items-start justify-between gap-2">
           <strong class="text-slate-900">
             {{ index + 1 }}. [{{ item.type === 'single' ? '单选' : '多选' }}]
             <MathText class="inline" :text="item.stem" />
@@ -68,13 +68,13 @@ onMounted(async () => {
             {{ item.is_unanswered ? '未作答' : item.is_correct ? '正确' : '错误' }}
           </AppBadge>
         </div>
-        <div class="mt-3 grid gap-1 text-sm text-slate-700">
+        <div class="mt-2 grid gap-1 text-sm text-slate-700">
           <p v-for="option in item.options" :key="option.id" class="m-0">
             <span class="font-medium">{{ option.label }}.</span>
             <MathText class="inline" :text="option.content" />
           </p>
         </div>
-        <div class="mt-3 flex flex-wrap gap-3 text-sm">
+        <div class="mt-2 flex flex-wrap gap-2 text-sm">
           <span class="text-slate-500">你的选择：{{ item.is_unanswered ? '未作答' : item.selected_labels.join('、') || '无' }}</span>
           <span class="font-medium text-slate-700">正确答案：{{ item.correct_labels.join('、') }}</span>
         </div>

@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
-import { api, type Page, type UserPublic } from '../api/client'
+import { searchUsers, getUserPublic } from '../api/v2/users'
+import type { Page, UserPublic } from '../api/types'
 
 const props = defineProps<{
   modelValue: number | null
@@ -19,10 +20,7 @@ const loading = ref(false)
 async function search() {
   loading.value = true
   try {
-    const params = new URLSearchParams()
-    params.set('page_size', '8')
-    if (keyword.value.trim()) params.set('keyword', keyword.value.trim())
-    users.value = (await api<Page<UserPublic>>(`/api/v1/users/search?${params}`)).items
+    users.value = (await searchUsers({ page: 1, keyword: keyword.value.trim() || undefined })).items
   } finally {
     loading.value = false
   }
@@ -51,7 +49,7 @@ watch(
       return
     }
     if (selected.value?.id !== value) {
-      const user = await api<UserPublic>(`/api/v1/users/${value}`)
+      const user = await getUserPublic(value)
       selected.value = user
       keyword.value = user.display_name || user.username
     }

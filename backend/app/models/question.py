@@ -10,7 +10,7 @@ class Question(Base):
     __tablename__ = "questions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    bank_id: Mapped[int] = mapped_column(ForeignKey("question_banks.id"), index=True)
+    bank_id: Mapped[int] = mapped_column(ForeignKey("question_banks.id", ondelete="CASCADE"), index=True)
     type: Mapped[str] = mapped_column(String(32))
     stem: Mapped[str] = mapped_column(Text)
     explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -28,7 +28,7 @@ class QuestionOption(Base):
     __tablename__ = "question_options"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    question_id: Mapped[int] = mapped_column(ForeignKey("questions.id"), index=True)
+    question_id: Mapped[int] = mapped_column(ForeignKey("questions.id", ondelete="CASCADE"), index=True)
     label: Mapped[str] = mapped_column(String(8))
     content: Mapped[str] = mapped_column(Text)
     is_correct: Mapped[bool] = mapped_column(Boolean, default=False)

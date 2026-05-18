@@ -5,8 +5,8 @@ import BankListView from '../components/BankListView.vue'
 <template>
   <BankListView
     title="公开题库"
-    subtitle="浏览大家公开分享的题库，按关键词或作者快速定位。"
-    endpoint="/api/v1/question-banks/public"
+    subtitle="浏览社区分享的题库。"
+    scope="public"
     show-author-filter
   />
 </template>

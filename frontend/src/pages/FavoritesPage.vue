@@ -5,8 +5,8 @@ import BankListView from '../components/BankListView.vue'
 <template>
   <BankListView
     title="我的收藏"
-    subtitle="收纳公开题库和你自己的私有题库。"
-    endpoint="/api/v1/question-banks/favorites"
+    subtitle="已收藏的题库。"
+    scope="favorites"
     show-author-filter
     show-visibility-filter
     show-generation-filter

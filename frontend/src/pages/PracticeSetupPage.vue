@@ -46,14 +46,14 @@ onMounted(load)
 
 <template>
   <section class="grid gap-5">
-    <div class="page-card p-6">
-      <h1 class="text-2xl font-bold">开始刷题</h1>
-      <p v-if="bank" class="mt-2 text-slate-600">{{ bank.title }} · {{ bank.question_count }} 题</p>
+    <div class="page-card p-4">
+      <h1 class="text-lg font-bold">开始刷题</h1>
+      <p v-if="bank" class="mt-1 text-slate-600">{{ bank.title }} · {{ bank.question_count }} 题</p>
     </div>
 
     <AppLoading v-if="loading" />
 
-    <div v-else class="grid max-w-2xl gap-5 page-card p-6">
+    <div v-else class="grid max-w-2xl gap-4 page-card p-4">
       <label class="grid gap-1">
         <span class="text-sm font-medium text-slate-700">练习模式</span>
         <select v-model="mode" class="rounded-input border border-slate-300 bg-white px-3 py-2">

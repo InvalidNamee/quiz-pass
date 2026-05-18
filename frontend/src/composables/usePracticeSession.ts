@@ -1,5 +1,6 @@
 import { ref, computed } from 'vue'
-import { api, type PracticeSession } from '../api/client'
+import { getSession, getSessionQuestions, answerQuestion, submitSession } from '../api/v2/practice'
+import type { PracticeSession } from '../api/types'
 
 type PracticeQuestion = {
   id: number
@@ -61,8 +62,8 @@ export function usePracticeSession(sessionId: number) {
   async function load() {
     loading.value = true
     try {
-      session.value = await api<PracticeSession>(`/api/v1/practice/sessions/${sessionId}`)
-      questions.value = await api<PracticeQuestion[]>(`/api/v1/practice/sessions/${sessionId}/questions`)
+      session.value = await getSession(sessionId)
+      questions.value = await getSessionQuestions(sessionId)
 
       const restored: Record<number, number[]> = {}
       const restoredAnswered: Record<number, boolean> = {}
@@ -109,17 +110,14 @@ export function usePracticeSession(sessionId: number) {
   async function submitAnswer() {
     const q = currentQuestion.value
     if (!q || isLocked(q.id)) return
-    const result = await api<AnswerResult>(`/api/v1/practice/sessions/${sessionId}/answers`, {
-      method: 'POST',
-      body: JSON.stringify({ question_id: q.id, selected_option_ids: selected.value[q.id] ?? [] }),
-    })
+    const result = await answerQuestion(sessionId, q.id, selected.value[q.id] ?? [])
     answered.value[q.id] = true
     if (result.reveal && result.is_correct !== null) answerStatus.value[q.id] = result.is_correct ? 'correct' : 'wrong'
     answerResults.value[q.id] = result
   }
 
   async function submitAll() {
-    await api<PracticeSession>(`/api/v1/practice/sessions/${sessionId}/submit`, { method: 'POST' })
+    await submitSession(sessionId)
   }
 
   function previousQuestion() {

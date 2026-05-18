@@ -3,10 +3,9 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.api.v1.router import api_router
+from app.api.v1.router import api_router as api_v1_router
+from app.api.v2.router import api_router as api_v2_router
 from app.core.config import get_settings
-from app.db.base import Base
-from app.db.session import engine
 from app import models  # noqa: F401
 
 settings = get_settings()
@@ -14,7 +13,6 @@ settings = get_settings()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    Base.metadata.create_all(bind=engine)
     yield
 
 
@@ -33,4 +31,5 @@ def health():
     return {"status": "ok"}
 
 
-app.include_router(api_router, prefix="/api/v1")
+app.include_router(api_v1_router, prefix="/api/v1")
+app.include_router(api_v2_router, prefix="/api/v2")

@@ -1,0 +1,43 @@
+import { api } from '../http'
+import type { Page, PracticeSession, MistakeRecord } from '../types'
+
+export function createSession(data: { bank_id: number; mode: string; question_limit?: number }) {
+  return api<PracticeSession>('/api/v2/practice/sessions', { method: 'POST', body: JSON.stringify(data) })
+}
+
+export function getSession(sessionId: number) {
+  return api<PracticeSession>(`/api/v2/practice/sessions/${sessionId}`)
+}
+
+export function getSessionQuestions(sessionId: number, shuffleOptions?: boolean) {
+  const q = shuffleOptions ? '?shuffle_options=true' : ''
+  return api<any[]>(`/api/v2/practice/sessions/${sessionId}/questions${q}`)
+}
+
+export function answerQuestion(sessionId: number, questionId: number, selectedOptionIds: number[]) {
+  return api<any>(`/api/v2/practice/sessions/${sessionId}/answers`, {
+    method: 'POST',
+    body: JSON.stringify({ question_id: questionId, selected_option_ids: selectedOptionIds }),
+  })
+}
+
+export function submitSession(sessionId: number) {
+  return api<PracticeSession>(`/api/v2/practice/sessions/${sessionId}/submit`, { method: 'POST' })
+}
+
+export function getResult(sessionId: number) {
+  return api<any[]>(`/api/v2/practice/sessions/${sessionId}/result`)
+}
+
+export function listMistakes(bankId: number, resolved?: boolean) {
+  const q = resolved !== undefined ? `?resolved=${resolved}` : ''
+  return api<Page<MistakeRecord>>(`/api/v2/banks/${bankId}/mistakes${q}`)
+}
+
+export function createMistakeSession(bankId: number) {
+  return api<PracticeSession>(`/api/v2/banks/${bankId}/mistakes/practice-sessions`, { method: 'POST' })
+}
+
+export function resolveMistake(bankId: number, questionId: number) {
+  return api(`/api/v2/banks/${bankId}/mistakes/${questionId}/resolve`, { method: 'POST' })
+}

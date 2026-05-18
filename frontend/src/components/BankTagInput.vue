@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { api, type Page, type QuestionBankTag } from '../api/client'
+import { listTags } from '../api/v2/banks'
+import type { Page, QuestionBankTag } from '../api/types'
 
 const props = withDefaults(defineProps<{
   modelValue: QuestionBankTag[]
@@ -25,10 +26,7 @@ let debounceTimer: ReturnType<typeof setTimeout>
 async function search() {
   loading.value = true
   try {
-    const params = new URLSearchParams()
-    params.set('page_size', '8')
-    if (keyword.value.trim()) params.set('keyword', keyword.value.trim())
-    const result = await api<Page<QuestionBankTag>>(`/api/v1/question-banks/tags?${params}`)
+    const result = await listTags({ page_size: 8, keyword: keyword.value.trim() || undefined })
     tags.value = result.items.filter(t => !props.modelValue.some(v => v.id === t.id))
   } finally {
     loading.value = false

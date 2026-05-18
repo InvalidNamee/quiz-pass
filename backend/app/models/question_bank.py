@@ -9,8 +9,8 @@ from app.db.base import Base
 question_bank_tag_links = Table(
     "question_bank_tag_links",
     Base.metadata,
-    Column("bank_id", ForeignKey("question_banks.id"), primary_key=True),
-    Column("tag_id", ForeignKey("question_bank_tags.id"), primary_key=True),
+    Column("bank_id", ForeignKey("question_banks.id", ondelete="CASCADE"), primary_key=True),
+    Column("tag_id", ForeignKey("question_bank_tags.id", ondelete="CASCADE"), primary_key=True),
     UniqueConstraint("bank_id", "tag_id", name="uq_question_bank_tag_link"),
 )
 
@@ -25,10 +25,9 @@ class QuestionBank(Base):
     visibility: Mapped[str] = mapped_column(String(32), default="private", index=True)
     desired_visibility: Mapped[str] = mapped_column(String(32), default="private")
     generation_status: Mapped[str] = mapped_column(String(32), default="none", index=True)
-    active_generation_job_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
     question_count: Mapped[int] = mapped_column(Integer, default=0)
     favorite_count: Mapped[int] = mapped_column(Integer, default=0)
-    ai_provider_config_id: Mapped[int | None] = mapped_column(ForeignKey("user_ai_provider_configs.id"), nullable=True)
+    ai_provider_config_id: Mapped[int | None] = mapped_column(ForeignKey("user_ai_provider_configs.id", ondelete="SET NULL"), nullable=True)
     ai_model_name: Mapped[str | None] = mapped_column(String(128), nullable=True)
     ai_base_url_host: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
@@ -56,5 +55,5 @@ class QuestionBankFavorite(Base):
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    bank_id: Mapped[int] = mapped_column(ForeignKey("question_banks.id"), index=True)
+    bank_id: Mapped[int] = mapped_column(ForeignKey("question_banks.id", ondelete="CASCADE"), index=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

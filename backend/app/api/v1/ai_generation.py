@@ -22,17 +22,23 @@ from app.utils.pagination import paginate
 router = APIRouter()
 
 
-def _run_generation(job_id: int, text: str, question_count: int | None, generate_description: bool, generation_mode: str, extra_instruction: str | None) -> None:
+def _run_generation(workflow_id: int, text: str, question_count: int | None, generate_description: bool, generation_mode: str, extra_instruction: str | None) -> None:
     db = SessionLocal()
     try:
-        generate_questions_from_ai(db, job_id, text, question_count, generate_description, generation_mode, extra_instruction)
+        generate_questions_from_ai(db, workflow_id, text, question_count, generate_description, generation_mode, extra_instruction)
     finally:
         db.close()
 
 
 def job_out(db: Session, job: ImportJob) -> ImportJobOut:
     workflow = db.get(AIGenerationWorkflow, job.workflow_id) if job.workflow_id else None
-    draft = db.scalar(select(AIGenerationDraft).options(selectinload(AIGenerationDraft.questions)).where(AIGenerationDraft.job_id == job.id, AIGenerationDraft.status == "ready"))
+    draft = None
+    if workflow:
+        draft = db.scalar(
+            select(AIGenerationDraft)
+            .options(selectinload(AIGenerationDraft.questions))
+            .where(AIGenerationDraft.workflow_id == workflow.id, AIGenerationDraft.status == "ready")
+        )
     draft_count = len(draft.questions) if draft else 0
     return ImportJobOut.model_validate(job, from_attributes=True).model_copy(
         update={
@@ -117,23 +123,9 @@ async def create_question_bank_job(
         set_bank_tags(db, bank, parsed_tag_names)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
-    job = ImportJob(
-        user_id=current_user.id,
-        bank_id=bank.id,
-        type="bank_parse_ai" if generation_mode == "bank_parse" else "document_ai",
-        status="pending",
-        desired_visibility=desired_visibility,
-        file_name=file.filename,
-        ai_provider_config_id=config.id,
-        ai_base_url_snapshot=host,
-        ai_model_snapshot=config.model,
-    )
-    db.add(job)
-    db.flush()
     workflow = AIGenerationWorkflow(
         bank_id=bank.id,
         user_id=current_user.id,
-        job_id=job.id,
         purpose="create_bank",
         generation_mode=generation_mode,
         status="pending",
@@ -148,10 +140,22 @@ async def create_question_bank_job(
     )
     db.add(workflow)
     db.flush()
-    job.workflow_id = workflow.id
-    bank.active_generation_job_id = job.id
+    job = ImportJob(
+        user_id=current_user.id,
+        bank_id=bank.id,
+        workflow_id=workflow.id,
+        type="bank_parse_ai" if generation_mode == "bank_parse" else "document_ai",
+        status="pending",
+        desired_visibility=desired_visibility,
+        file_name=file.filename,
+        ai_provider_config_id=config.id,
+        ai_base_url_snapshot=host,
+        ai_model_snapshot=config.model,
+    )
+    db.add(job)
+    db.flush()
     db.commit()
-    background_tasks.add_task(_run_generation, job.id, text, effective_count, generate_description, generation_mode, normalized_extra_instruction)
+    background_tasks.add_task(_run_generation, workflow.id, text, effective_count, generate_description, generation_mode, normalized_extra_instruction)
     return AIGenerationBankJobOut(bank_id=bank.id, job_id=job.id)
 
 
@@ -188,7 +192,7 @@ def cancel_job(job_id: int, current_user: User = Depends(get_current_user), db: 
             if workflow:
                 workflow.status = "cancelled"
                 workflow.error_message = "用户已取消"
-                draft = db.scalar(select(AIGenerationDraft).where(AIGenerationDraft.job_id == job.id, AIGenerationDraft.status == "ready"))
+                draft = db.scalar(select(AIGenerationDraft).where(AIGenerationDraft.workflow_id == workflow.id, AIGenerationDraft.status == "ready"))
                 if draft:
                     draft.status = "discarded"
         if job.bank_id:
@@ -205,7 +209,11 @@ def confirm_job(job_id: int, current_user: User = Depends(get_current_user), db:
     job = db.get(ImportJob, job_id)
     if not job or job.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Job not found")
-    draft = db.scalar(select(AIGenerationDraft).options(selectinload(AIGenerationDraft.questions)).where(AIGenerationDraft.job_id == job.id, AIGenerationDraft.status == "ready"))
+    draft = db.scalar(
+        select(AIGenerationDraft)
+        .options(selectinload(AIGenerationDraft.questions))
+        .where(AIGenerationDraft.workflow_id == job.workflow_id, AIGenerationDraft.status == "ready")
+    )
     if not draft:
         raise HTTPException(status_code=400, detail="没有可确认的草稿")
     try:
@@ -238,7 +246,11 @@ def get_job_draft(job_id: int, current_user: User = Depends(get_current_user), d
     job = db.get(ImportJob, job_id)
     if not job or job.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Job not found")
-    draft = db.scalar(select(AIGenerationDraft).options(selectinload(AIGenerationDraft.questions)).where(AIGenerationDraft.job_id == job.id, AIGenerationDraft.status == "ready"))
+    draft = db.scalar(
+        select(AIGenerationDraft)
+        .options(selectinload(AIGenerationDraft.questions))
+        .where(AIGenerationDraft.workflow_id == job.workflow_id, AIGenerationDraft.status == "ready")
+    )
     if not draft:
         raise HTTPException(status_code=404, detail="Draft not found")
     return draft_to_payload(draft)
@@ -249,7 +261,11 @@ def update_job_draft(job_id: int, payload: dict, current_user: User = Depends(ge
     job = db.get(ImportJob, job_id)
     if not job or job.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Job not found")
-    draft = db.scalar(select(AIGenerationDraft).options(selectinload(AIGenerationDraft.questions)).where(AIGenerationDraft.job_id == job.id, AIGenerationDraft.status == "ready"))
+    draft = db.scalar(
+        select(AIGenerationDraft)
+        .options(selectinload(AIGenerationDraft.questions))
+        .where(AIGenerationDraft.workflow_id == job.workflow_id, AIGenerationDraft.status == "ready")
+    )
     if not draft:
         raise HTTPException(status_code=404, detail="Draft not found")
     try:
@@ -268,7 +284,7 @@ def discard_job_draft(job_id: int, current_user: User = Depends(get_current_user
     job = db.get(ImportJob, job_id)
     if not job or job.user_id != current_user.id:
         raise HTTPException(status_code=404, detail="Job not found")
-    draft = db.scalar(select(AIGenerationDraft).where(AIGenerationDraft.job_id == job.id, AIGenerationDraft.status == "ready"))
+    draft = db.scalar(select(AIGenerationDraft).where(AIGenerationDraft.workflow_id == job.workflow_id, AIGenerationDraft.status == "ready"))
     if draft:
         draft.status = "discarded"
     job.status = "cancelled"

@@ -70,10 +70,10 @@ watch(() => route.fullPath, load)
 
 <template>
   <section class="grid gap-5">
-    <div class="page-card p-6">
-      <h1 class="text-2xl font-bold">刷题记录</h1>
+    <div class="page-card p-4">
+      <h1 class="text-lg font-bold">刷题记录</h1>
       <p class="mt-1 text-slate-600">回顾练习历史和成绩。</p>
-      <div class="mt-5 grid max-w-xl gap-3 sm:grid-cols-[1fr_1fr_auto]">
+      <div class="mt-3 grid max-w-xl gap-2 sm:grid-cols-[1fr_1fr_auto]">
         <select v-model="mode" class="rounded-input border border-slate-300 bg-white px-3 py-2">
           <option value="">全部模式</option>
           <option value="practice">普通练习</option>
@@ -93,14 +93,14 @@ watch(() => route.fullPath, load)
     <AppEmpty v-else-if="!sessions.length" title="暂无练习记录" description="选择一个题库开始练习吧" />
 
     <template v-else>
-      <div class="grid gap-3">
+      <div class="grid gap-2">
         <RouterLink
           v-for="item in sessions"
           :key="item.id"
-          class="page-card group grid gap-2 p-4"
+          class="page-card group grid gap-1.5 p-3"
           :to="item.status === 'in_progress' ? `/practice/session/${item.id}` : `/practice/result/${item.id}`"
         >
-          <div class="flex flex-wrap items-center justify-between gap-3">
+          <div class="flex flex-wrap items-center justify-between gap-2">
             <div class="flex flex-wrap items-center gap-2 min-w-0">
               <RouterLink :to="`/banks/${item.bank_id}`" class="truncate font-semibold text-slate-900 hover:text-brand-600" @click.stop>{{ item.bank_title || `题库 #${item.bank_id}` }}</RouterLink>
               <AppBadge v-if="item.bank_visibility === 'public'" variant="default" size="sm">公开</AppBadge>
@@ -111,7 +111,7 @@ watch(() => route.fullPath, load)
             </div>
           </div>
 
-          <div class="flex flex-wrap items-center justify-between gap-3 text-sm text-slate-500">
+          <div class="flex flex-wrap items-center justify-between gap-2 text-sm text-slate-500">
             <span>#{{ item.id }} · {{ activityDesc(item) }}</span>
             <span v-if="item.status === 'in_progress'" class="font-medium text-slate-700">已答 {{ item.answered_count }} / {{ item.total_questions }}</span>
             <span v-else class="font-medium" :class="(item.score || 0) >= 80 ? 'text-emerald-600' : (item.score || 0) >= 60 ? 'text-yellow-600' : 'text-red-600'">

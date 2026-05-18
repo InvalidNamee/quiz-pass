@@ -99,15 +99,15 @@ watch(() => route.fullPath, load)
 
 <template>
   <section class="grid gap-5">
-    <div class="page-card p-6">
-      <div class="flex flex-wrap items-start justify-between gap-4">
+    <div class="page-card p-4">
+      <div class="flex flex-wrap items-start justify-between gap-2">
         <div>
-          <h1 class="text-2xl font-bold">生成队列</h1>
-          <p class="mt-2 text-slate-600">查看 AI 生成题库任务。</p>
+          <h1 class="text-lg font-bold">生成队列</h1>
+          <p class="mt-1 text-slate-600">查看 AI 生成题库任务。</p>
         </div>
-        <RouterLink to="/banks/generate" class="inline-flex items-center rounded-btn bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">新建题库</RouterLink>
+        <RouterLink to="/banks/generate" class="inline-flex items-center rounded-btn bg-brand-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-brand-700">新建题库</RouterLink>
       </div>
-      <div class="mt-5 flex flex-wrap gap-2">
+      <div class="mt-3 flex flex-wrap gap-2">
         <select v-model="status" class="rounded-input border border-slate-300 bg-white px-3 py-2">
           <option value="">全部状态</option>
           <option value="pending">等待生成</option>
@@ -126,13 +126,13 @@ watch(() => route.fullPath, load)
     <AppEmpty v-else-if="!jobs.length" title="暂无生成任务" />
 
     <template v-else>
-      <div class="grid gap-3">
+      <div class="grid gap-2">
         <div
           v-for="job in jobs"
           :key="job.id"
-          class="page-card p-5 hover:border-brand-500/30"
+          class="page-card p-4 hover:border-brand-500/30"
         >
-          <div class="flex flex-wrap items-start justify-between gap-4">
+          <div class="flex flex-wrap items-start justify-between gap-2">
             <div>
               <div class="flex flex-wrap items-center gap-2">
                 <strong>任务 #{{ job.id }}</strong>
@@ -147,7 +147,7 @@ watch(() => route.fullPath, load)
             </div>
             <span class="text-sm text-slate-500">{{ job.ai_model_snapshot || '未记录模型' }}</span>
           </div>
-          <div class="mt-4 flex flex-wrap gap-2">
+          <div class="mt-2 flex flex-wrap gap-2">
             <RouterLink
               v-if="job.can_confirm"
               :to="`/ai-generation/jobs/${job.id}/draft`"

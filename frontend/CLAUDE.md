@@ -1,58 +1,296 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file is the working context for Claude Code when changing the Quiz Pass frontend.
 
-## Project Overview
+## Project Snapshot
 
-Quiz Pass is a full-stack AI-powered quiz practice platform. The frontend (Vue 3 SPA) lives in `frontend/`, the backend (FastAPI) lives in `backend/`. The repo root is `/Users/wangyafei/Projects/Quiz` — CWD is typically `frontend/` for UI work or `backend/` for API work.
+Quiz Pass is an AI-powered quiz bank and practice platform. The frontend is a Vue 3 SPA in `frontend/`; the backend is FastAPI in `backend/`.
+
+Current frontend work should focus on adapting to the backend domain/v2 direction while preserving all existing user-visible features. Do not do a visual reset. Improve consistency and information density with small, careful changes.
 
 ## Commands
 
-### Frontend (in `frontend/`)
+Run from `frontend/`:
+
 ```bash
-npm run dev              # Vite dev server on 0.0.0.0:5173, proxies /api → localhost:8000
-npm run build            # vue-tsc type-check + vite build
-npm run preview          # Preview production build
+npm run dev
+npm run build
+npm run preview
 ```
 
-### Backend (in `backend/`)
+Backend for local integration, from `backend/`:
+
 ```bash
 .venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-.venv/bin/alembic -c ../alembic.ini upgrade head   # Run migrations
-.venv/bin/python -m pytest tests/ -v                # Run tests
+.venv/bin/alembic -c ../alembic.ini upgrade head
+.venv/bin/python -m pytest tests -q
 ```
 
-## Architecture
+The Vite dev server listens on `0.0.0.0:5173`. It proxies `/api` and `/health` to the backend. `VITE_DEV_API_PROXY_TARGET` can override the proxy target.
 
-### Backend (`backend/app/`)
-- **FastAPI** with lifespan-managed DB table creation (auto-creates tables, Alembic for migrations)
-- **Layered structure**: `models/` (SQLAlchemy ORM) → `schemas/` (Pydantic) → `api/v1/` (route handlers) → `services/` (business logic) → `utils/`
-- **Auth**: JWT (HS256) via `python-jose`. Passwords: bcrypt over SHA-256 digest. Dependency `get_current_user` in `api/deps.py` injects the authenticated `User` into routes. `require_admin` gates admin endpoints.
-- **DB**: SQLAlchemy 2.0 with `SessionLocal` generator. Supports SQLite (default) and MySQL via `DATABASE_URL`. `check_same_thread=False` for SQLite. `pool_pre_ping=True` for MySQL.
-- **Config**: `core/config.py` uses `pydantic-settings` reading from `backend/.env`. `CORS_ORIGINS` parsed from comma-separated string.
-- **API key encryption**: Fernet symmetric encryption in `utils/crypto.py`, key derived via SHA-256 from `AI_CONFIG_ENCRYPTION_KEY` or `JWT_SECRET_KEY`.
-- **AI generation**: `services/ai_generation.py` calls OpenAI-compatible APIs. Supports two modes: `knowledge_generate` (create questions from material) and `bank_parse` (extract existing questions from a document). Runs as FastAPI background task. Validates single/multiple-choice answer counts strictly before persisting.
-- **Pagination**: `utils/pagination.py` — `paginate(db, stmt, page, page_size)` returns `(items, total, page, page_size)`. Page capped at 100, page_size clamped to 1-100.
-- **Document extraction**: `utils/document_extractors.py` handles `.txt`, `.pdf` (pypdf), `.docx` (python-docx).
-- **Key models**: `User`, `QuestionBank`, `Question`, `QuestionOption`, `QuestionBankFavorite`, `ImportJob`, `PracticeSession`, `PracticeSessionQuestion`, `PracticeAnswer`, `MistakeRecord`, `UserAIProviderConfig`, `UserPromptTemplate`.
-- **Question bank states**: `generation_status` tracks AI generation lifecycle (`none`/`pending`/`processing`/`succeeded`/`failed`). `desired_visibility` is the user's target; actual `visibility` stays `private` until generation succeeds.
+## Current Frontend Architecture
 
-### Frontend (`frontend/src/`)
-- **Stack**: Vue 3 + Vite + Pinia + Vue Router + Tailwind CSS v4
-- **API client** (`api/client.ts`): Thin `fetch` wrapper — auto-attaches `Authorization: Bearer` from localStorage, sets `Content-Type: application/json` (skipped for FormData), parses FastAPI validation error detail arrays. All type definitions (`UserMe`, `QuestionBank`, `Question`, `PracticeSession`, etc.) live here.
-- **Auth store** (`stores/auth.ts`): Pinia store with `user`, `token`, `login`, `register`, `loadMe`, `logout`. Token persisted in localStorage.
-- **Router** (`router.ts`): `createWebHistory` with `meta.auth` guards. BeforeEach hook calls `auth.loadMe()` on token-present-but-no-user, redirects to `/login` if unauthenticated.
-- **Reusable component**: `BankListView.vue` — paginated, filterable bank list used by BanksPage, PublicBanksPage, FavoritesPage. Props control which filters/actions are shown.
-- **No build-step CSS framework** — Tailwind v4 via `@tailwindcss/vite` plugin (zero-config, CSS-first config in `styles/main.css`).
-- **Vite proxy**: `/api` and `/health` proxied to backend. Override target via `VITE_DEV_API_PROXY_TARGET` env var.
+Stack:
 
-### API Routes (`/api/v1`)
-| Prefix | Module | Purpose |
-|--------|--------|---------|
-| `/auth` | `auth.py` | register, login, me |
-| `/users` | `users.py` | profile CRUD, password change, AI configs, user search, public profiles |
-| `/question-banks` | `question_banks.py` | CRUD, public list, favorites, JSON export/import |
-| `/questions` | `questions.py` | CRUD under banks (routes use `/question-banks/{id}/questions` and `/questions/{id}`) |
-| `/ai-generation` | `ai_generation.py` | Create generation jobs (multipart form), list/cancel/confirm jobs |
-| `/practice` | `practice.py` | Sessions, answers, submission, results, mistakes, history |
-| `/admin` | `admin.py` | User listing (admin-only) |
+- Vue 3 + `<script setup>`
+- Vue Router
+- Pinia
+- Tailwind CSS v4 through `@tailwindcss/vite`
+- MathJax via `MathText.vue` and `utils/mathjax.ts`
+
+Important files:
+
+- `src/App.vue`: app shell, sidebar placement, mobile overlay, toast container.
+- `src/router.ts`: page routes and auth guard.
+- `src/stores/auth.ts`: token/user state, login/register/loadMe/logout.
+- `src/api/http.ts`: shared fetch wrapper.
+- `src/api/types.ts`: shared frontend API types.
+- `src/api/*.ts`: typed API modules split by domain.
+- `src/components/App*.vue`: base UI primitives.
+- `src/components/AppSidebar.vue`: main navigation and user menu.
+- `src/components/BankListView.vue`: shared bank list screen.
+- `src/components/bank/BankCard.vue`: bank list item/card.
+- `src/components/bank/CreateBankModal.vue`: quick manual bank creation.
+- `src/components/practice/*`: practice session UI pieces.
+- `src/pages/*.vue`: route pages.
+
+Prefer the newer split API modules over putting new calls into the old `api/client.ts`. `api/client.ts` still exists for compatibility and some pages still import it, but new or touched code should move toward `api/http.ts`, `api/types.ts`, and domain-specific modules.
+
+## Backend API Context
+
+The backend now has both v1 compatibility endpoints and a newer `/api/v2` domain-shaped API. Frontend is still mostly v1. Do not switch everything at once unless explicitly asked.
+
+Stable v1 areas still used by the frontend:
+
+- `/api/v1/auth`
+- `/api/v1/users`
+- `/api/v1/question-banks`
+- `/api/v1/questions`
+- `/api/v1/ai-generation`
+- `/api/v1/practice`
+- `/api/v1/admin`
+
+New v2 direction:
+
+- `/api/v2/banks`
+- `/api/v2/banks/{bank_id}/questions`
+- `/api/v2/banks/import-json`
+- `/api/v2/banks/{bank_id}/import-json`
+- `/api/v2/banks/{bank_id}/export-json`
+- `/api/v2/practice/sessions`
+- `/api/v2/ai/workflows`
+- `/api/v2/ai/workflows/{workflow_id}/draft`
+- `/api/v2/users`
+- `/api/v2/admin/users`
+
+Key backend shape changes to remember:
+
+- AI generation is workflow-first internally.
+- v1 still exposes job-based AI generation endpoints.
+- A generated/parsed bank now creates a draft first; user confirmation imports questions into the real bank.
+- `ImportJob` is a queue/projection compatibility layer, not the core AI entity.
+- Bank permissions should eventually come from backend DTOs. Current v1 frontend still computes some owner/admin checks itself.
+
+## Product Rules To Preserve
+
+Authentication and users:
+
+- Login supports username or email.
+- API keys are entered plainly on creation, but are not displayed or editable after save. Replacing a key means deleting/recreating the config.
+- User menu should show only one avatar in the sidebar. The popover can show full account details and links.
+- User menu entries: personal homepage, account settings, logout.
+- Admin users can edit basic user info, enable/disable ordinary users, and reset passwords. Admins must not grant other users admin role.
+
+Question banks:
+
+- My banks, public banks, and favorites all support pagination, search, tag filtering, and route-query restoration.
+- Tag filter URLs must use numeric IDs, e.g. `tag_ids=1,3,8`, not long Chinese tag names.
+- Banks can be public/private and both can be favorited if readable.
+- Non-owner on public bank can view, favorite, practice, view their own mistakes, and export.
+- Non-owner on public bank cannot edit bank, delete bank, manage questions, append import, or AI-extend.
+- Admin can manage all banks.
+- Private banks are invisible to ordinary non-owners.
+
+AI generation:
+
+- "新建题库" covers two modes:
+  - `knowledge_generate`: generate from knowledge/document, optional fixed/adaptive count, optional AI-generated description.
+  - `bank_parse`: parse an existing quiz document, no question count field.
+- Both modes support user extra instruction.
+- Both modes support tags at creation.
+- AI workflows produce drafts; drafts must be editable before confirmation.
+- Generation queue should show job/workflow state, type, repair attempts, draft count, and full error message.
+- If draft is ready, user can continue to draft confirmation from the queue or bank detail.
+
+Practice:
+
+- Practice starts from a specific bank, not a global bank selector.
+- Normal practice and mistake practice reveal answer/explanation after answering and lock that question.
+- Exam mode saves and locks answers but does not reveal correctness until final submission.
+- Results show question stem, options, user selection, correct labels as ABCD, explanation, and unanswered state.
+- History should allow resuming in-progress sessions.
+- Mistakes belong to `user_id + bank_id + question_id`. The bank mistake page shows only the current user's mistakes for that bank.
+
+## Frontend Design Direction
+
+Use Tailwind CSS utilities and existing base components. Avoid custom CSS unless it is a small shared token or animation in `styles/main.css`.
+
+The current target style is quiet, utilitarian, and information-dense:
+
+- Prefer compact list rows and small cards over large editorial cards.
+- Avoid oversized bank cards. They currently take too much vertical space.
+- Keep card padding modest: usually `p-3` or `p-4`, not `p-6`, unless it is a top-level detail header.
+- Bank list items should fit more records on one screen.
+- Use one-line title rows, compact metadata, small chips, and `line-clamp-1` or `line-clamp-2`.
+- Do not make nested cards inside cards.
+- Avoid large empty vertical gaps.
+- Avoid big hero-like headers inside app pages.
+- Keep filters in a modal or compact toolbar; do not consume an entire screen band for every filter.
+- Use existing `AppButton`, `AppBadge`, `AppAvatar`, `AppPagination`, `AppEmpty`, `AppLoading`, `AppModal`, and toast utilities.
+
+Bank list/card density guidance:
+
+- `BankCard.vue` should read more like a dense record row than a marketing card.
+- Suggested layout: title/status/favorite in first row; description as one short line; tags/author/question count/favorite count/model in a compact metadata row.
+- Prefer `text-sm` and `text-xs` for metadata.
+- Prefer `gap-2` over `gap-4`.
+- Favorite action can be a small text/icon button, not a large visual CTA.
+
+Page density guidance:
+
+- `BankListView.vue`: keep header compact; show active filters as small chips; list uses `grid gap-2`.
+- `BankDetailPage.vue`: header can be larger than list rows, but action sections should be compact.
+- `PracticeSetupPage.vue`: should match the newer card style and not look like legacy form UI.
+- `GenerationDraftPage.vue`: draft editing can be spacious enough to edit safely, but avoid huge repeated blocks when many questions exist.
+- `AIProvidersPage.vue`: creation/edit cards should share page width and not create mismatched narrow forms.
+
+## Frontend Work Needed Next
+
+### 1. Align Frontend Types With Backend Direction
+
+Audit `src/api/types.ts` and add v2-compatible DTOs without breaking existing v1 pages:
+
+- Bank owner object when using v2.
+- Bank stats object: `question_count`, `favorite_count`.
+- Bank permissions object: `can_read`, `can_manage`, `can_export`, `can_practice`, `can_view_mistakes`, `can_extend_ai`.
+- Active workflow object: `id`, `status`, `purpose`, `draft_question_count`.
+- AI workflow DTOs for `/api/v2/ai/workflows`.
+
+Do not remove current v1 fields until all pages are migrated.
+
+### 2. Add V2 API Modules Incrementally
+
+Add or extend API modules in small slices:
+
+- `src/api/banks.ts`: add v2 bank list/detail/questions/import/export functions alongside current v1 functions.
+- `src/api/aiGeneration.ts`: add v2 workflow functions while keeping v1 job functions.
+- `src/api/practice.ts`: add v2 practice session functions if pages are migrated.
+- `src/api/users.ts`: add v2 users/admin functions if admin/profile pages are migrated.
+
+Migration rule: one page at a time. Do not do a blanket endpoint switch.
+
+### 3. Use Backend Permissions For Button Visibility
+
+Current pages often compute owner/admin in the frontend. When a page is moved to v2 bank detail/list DTOs, use `bank.permissions` for UI decisions:
+
+- readable actions: favorite, practice, mistakes, export.
+- management actions: edit bank, delete bank, questions, append import, AI extend.
+
+Keep route guards defensive. If a user manually opens a management route and backend denies it, show a toast and route back to bank detail.
+
+### 4. Improve Bank List Density
+
+Refactor `src/components/bank/BankCard.vue` first. Preserve all displayed information, but make it denser:
+
+- Reduce padding and gaps.
+- Keep title/status/favorite in one row.
+- Clamp description to one line on desktop, two on mobile if necessary.
+- Move author, tags, counts, model into compact metadata.
+- Keep author clickable.
+- Keep tags visible but small.
+
+Then adjust `BankListView.vue` only if needed to support the denser item.
+
+### 5. Keep Route Query Behavior
+
+All list pages with filters/pagination must read from and write to query strings:
+
+- `page`
+- `keyword`
+- `owner_id`
+- `tag_ids`
+- `visibility`
+- `generation_status`
+- `status` for job/history queues where applicable
+
+Do not store filter state only in component refs if refresh/back/forward would lose it.
+
+### 6. AI Draft And Queue UX
+
+Generation queue should remain compact but informative:
+
+- Show purpose/type: new bank vs extend bank, knowledge generation vs bank parse.
+- Show status, repair attempts, draft question count.
+- If failed, show full `error_message` in a readable pre-wrap block.
+- If draft is ready, show a clear "确认草稿" action.
+
+Draft confirmation page must preserve editing of:
+
+- bank description
+- question type
+- stem
+- options
+- correct options
+- explanation
+- deleting questions
+- adding questions
+
+On confirm failure, show backend validation details as-is; do not collapse detailed error messages into "请求失败".
+
+### 7. Practice And Mistakes UI Consistency
+
+Practice pages should keep the result-page style:
+
+- Use `MathText` for stems, options, and explanations.
+- Answer card should scroll internally if long and must not stretch the question area.
+- Normal/mistake practice: immediate feedback and locked answer.
+- Exam: no correctness/analysis until submit.
+- Right answer card colors should be soft, not saturated.
+- Mistake page should look like result cards but only show current user's mistakes in the current bank.
+
+## Things To Avoid
+
+- Do not introduce another UI framework.
+- Do not add large custom CSS files.
+- Do not rewrite the whole frontend in one pass.
+- Do not remove v1 calls until the specific page has been tested against v2.
+- Do not make bank cards or list rows larger than they are now.
+- Do not hide existing functionality while improving layout.
+- Do not use Chinese tag names in URL query; use tag IDs.
+- Do not expose API keys after creation.
+
+## Verification
+
+Minimum before handing back:
+
+```bash
+npm run build
+```
+
+For UI-affecting work, also run the dev server and manually check:
+
+- login/register
+- sidebar/user menu
+- public banks
+- my banks
+- favorites
+- bank detail
+- new bank / AI generation
+- generation queue
+- draft confirmation
+- practice setup/session/result
+- mistakes
+- history
+- admin users if touched
+
+If backend integration is touched, run at least the relevant backend tests or state clearly that backend tests were not run.

@@ -1,7 +1,6 @@
 import { defineStore } from 'pinia'
-import { api, type UserMe } from '../api/client'
-
-type TokenResponse = { access_token: string; token_type: string }
+import * as authApi from '../api/auth'
+import type { UserMe } from '../api/client'
 
 export const useAuthStore = defineStore('auth', {
   state: () => ({
@@ -10,26 +9,20 @@ export const useAuthStore = defineStore('auth', {
   }),
   actions: {
     async login(identifier: string, password: string) {
-      const data = await api<TokenResponse>('/api/v1/auth/login', {
-        method: 'POST',
-        body: JSON.stringify({ identifier, password }),
-      })
+      const data = await authApi.login(identifier, password)
       this.token = data.access_token
       localStorage.setItem('access_token', data.access_token)
       await this.loadMe()
     },
     async register(email: string, username: string, password: string) {
-      const data = await api<TokenResponse>('/api/v1/auth/register', {
-        method: 'POST',
-        body: JSON.stringify({ email, username, password }),
-      })
+      const data = await authApi.register(email, username, password)
       this.token = data.access_token
       localStorage.setItem('access_token', data.access_token)
       await this.loadMe()
     },
     async loadMe() {
       if (!this.token) return
-      this.user = await api<UserMe>('/api/v1/users/me')
+      this.user = await authApi.getMe()
     },
     logout() {
       this.user = null

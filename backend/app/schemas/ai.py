@@ -80,7 +80,7 @@ class AIGenerationWorkflowOut(BaseModel):
     id: int
     bank_id: int
     user_id: int
-    job_id: int | None
+    job_id: int | None = None
     purpose: str
     generation_mode: str
     status: str
@@ -128,7 +128,7 @@ class AIGenerationDraftQuestionOut(BaseModel):
 class AIGenerationDraftOut(BaseModel):
     id: int
     workflow_id: int
-    job_id: int
+    job_id: int | None = None
     bank_id: int
     bank_description: str | None
     validation_summary: str | None

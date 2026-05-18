@@ -10,9 +10,8 @@ class AIGenerationWorkflow(Base):
     __tablename__ = "ai_generation_workflows"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    bank_id: Mapped[int] = mapped_column(ForeignKey("question_banks.id"), index=True)
+    bank_id: Mapped[int] = mapped_column(ForeignKey("question_banks.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
-    job_id: Mapped[int | None] = mapped_column(ForeignKey("import_jobs.id"), nullable=True, index=True)
     purpose: Mapped[str] = mapped_column(String(32), default="create_bank", index=True)
     generation_mode: Mapped[str] = mapped_column(String(32), default="knowledge_generate")
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
@@ -21,7 +20,7 @@ class AIGenerationWorkflow(Base):
     requested_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     generate_description: Mapped[str] = mapped_column(String(8), default="false")
     extra_instruction: Mapped[str | None] = mapped_column(Text, nullable=True)
-    ai_provider_config_id: Mapped[int | None] = mapped_column(ForeignKey("user_ai_provider_configs.id"), nullable=True)
+    ai_provider_config_id: Mapped[int | None] = mapped_column(ForeignKey("user_ai_provider_configs.id", ondelete="SET NULL"), nullable=True)
     ai_model_snapshot: Mapped[str | None] = mapped_column(String(128), nullable=True)
     ai_base_url_snapshot: Mapped[str | None] = mapped_column(String(512), nullable=True)
     repair_attempts: Mapped[int] = mapped_column(Integer, default=0)
@@ -38,7 +37,7 @@ class AIGenerationWorkflowStep(Base):
     __tablename__ = "ai_generation_workflow_steps"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    workflow_id: Mapped[int] = mapped_column(ForeignKey("ai_generation_workflows.id"), index=True)
+    workflow_id: Mapped[int] = mapped_column(ForeignKey("ai_generation_workflows.id", ondelete="CASCADE"), index=True)
     step_name: Mapped[str] = mapped_column(String(64), index=True)
     status: Mapped[str] = mapped_column(String(32), default="pending", index=True)
     input_json: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -55,9 +54,8 @@ class AIGenerationDraft(Base):
     __tablename__ = "ai_generation_drafts"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    workflow_id: Mapped[int] = mapped_column(ForeignKey("ai_generation_workflows.id"), index=True)
-    job_id: Mapped[int] = mapped_column(ForeignKey("import_jobs.id"), index=True)
-    bank_id: Mapped[int] = mapped_column(ForeignKey("question_banks.id"), index=True)
+    workflow_id: Mapped[int] = mapped_column(ForeignKey("ai_generation_workflows.id", ondelete="CASCADE"), index=True)
+    bank_id: Mapped[int] = mapped_column(ForeignKey("question_banks.id", ondelete="CASCADE"), index=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
     bank_description: Mapped[str | None] = mapped_column(Text, nullable=True)
     raw_payload_json: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -75,7 +73,7 @@ class AIGenerationDraftQuestion(Base):
     __tablename__ = "ai_generation_draft_questions"
 
     id: Mapped[int] = mapped_column(primary_key=True)
-    draft_id: Mapped[int] = mapped_column(ForeignKey("ai_generation_drafts.id"), index=True)
+    draft_id: Mapped[int] = mapped_column(ForeignKey("ai_generation_drafts.id", ondelete="CASCADE"), index=True)
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
     type: Mapped[str] = mapped_column(String(32))
     stem: Mapped[str] = mapped_column(Text)
