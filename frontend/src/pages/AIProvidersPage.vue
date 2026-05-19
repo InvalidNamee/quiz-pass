@@ -9,48 +9,30 @@ import {
   testAIConfig,
   updateAIConfig,
 } from '../api/v2/users'
-import AppBadge from '../components/AppBadge.vue'
-import AppButton from '../components/AppButton.vue'
-import AppModal from '../components/AppModal.vue'
-import AIProviderFormModal from '../components/AIProviderFormModal.vue'
 import { useToast } from '../composables/useToast'
 
 const configs = ref<AIProviderConfig[]>([])
-const formModal = ref(false)
-const editingConfig = ref<AIProviderConfig | null>(null)
+const formVisible = ref(false)
+const editingId = ref<number | null>(null)
+const form = ref({ name: '', api_base_url: '', api_key: '', model: '', is_default: false })
 const testingId = ref<number | null>(null)
 const deleteTarget = ref<AIProviderConfig | null>(null)
 const toast = useToast()
 
-async function load() {
-  configs.value = await listAIConfigs()
-}
+async function load() { configs.value = await listAIConfigs() }
 
 function openAdd() {
-  editingConfig.value = null
-  formModal.value = true
+  editingId.value = null; form.value = { name: '', api_base_url: '', api_key: '', model: '', is_default: false }; formVisible.value = true
 }
-
 function openEdit(item: AIProviderConfig) {
-  editingConfig.value = item
-  formModal.value = true
+  editingId.value = item.id; form.value = { name: item.name, api_base_url: item.api_base_url, api_key: '', model: item.model, is_default: item.is_default }; formVisible.value = true
 }
-
-async function handleSave(data: { name: string; api_base_url: string; api_key: string; model: string; is_default: boolean }) {
+async function handleSave() {
   try {
-    if (editingConfig.value) {
-      await updateAIConfig(editingConfig.value.id, { name: data.name, api_base_url: data.api_base_url, model: data.model, is_default: data.is_default })
-      toast.show('配置已更新', 'success')
-    } else {
-      await createAIConfig(data)
-      toast.show('配置已添加', 'success')
-    }
-    formModal.value = false
-    editingConfig.value = null
-    await load()
-  } catch (err) {
-    toast.show(err instanceof Error ? err.message : '保存失败', 'error')
-  }
+    if (editingId.value) { await updateAIConfig(editingId.value, { name: form.value.name, api_base_url: form.value.api_base_url, model: form.value.model, is_default: form.value.is_default }); toast.show('已更新', 'success') }
+    else { await createAIConfig({ ...form.value }); toast.show('已添加', 'success') }
+    formVisible.value = false; await load()
+  } catch (err) { toast.show(err instanceof Error ? err.message : '保存失败', 'error') }
 }
 
 async function setDefault(id: number) {
@@ -81,46 +63,53 @@ onMounted(load)
 </script>
 
 <template>
-  <section class="grid gap-5">
-    <div class="flex flex-wrap items-center justify-between gap-2">
-      <h1 class="text-lg font-bold">AI 配置</h1>
-      <AppButton size="sm" @click="openAdd">添加配置</AppButton>
+  <section class="qp-page">
+    <div class="qp-titlebar">
+      <h1 class="qp-title">AI 配置</h1>
+      <el-button size="small" @click="openAdd">添加配置</el-button>
     </div>
 
-    <p v-if="!configs.length" class="py-8 text-center text-sm text-slate-400">暂无配置</p>
-    <div v-else class="divide-y divide-slate-100 border-y border-slate-200">
-      <div v-for="item in configs" :key="item.id" class="flex flex-wrap items-center justify-between gap-3 py-2.5">
-        <div class="min-w-0 text-sm">
+    <el-table :data="configs" size="small" empty-text="暂无配置">
+      <el-table-column label="名称" min-width="180">
+        <template #default="{ row }">
           <div class="flex items-center gap-1.5">
-            <span class="font-medium text-slate-900">{{ item.name || item.model }}</span>
-            <AppBadge v-if="item.is_default" variant="info">默认</AppBadge>
-            <AppBadge :variant="item.is_active ? 'success' : 'warning'">{{ item.is_active ? '启用' : '未启用' }}</AppBadge>
+            <span class="font-medium text-slate-900">{{ row.name || row.model }}</span>
+            <el-tag v-if="row.is_default" type="info" size="small">默认</el-tag>
+            <el-tag :type="row.is_active ? 'success' : 'warning'" size="small">{{ row.is_active ? '启用' : '未启用' }}</el-tag>
           </div>
-          <p class="text-xs text-slate-500">{{ item.model }} · {{ item.api_base_url }}</p>
-        </div>
-        <div class="flex gap-1">
-          <AppButton variant="ghost" size="sm" :loading="testingId === item.id" @click="testConfig(item.id)">测试</AppButton>
-          <AppButton variant="ghost" size="sm" @click="setDefault(item.id)">默认</AppButton>
-          <AppButton variant="ghost" size="sm" @click="openEdit(item)">编辑</AppButton>
-          <AppButton variant="danger" size="sm" @click="deleteTarget = item">删除</AppButton>
-        </div>
-      </div>
-    </div>
+        </template>
+      </el-table-column>
+      <el-table-column label="模型" prop="model" min-width="160" />
+      <el-table-column label="API 地址" prop="api_base_url" min-width="200" show-overflow-tooltip />
+      <el-table-column label="操作" width="280">
+        <template #default="{ row }">
+          <el-button text size="small" :loading="testingId === row.id" @click="testConfig(row.id)">测试</el-button>
+          <el-button text size="small" @click="setDefault(row.id)">默认</el-button>
+          <el-button text size="small" @click="openEdit(row)">编辑</el-button>
+          <el-button text size="small" type="danger" @click="deleteTarget = row">删除</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
 
-    <AIProviderFormModal
-      v-model="formModal"
-      :editing="editingConfig"
-      @save="handleSave"
-    />
+    <el-dialog v-model="formVisible" :title="editingId ? '编辑配置' : '添加配置'" width="460px">
+      <el-form label-position="top" size="default">
+        <el-form-item label="配置名称"><el-input v-model="form.name" placeholder="起个名字" /></el-form-item>
+        <el-form-item label="接口地址"><el-input v-model="form.api_base_url" placeholder="https://api.openai.com/v1" /></el-form-item>
+        <el-form-item label="模型"><el-input v-model="form.model" placeholder="gpt-4o" /></el-form-item>
+        <el-form-item v-if="!editingId" label="API Key"><el-input v-model="form.api_key" autocomplete="off" placeholder="sk-..." /><span class="text-xs text-slate-400">保存后不可查看、不可编辑，只能删除重建</span></el-form-item>
+        <el-form-item><el-checkbox v-model="form.is_default">设为默认</el-checkbox></el-form-item>
+      </el-form>
+      <template #footer><el-button @click="formVisible = false">取消</el-button><el-button type="primary" @click="handleSave">{{ editingId ? '保存' : '添加' }}</el-button></template>
+    </el-dialog>
 
-    <AppModal :model-value="!!deleteTarget" :key="deleteTarget?.id" title="删除配置" @update:model-value="val => !val && (deleteTarget = null)">
+    <el-dialog :model-value="!!deleteTarget" :key="deleteTarget?.id" title="删除配置" @update:model-value="(val: boolean) => !val && (deleteTarget = null)">
       <template v-if="deleteTarget">
         <p class="text-slate-600">确定要删除「{{ deleteTarget.name || deleteTarget.model }}」吗？</p>
       </template>
       <template #footer>
-        <AppButton variant="ghost" @click="deleteTarget = null">取消</AppButton>
-        <AppButton variant="danger" @click="remove(deleteTarget!.id)">删除</AppButton>
+        <el-button @click="deleteTarget = null">取消</el-button>
+        <el-button type="danger" @click="remove(deleteTarget!.id)">删除</el-button>
       </template>
-    </AppModal>
+    </el-dialog>
   </section>
 </template>

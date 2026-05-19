@@ -7,9 +7,6 @@ import {
   getDraft as getWorkflowDraft,
   updateDraft as updateWorkflowDraft,
 } from '../api/v2/aiGeneration'
-import AppButton from '../components/AppButton.vue'
-import AppEmpty from '../components/AppEmpty.vue'
-import AppLoading from '../components/AppLoading.vue'
 import { useToast } from '../composables/useToast'
 
 const route = useRoute()
@@ -103,71 +100,64 @@ onMounted(load)
 </script>
 
 <template>
-  <section v-if="loading">
-    <AppLoading />
-  </section>
-
-  <section v-else-if="!draft">
-    <AppEmpty title="草稿不存在" />
-  </section>
-
-  <section v-else class="grid gap-5">
-    <div class="page-card p-6">
-      <div class="flex flex-wrap items-start justify-between gap-4">
-        <div>
-          <h1 class="text-2xl font-bold">确认 AI 草稿</h1>
-          <p class="mt-2 text-slate-600">{{ draft.validation_summary || '请检查题目后确认入库。' }}</p>
-        </div>
-        <div class="flex flex-wrap gap-2">
-          <AppButton variant="secondary" :loading="saving" @click="save">保存草稿</AppButton>
-          <AppButton :loading="confirming" @click="confirm">确认入库</AppButton>
-        </div>
-      </div>
-      <label class="mt-5 grid gap-1">
-        <span class="text-sm font-medium text-slate-700">题库描述</span>
-        <textarea v-model="draft.bank_description" class="min-h-20 rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="可选" />
-      </label>
-    </div>
-
-    <div class="grid gap-4">
-      <div v-for="(question, qIndex) in draft.questions" :key="question.id || qIndex" class="page-card grid gap-4 p-5">
-        <div class="flex flex-wrap items-center justify-between gap-3">
-          <div class="flex items-center gap-2">
-            <span class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-600">#{{ qIndex + 1 }}</span>
-            <select v-model="question.type" class="rounded-input border border-slate-300 bg-white px-3 py-2 text-sm">
-              <option value="single">单选</option>
-              <option value="multiple">多选</option>
-            </select>
+  <section v-loading="loading" class="qp-page" element-loading-text="加载中...">
+    <template v-if="draft">
+      <div class="qp-section">
+        <div class="flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <h1 class="qp-title">确认 AI 草稿</h1>
+            <p class="qp-subtitle">{{ draft.validation_summary || '请检查题目后确认入库。' }}</p>
           </div>
-          <AppButton variant="ghost" @click="removeQuestion(qIndex)">删除题目</AppButton>
-        </div>
-
-        <label class="grid gap-1">
-          <span class="text-sm font-medium text-slate-700">题干</span>
-          <textarea v-model="question.stem" class="min-h-24 rounded-input border border-slate-300 bg-white px-3 py-2" />
-        </label>
-
-        <div class="grid gap-2">
-          <div v-for="(option, oIndex) in question.options" :key="oIndex" class="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[auto_auto_1fr_auto] sm:items-center">
-            <input v-model="option.is_correct" type="checkbox" class="size-4 rounded" />
-            <input v-model="option.label" class="w-16 rounded-input border border-slate-300 bg-white px-2 py-1 text-sm" />
-            <input v-model="option.content" class="rounded-input border border-slate-300 bg-white px-3 py-2 text-sm" placeholder="选项内容" />
-            <AppButton variant="ghost" @click="removeOption(qIndex, oIndex)">移除</AppButton>
+          <div class="flex flex-wrap gap-2">
+            <el-button :loading="saving" @click="save">保存草稿</el-button>
+            <el-button type="primary" :loading="confirming" @click="confirm">确认入库</el-button>
           </div>
-          <AppButton variant="secondary" @click="addOption(qIndex)">添加选项</AppButton>
         </div>
-
-        <label class="grid gap-1">
-          <span class="text-sm font-medium text-slate-700">解析</span>
-          <textarea v-model="question.explanation" class="min-h-20 rounded-input border border-slate-300 bg-white px-3 py-2" />
-        </label>
+        <el-form-item class="mt-4" label="题库描述">
+          <el-input v-model="draft.bank_description" type="textarea" :rows="3" placeholder="可选" />
+        </el-form-item>
       </div>
-    </div>
 
-    <div class="page-card flex flex-wrap gap-2 p-5">
-      <AppButton variant="secondary" @click="addQuestion">添加题目</AppButton>
-      <AppButton variant="secondary" :loading="saving" @click="save">保存草稿</AppButton>
-      <AppButton :loading="confirming" @click="confirm">确认入库</AppButton>
-    </div>
+      <div class="grid gap-3">
+        <el-form v-for="(question, qIndex) in draft.questions" :key="question.id || qIndex" class="qp-section grid gap-3" label-position="top">
+          <div class="flex flex-wrap items-center justify-between gap-3">
+            <div class="flex items-center gap-2">
+              <el-tag size="small" type="info">#{{ qIndex + 1 }}</el-tag>
+              <el-select v-model="question.type" size="small" style="width: 90px">
+                <el-option value="single" label="单选" />
+                <el-option value="multiple" label="多选" />
+              </el-select>
+            </div>
+            <el-button text @click="removeQuestion(qIndex)">删除题目</el-button>
+          </div>
+
+          <el-form-item label="题干">
+            <el-input v-model="question.stem" type="textarea" :rows="4" />
+          </el-form-item>
+
+          <div class="grid gap-2">
+            <div v-for="(option, oIndex) in question.options" :key="oIndex" class="flex flex-wrap items-center gap-2 border border-slate-200 bg-slate-50 p-2">
+              <el-checkbox v-model="option.is_correct" />
+              <el-input v-model="option.label" size="small" style="width: 60px" />
+              <el-input v-model="option.content" size="small" placeholder="选项内容" class="flex-1" />
+              <el-button text size="small" @click="removeOption(qIndex, oIndex)">移除</el-button>
+            </div>
+            <el-button @click="addOption(qIndex)">添加选项</el-button>
+          </div>
+
+          <el-form-item label="解析">
+            <el-input v-model="question.explanation" type="textarea" :rows="3" />
+          </el-form-item>
+        </el-form>
+      </div>
+
+      <div class="qp-section flex flex-wrap gap-2">
+        <el-button @click="addQuestion">添加题目</el-button>
+        <el-button :loading="saving" @click="save">保存草稿</el-button>
+        <el-button type="primary" :loading="confirming" @click="confirm">确认入库</el-button>
+      </div>
+    </template>
+
+    <el-empty v-if="!draft && !loading" description="草稿不存在" />
   </section>
 </template>

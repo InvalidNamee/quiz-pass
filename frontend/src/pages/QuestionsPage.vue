@@ -3,8 +3,6 @@ import { onMounted, reactive, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { Question, QuestionBankV2 } from '../api/types'
 import { createQuestion, deleteQuestion, getBank, listQuestions, updateQuestion } from '../api/v2/banks'
-import AppBadge from '../components/AppBadge.vue'
-import AppButton from '../components/AppButton.vue'
 import MathText from '../components/MathText.vue'
 import { useToast } from '../composables/useToast'
 
@@ -128,89 +126,81 @@ onMounted(load)
 </script>
 
 <template>
-  <section class="grid gap-5">
-    <div class="flex flex-wrap items-center justify-between gap-2">
-      <h1 class="text-lg font-bold">题目管理</h1>
-      <RouterLink :to="`/banks/${bankId}`" class="inline-flex items-center rounded-btn bg-slate-100 px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-200">返回题库</RouterLink>
+  <section class="qp-page">
+    <div class="qp-titlebar">
+      <h1 class="qp-title">题目管理</h1>
+      <RouterLink :to="`/banks/${bankId}`"><el-button size="small">返回题库</el-button></RouterLink>
     </div>
 
-    <div class="grid gap-4 lg:grid-cols-[minmax(0,1fr)_400px]">
-      <div class="grid gap-4">
-        <div class="flex gap-2">
-          <input v-model="keyword" class="flex-1 rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="搜索题干" @input="onKeywordInput" @keyup.enter="load" />
+    <div class="grid gap-3 lg:grid-cols-[minmax(0,1fr)_400px]">
+      <div class="grid gap-3">
+        <div class="qp-toolbar">
+          <el-input v-model="keyword" size="small" placeholder="搜索题干" clearable class="!w-64" @input="onKeywordInput" @keyup.enter="load" />
         </div>
 
-        <div v-if="loading">
-          <p class="text-sm text-slate-500">加载中…</p>
-        </div>
-
-        <div v-else class="grid gap-2">
-          <p v-if="!questions.length" class="py-8 text-center text-sm text-slate-400">暂无题目</p>
-          <div v-for="question in questions" :key="question.id" class="flex items-start justify-between gap-2 border-b border-slate-100 py-2.5">
-            <div class="min-w-0">
-              <div class="flex flex-wrap items-center gap-2">
-                <MathText as="strong" class="truncate" :text="question.stem" />
-                <AppBadge :variant="question.type === 'single' ? 'info' : 'warning'">{{ question.type === 'single' ? '单选' : '多选' }}</AppBadge>
-                <AppBadge variant="default">{{ question.options.length }} 个选项</AppBadge>
+        <el-table v-loading="loading" :data="questions" size="small" empty-text="暂无题目">
+          <el-table-column label="题目" min-width="320">
+            <template #default="{ row }: { row: Question }">
+              <div class="min-w-0">
+                <div class="flex items-start gap-2">
+                  <el-tag :type="row.type === 'single' ? 'primary' : 'warning'" size="small">{{ row.type === 'single' ? '单选' : '多选' }}</el-tag>
+                  <MathText as="strong" class="line-clamp-2 text-slate-900" :text="row.stem" />
+                </div>
+                <MathText v-if="row.explanation" as="p" class="mt-1 line-clamp-1 text-sm text-slate-500" :text="row.explanation" />
               </div>
-              <MathText v-if="question.explanation" as="p" class="mt-1 text-sm text-slate-500 line-clamp-1" :text="question.explanation" />
-            </div>
-            <div class="flex shrink-0 gap-2">
-              <AppButton variant="ghost" size="sm" @click="editQuestion(question)">编辑</AppButton>
-              <AppButton variant="danger" size="sm" @click="removeQuestion(question.id)">删除</AppButton>
-            </div>
-          </div>
-        </div>
+            </template>
+          </el-table-column>
+          <el-table-column label="选项" width="70" align="center">
+            <template #default="{ row }: { row: Question }">{{ row.options.length }}</template>
+          </el-table-column>
+          <el-table-column label="来源" width="100">
+            <template #default="{ row }: { row: Question }">{{ row.source }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="120" fixed="right">
+            <template #default="{ row }: { row: Question }">
+              <el-button text size="small" @click="editQuestion(row)">编辑</el-button>
+              <el-button text type="danger" size="small" @click="removeQuestion(row.id)">删除</el-button>
+            </template>
+          </el-table-column>
+        </el-table>
       </div>
 
-      <div class="page-card grid gap-2 self-start p-4">
-        <h2 class="text-base font-semibold">{{ editingQuestion ? '编辑题目' : '添加题目' }}</h2>
+      <el-form class="qp-section self-start" label-position="top">
+        <h2 class="qp-section-title">{{ editingQuestion ? '编辑题目' : '添加题目' }}</h2>
 
-        <label class="grid gap-1">
-          <span class="text-sm font-medium text-slate-700">题型</span>
-          <select v-model="form.type" class="rounded-input border border-slate-300 bg-white px-3 py-2" @change="form.options.forEach(o => o.is_correct = false); form.options[0].is_correct = true">
-            <option value="single">单选</option>
-            <option value="multiple">多选</option>
-          </select>
-        </label>
+        <el-form-item label="题型">
+          <el-select v-model="form.type" @change="form.options.forEach(o => o.is_correct = false); form.options[0].is_correct = true">
+            <el-option value="single" label="单选" />
+            <el-option value="multiple" label="多选" />
+          </el-select>
+        </el-form-item>
 
-        <label class="grid gap-1">
-          <span class="text-sm font-medium text-slate-700">题干</span>
-          <textarea v-model="form.stem" class="min-h-16 rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="题目内容" />
-        </label>
+        <el-form-item label="题干">
+          <el-input v-model="form.stem" type="textarea" :rows="3" placeholder="题目内容" />
+        </el-form-item>
 
         <div class="grid gap-2">
           <div class="flex items-center justify-between">
             <span class="text-sm font-medium text-slate-700">选项</span>
-            <button type="button" class="text-xs text-brand-600 hover:text-brand-700" @click="addOption">+ 添加选项</button>
+            <el-button text size="small" @click="addOption">添加选项</el-button>
           </div>
           <div v-for="(option, index) in form.options" :key="index" class="flex items-center gap-2">
             <span class="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-slate-100 text-xs font-bold text-slate-600">{{ option.label }}</span>
-            <input v-model="option.content" class="flex-1 rounded-input border border-slate-300 bg-white px-2 py-1.5 text-sm" :placeholder="`选项 ${option.label}`" />
-            <button
-              type="button"
-              :class="[
-                'grid h-8 w-8 shrink-0 place-items-center rounded-btn border text-sm font-bold transition-colors',
-                option.is_correct ? 'border-green-300 bg-green-50 text-green-700' : 'border-slate-200 text-slate-400 hover:border-slate-300',
-              ]"
-              @click="toggleCorrect(index)"
-            >{{ option.is_correct ? '✓' : '' }}</button>
-            <button v-if="form.options.length > 2" type="button" class="grid h-8 w-8 shrink-0 place-items-center rounded-btn text-slate-400 hover:bg-red-50 hover:text-red-500" @click="removeOption(index)">
-              <svg class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" /></svg>
-            </button>
+            <el-input v-model="option.content" :placeholder="`选项 ${option.label}`" size="small" />
+            <el-button size="small" :type="option.is_correct ? 'success' : 'default'" @click="toggleCorrect(index)">{{ option.is_correct ? '正确' : '设为正确' }}</el-button>
+            <el-button v-if="form.options.length > 2" size="small" type="danger" text @click="removeOption(index)">删除</el-button>
           </div>
         </div>
 
-        <label class="grid gap-1">
-          <span class="text-sm font-medium text-slate-700">解析（可选）</span>
-          <textarea v-model="form.explanation" class="min-h-16 rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="答案解析" />
-        </label>
+        <el-form-item label="解析（可选）">
+          <el-input v-model="form.explanation" type="textarea" :rows="3" placeholder="答案解析" />
+        </el-form-item>
 
         <div class="flex gap-2">
-          <AppButton @click="saveQuestion">{{ editingQuestion ? '更新题目' : '添加题目' }}</AppButton>
-          <AppButton v-if="editingQuestion" variant="ghost" @click="resetForm">取消编辑</AppButton>
+          <el-button type="primary" @click="saveQuestion">{{ editingQuestion ? '更新题目' : '添加题目' }}</el-button>
+          <el-button v-if="editingQuestion" @click="resetForm">取消编辑</el-button>
         </div>
-      </div>
+      </el-form>
     </div>
   </section>
 </template>

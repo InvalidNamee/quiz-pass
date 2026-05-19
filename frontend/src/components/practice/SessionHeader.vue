@@ -8,8 +8,8 @@ const emit = defineEmits<{ submit: [] }>()
 </script>
 
 <template>
-  <div class="flex items-center justify-between gap-4 border-b border-slate-200 pb-3">
-    <h1 class="text-xl font-bold">第 {{ currentIndex + 1 }} / {{ totalQuestions }} 题</h1>
-    <button class="rounded-btn bg-slate-900 px-4 py-2 text-sm font-medium text-white hover:bg-slate-800" @click="emit('submit')">交卷</button>
+  <div class="qp-titlebar">
+    <h1 class="qp-title">第 {{ currentIndex + 1 }} / {{ totalQuestions }} 题</h1>
+    <el-button type="primary" @click="emit('submit')">交卷</el-button>
   </div>
 </template>

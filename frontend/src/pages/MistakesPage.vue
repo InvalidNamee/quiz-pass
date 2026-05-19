@@ -3,11 +3,6 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { MistakeRecord, Page } from '../api/types'
 import { createMistakeSession, listMistakes, resolveMistake } from '../api/v2/practice'
-import AppButton from '../components/AppButton.vue'
-import AppBadge from '../components/AppBadge.vue'
-import AppLoading from '../components/AppLoading.vue'
-import AppEmpty from '../components/AppEmpty.vue'
-import AppPagination from '../components/AppPagination.vue'
 import MathText from '../components/MathText.vue'
 
 const route = useRoute()
@@ -54,63 +49,59 @@ onMounted(load)
 </script>
 
 <template>
-  <section class="grid gap-5">
-    <div class="flex flex-wrap items-center justify-between gap-2">
+  <section class="qp-page">
+    <div class="qp-titlebar">
       <div>
-        <h1 class="text-lg font-bold">我的错题</h1>
-        <p class="text-sm text-slate-500">{{ pageInfo?.total ?? mistakes.length }} 道未掌握</p>
+        <h1 class="qp-title">我的错题</h1>
+        <p class="qp-subtitle">{{ pageInfo?.total ?? mistakes.length }} 道未掌握</p>
       </div>
-      <AppButton size="sm" :disabled="!mistakes.length" @click="practice">错题练习</AppButton>
+      <el-button size="small" :disabled="!mistakes.length" @click="practice">错题练习</el-button>
     </div>
 
-    <AppLoading v-if="loading" />
-    <AppEmpty v-else-if="!mistakes.length" title="没有错题" description="继续练习，这里只记录你自己在当前题库下做错的题目。" />
-
-    <div v-else class="divide-y divide-slate-100 border-y border-slate-200">
-      <div
-        v-for="(item, index) in mistakes"
-        :key="item.id"
-        class="flex flex-wrap items-start justify-between gap-3 py-2.5 border-l-2 border-l-red-400 pl-3"
-      >
-        <div class="flex flex-wrap items-start justify-between gap-4">
-          <div class="min-w-0">
+    <el-table v-loading="loading" :data="mistakes" size="small" empty-text="没有错题">
+      <el-table-column label="题目" min-width="500">
+        <template #default="{ row, $index }">
+          <div class="border-l-2 border-l-red-400 pl-3">
             <div class="flex flex-wrap items-center gap-2">
-              <AppBadge variant="danger">错误 {{ item.wrong_count }} 次</AppBadge>
-              <AppBadge variant="warning">最后错误 {{ formatTime(item.last_wrong_at) }}</AppBadge>
+              <el-tag type="danger" size="small">错误 {{ row.wrong_count }} 次</el-tag>
+              <el-tag type="warning" size="small">最后错误 {{ formatTime(row.last_wrong_at) }}</el-tag>
+              <el-button text size="small" :loading="resolving.has(row.question_id)" @click="resolve(row.question_id)">已掌握</el-button>
             </div>
             <strong class="mt-3 block text-slate-900">
-              {{ ((pageInfo?.page || 1) - 1) * (pageInfo?.page_size || mistakes.length) + index + 1 }}.
-              [{{ item.type === 'single' ? '单选' : '多选' }}]
-              <MathText class="inline" :text="item.stem" />
+              {{ ((pageInfo?.page || 1) - 1) * (pageInfo?.page_size || mistakes.length) + $index + 1 }}.
+              [{{ row.type === 'single' ? '单选' : '多选' }}]
+              <MathText class="inline" :text="row.stem" />
             </strong>
+
+            <div class="mt-3 grid gap-1 text-sm text-slate-700">
+              <p v-for="option in row.options" :key="option.id" class="m-0 border border-slate-200 bg-white px-3 py-2">
+                <span class="font-semibold text-slate-900">{{ option.label }}.</span>
+                <MathText class="inline" :text="option.content" />
+              </p>
+            </div>
+
+            <div class="mt-4 flex flex-wrap gap-3 text-sm">
+              <span class="font-medium text-slate-700">正确答案：{{ row.correct_labels.join('、') || '无' }}</span>
+              <span class="text-slate-500">题目 #{{ row.question_id }}</span>
+            </div>
+
+            <p v-if="row.explanation" class="mt-3 border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
+              <MathText :text="row.explanation" />
+            </p>
           </div>
-          <AppButton variant="ghost" size="sm" :loading="resolving.has(item.question_id)" @click="resolve(item.question_id)">已掌握</AppButton>
-        </div>
+        </template>
+      </el-table-column>
+    </el-table>
 
-        <div class="mt-4 grid gap-2 text-sm text-slate-700">
-          <p v-for="option in item.options" :key="option.id" class="m-0 rounded-lg bg-white px-3 py-2 ring-1 ring-slate-200">
-            <span class="font-semibold text-slate-900">{{ option.label }}.</span>
-            <MathText class="inline" :text="option.content" />
-          </p>
-        </div>
-
-        <div class="mt-4 flex flex-wrap gap-3 text-sm">
-          <span class="font-medium text-slate-700">正确答案：{{ item.correct_labels.join('、') || '无' }}</span>
-          <span class="text-slate-500">题目 #{{ item.question_id }}</span>
-        </div>
-
-        <p v-if="item.explanation" class="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-800">
-          <MathText :text="item.explanation" />
-        </p>
-      </div>
-
-      <AppPagination
-        v-if="pageInfo && pageInfo.total_pages > 1"
-        :page="pageInfo.page"
-        :total-pages="pageInfo.total_pages"
-        :total="pageInfo.total"
-        @update:page="load"
-      />
-    </div>
+    <el-pagination
+      v-if="pageInfo && pageInfo.total_pages > 1"
+      background
+      size="small"
+      :current-page="pageInfo.page"
+      :page-count="pageInfo.total_pages"
+      :total="pageInfo.total"
+      layout="prev, pager, next, total"
+      @current-change="load"
+    />
   </section>
 </template>

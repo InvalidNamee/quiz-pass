@@ -108,6 +108,12 @@ export function usePracticeSession(sessionId: number) {
     }
   }
 
+  async function setSelection(question: PracticeQuestion, optionIds: number[]) {
+    if (isLocked(question.id)) return
+    selected.value[question.id] = optionIds
+    if (question.type === 'single' && session.value?.mode !== 'exam' && optionIds.length) await submitAnswer()
+  }
+
   async function submitAnswer() {
     const q = currentQuestion.value
     if (!q || isLocked(q.id)) return
@@ -136,7 +142,7 @@ export function usePracticeSession(sessionId: number) {
   return {
     session, questions, currentIndex, selected, answerStatus, answerResults, answered,
     loading, currentQuestion, totalQuestions,
-    load, toggle, submitAnswer, submitAll, previousQuestion, nextQuestion, goToQuestion,
+    load, toggle, setSelection, submitAnswer, submitAll, previousQuestion, nextQuestion, goToQuestion,
     isLocked, shouldReveal, hasSelection, questionStatus,
   }
 }

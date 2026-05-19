@@ -1,52 +1,185 @@
 @import "tailwindcss";
 
-@theme {
-  --color-brand-50: #eff6ff;
-  --color-brand-100: #dbeafe;
-  --color-brand-500: #3b82f6;
-  --color-brand-600: #2563eb;
-  --color-brand-700: #1d4ed8;
-  --color-surface: #ffffff;
-  --color-surface-muted: #f8fafc;
-  --color-surface-elevated: #ffffff;
-  --color-border: #e2e8f0;
-  --color-border-input: #cbd5e1;
-  --color-text-primary: #0f172a;
-  --color-text-secondary: #475569;
-  --color-text-muted: #94a3b8;
-  --radius-card: 0.5rem;
-  --radius-input: 0.375rem;
-  --radius-btn: 0.375rem;
-  --shadow-card: none;
-  --shadow-modal: 0 20px 60px -12px rgb(0 0 0 / 0.15);
+html { font-size: 17px; }
+
+:root {
+  --qp-border: #d8dee8;
+  --qp-border-soft: #e5eaf2;
+  --qp-fill: #f6f8fb;
+  --qp-fill-soft: #fafbfc;
+  --qp-text: #1f2937;
+  --el-border-radius-base: 3px;
+  --el-border-radius-small: 2px;
+  --el-border-color: var(--qp-border);
+  --el-border-color-light: var(--qp-border-soft);
+  --el-fill-color-blank: #fff;
+  --el-fill-color-light: var(--qp-fill-soft);
+  --el-color-primary: #2563eb;
+  --el-color-primary-light-9: #eff6ff;
 }
 
-html { font-size: 14px; }
-
-/* Sidebar active link - dark background */
-.router-link-active.sidebar-link {
-  background-color: rgb(30 41 59);
-  color: rgb(255 255 255);
-  font-weight: 600;
+body {
+  font-size: 16px;
+  line-height: 1.55;
+  color: var(--qp-text);
+  background: #f8fafc;
 }
 
-/* Page card pattern */
-.page-card {
-  background: var(--color-surface);
-  border: 1px solid var(--color-border);
-  border-radius: var(--radius-card);
+.qp-page {
+  display: grid;
+  gap: 12px;
 }
 
-/* Toast animation */
-.toast-enter-active { transition: all 0.3s ease-out; }
-.toast-leave-active { transition: all 0.2s ease-in; }
-.toast-enter-from { opacity: 0; transform: translateX(16px); }
-.toast-leave-to { opacity: 0; transform: translateX(16px); }
+.qp-titlebar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  border-bottom: 1px solid var(--qp-border);
+  padding-bottom: 10px;
+}
 
-/* Modal animation */
-.modal-enter-active { transition: all 0.2s ease-out; }
-.modal-leave-active { transition: all 0.15s ease-in; }
-.modal-enter-from { opacity: 0; }
-.modal-enter-from .modal-panel { transform: scale(0.95); opacity: 0; }
-.modal-leave-to { opacity: 0; }
-.modal-leave-to .modal-panel { transform: scale(0.95); opacity: 0; }
+.qp-title {
+  font-size: 18px;
+  font-weight: 650;
+  color: #111827;
+}
+
+.qp-subtitle {
+  margin-top: 2px;
+  font-size: 14px;
+  color: #64748b;
+}
+
+.qp-section {
+  border: 1px solid var(--qp-border);
+  background: #fff;
+  padding: 12px;
+}
+
+.qp-section-title {
+  margin-bottom: 8px;
+  font-size: 15px;
+  font-weight: 650;
+  color: #334155;
+}
+
+.qp-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  border-bottom: 1px solid var(--qp-border-soft);
+  padding-bottom: 10px;
+}
+
+.qp-meta-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  font-size: 14px;
+  color: #64748b;
+}
+
+.qp-danger-line {
+  border-left: 3px solid #fca5a5;
+}
+
+.qp-success-line {
+  border-left: 3px solid #86efac;
+}
+
+.qp-warning-line {
+  border-left: 3px solid #fcd34d;
+}
+
+.el-button {
+  min-height: 38px;
+  font-size: 15px !important;
+  box-shadow: none !important;
+}
+
+.el-button--small {
+  min-height: 36px;
+  font-size: 14px !important;
+}
+
+.el-input,
+.el-select {
+  --el-component-size: 38px;
+  --el-component-size-small: 36px;
+}
+
+.el-input__wrapper,
+.el-select__wrapper {
+  min-height: 38px;
+}
+
+.el-input--small .el-input__wrapper,
+.el-select--small .el-select__wrapper {
+  min-height: 36px;
+}
+
+.el-card {
+  border-radius: 3px !important;
+  box-shadow: none !important;
+}
+
+.el-table {
+  --el-table-border-color: var(--qp-border-soft);
+  --el-table-header-bg-color: var(--qp-fill);
+  --el-table-row-hover-bg-color: #f8fafc;
+  font-size: 15px;
+}
+
+.el-table th.el-table__cell {
+  font-weight: 650;
+}
+
+.el-dialog {
+  border-radius: 3px !important;
+}
+
+.el-dialog__body {
+  padding-top: 8px;
+  padding-bottom: 12px;
+}
+
+/* Sidebar menu overrides */
+.el-menu {
+  border-right: none !important;
+}
+.el-menu-item {
+  height: 38px;
+  line-height: 38px;
+  font-size: 14px;
+}
+
+.el-table .cell {
+  line-height: 1.55;
+}
+
+.el-table--small .el-table__cell {
+  padding-top: 10px;
+  padding-bottom: 10px;
+}
+
+.el-form-item__label {
+  font-size: 15px;
+}
+
+.el-input,
+.el-select,
+.el-textarea,
+.el-radio,
+.el-checkbox,
+.el-tag,
+.el-dialog {
+  font-size: 15px;
+}
+.el-menu-item.is-active {
+  background-color: #eef4ff !important;
+  color: #1d4ed8 !important;
+  font-weight: 650;
+}

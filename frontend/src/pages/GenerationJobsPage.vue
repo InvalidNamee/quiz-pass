@@ -3,11 +3,6 @@ import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { Page } from '../api/types'
 import { listWorkflows, type WorkflowListItem } from '../api/v2/aiGeneration'
-import AppBadge from '../components/AppBadge.vue'
-import AppButton from '../components/AppButton.vue'
-import AppPagination from '../components/AppPagination.vue'
-import AppLoading from '../components/AppLoading.vue'
-import AppEmpty from '../components/AppEmpty.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -80,56 +75,81 @@ watch(() => route.fullPath, load)
 </script>
 
 <template>
-  <section class="grid gap-5">
-    <div class="flex flex-wrap items-center justify-between gap-2">
-      <h1 class="text-lg font-bold">生成队列</h1>
+  <section class="qp-page">
+    <div class="qp-titlebar">
+      <h1 class="qp-title">生成队列</h1>
       <div class="flex flex-wrap gap-2">
-        <select v-model="status" class="rounded-input border border-slate-300 bg-white px-3 py-2">
-          <option value="">全部状态</option>
-          <option value="pending">等待生成</option>
-          <option value="calling_model">调用模型</option>
-          <option value="validating">校验中</option>
-          <option value="repairing">自动修复</option>
-          <option value="draft_ready">草稿待确认</option>
-          <option value="imported">已入库</option>
-          <option value="failed">生成失败</option>
-        </select>
-        <AppButton size="sm" @click="applyFilters()">筛选</AppButton>
+        <el-select v-model="status" size="small" placeholder="全部状态" style="width: 160px">
+          <el-option value="">全部状态</el-option>
+          <el-option value="pending">等待生成</el-option>
+          <el-option value="calling_model">调用模型</el-option>
+          <el-option value="validating">校验中</el-option>
+          <el-option value="repairing">自动修复</el-option>
+          <el-option value="draft_ready">草稿待确认</el-option>
+          <el-option value="imported">已入库</el-option>
+          <el-option value="failed">生成失败</el-option>
+        </el-select>
+        <el-button size="small" type="primary" @click="applyFilters()">筛选</el-button>
       </div>
     </div>
 
-    <AppLoading v-if="loading" />
-    <AppEmpty v-else-if="!jobs.length" title="暂无生成任务" />
-
-    <template v-else>
-      <div class="divide-y divide-slate-100 border-y border-slate-200">
-        <div v-for="job in jobs" :key="job.id" class="py-2.5">
-          <div class="flex flex-wrap items-center justify-between gap-2 text-sm">
-            <div class="flex items-center gap-2">
-              <span class="font-medium">#{{ job.id }}</span>
-              <AppBadge variant="default">{{ typeText(job) }}</AppBadge>
-              <AppBadge :variant="statusBadge(job.status)">{{ statusText(job.status) }}</AppBadge>
-              <span class="text-xs text-slate-500">{{ job.source_file_name || '未记录' }}</span>
-              <span v-if="job.draft_question_count" class="text-xs text-slate-400">{{ job.draft_question_count }} 题</span>
-              <span v-if="job.repair_attempts" class="text-xs text-slate-400">修复{{ job.repair_attempts }}次</span>
-            </div>
-            <div class="flex items-center gap-2">
-              <span class="text-xs text-slate-400">{{ job.ai_model_snapshot || '' }}</span>
-              <RouterLink v-if="job.can_confirm" :to="`/ai-generation/workflows/${job.id}/draft`" class="rounded-btn bg-brand-600 px-2 py-1 text-xs font-medium text-white hover:bg-brand-700">确认草稿</RouterLink>
-              <RouterLink v-if="job.bank_id" :to="`/banks/${job.bank_id}`" class="rounded-btn bg-slate-100 px-2 py-1 text-xs font-medium text-slate-700 hover:bg-slate-200">查看题库</RouterLink>
-            </div>
+    <el-table v-loading="loading" :data="jobs" size="small" empty-text="暂无生成任务">
+      <el-table-column label="#" width="70">
+        <template #default="{ row }">
+          <span class="font-medium">#{{ row.id }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="类型" min-width="140">
+        <template #default="{ row }">
+          <el-tag>{{ typeText(row) }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="状态" width="120">
+        <template #default="{ row }">
+          <el-tag v-if="statusBadge(row.status) === 'default'">{{ statusText(row.status) }}</el-tag>
+          <el-tag v-else :type="statusBadge(row.status)">{{ statusText(row.status) }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="源文件" min-width="140">
+        <template #default="{ row }">
+          <span class="text-xs">{{ row.source_file_name || '未记录' }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="详情" width="180">
+        <template #default="{ row }">
+          <div class="flex flex-wrap gap-x-2 gap-y-0.5">
+            <span v-if="row.draft_question_count" class="text-xs text-slate-400">{{ row.draft_question_count }} 题</span>
+            <span v-if="row.repair_attempts" class="text-xs text-slate-400">修复{{ row.repair_attempts }}次</span>
+            <span v-if="row.ai_model_snapshot" class="text-xs text-slate-400">{{ row.ai_model_snapshot }}</span>
           </div>
-          <pre v-if="job.error_message" class="mt-2 whitespace-pre-wrap rounded bg-red-50 px-3 py-2 text-xs text-red-800">{{ job.error_message }}</pre>
-        </div>
-      </div>
+        </template>
+      </el-table-column>
+      <el-table-column label="错误信息" min-width="180" show-overflow-tooltip>
+        <template #default="{ row }">
+          <span v-if="row.error_message" class="text-xs text-red-600">{{ row.error_message }}</span>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="200">
+        <template #default="{ row }">
+          <RouterLink v-if="row.can_confirm" :to="`/ai-generation/workflows/${row.id}/draft`">
+            <el-button size="small" type="primary">确认草稿</el-button>
+          </RouterLink>
+          <RouterLink v-if="row.bank_id" :to="`/banks/${row.bank_id}`">
+            <el-button size="small">查看题库</el-button>
+          </RouterLink>
+        </template>
+      </el-table-column>
+    </el-table>
 
-      <AppPagination
-        v-if="pageInfo"
-        :page="pageInfo.page"
-        :total-pages="pageInfo.total_pages || 1"
-        :total="pageInfo.total"
-        @update:page="applyFilters"
-      />
-    </template>
+    <el-pagination
+      v-if="pageInfo"
+      background
+      size="small"
+      :current-page="pageInfo.page"
+      :page-count="pageInfo.total_pages || 1"
+      :total="pageInfo.total"
+      layout="prev, pager, next, total"
+      @current-change="applyFilters"
+    />
   </section>
 </template>

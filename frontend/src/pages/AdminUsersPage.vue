@@ -4,12 +4,6 @@ import { useRoute, useRouter } from 'vue-router'
 import type { Page, UserMe } from '../api/types'
 import { listAdminUsers, resetAdminPassword, updateAdminUser } from '../api/v2/users'
 import { useAuthStore } from '../stores/auth'
-import AppBadge from '../components/AppBadge.vue'
-import AppButton from '../components/AppButton.vue'
-import AppPagination from '../components/AppPagination.vue'
-import AppLoading from '../components/AppLoading.vue'
-import AppEmpty from '../components/AppEmpty.vue'
-import AppModal from '../components/AppModal.vue'
 import { useToast } from '../composables/useToast'
 
 const route = useRoute()
@@ -121,97 +115,105 @@ watch(() => route.fullPath, load)
 </script>
 
 <template>
-  <section class="grid gap-5">
-    <div class="flex flex-wrap items-center justify-between gap-2">
-      <h1 class="text-lg font-bold">用户管理</h1>
-      <div class="mt-5 grid max-w-3xl gap-3 sm:grid-cols-2 lg:grid-cols-4">
-        <input v-model="keyword" class="rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="搜索用户" />
-        <select v-model="role" class="rounded-input border border-slate-300 bg-white px-3 py-2">
-          <option value="">全部角色</option>
-          <option value="user">user</option>
-          <option value="admin">admin</option>
-        </select>
-        <select v-model="isActive" class="rounded-input border border-slate-300 bg-white px-3 py-2">
-          <option value="">全部状态</option>
-          <option value="true">启用</option>
-          <option value="false">禁用</option>
-        </select>
-        <AppButton variant="secondary" @click="applyFilters()">筛选</AppButton>
-      </div>
+  <section class="qp-page">
+    <div class="qp-titlebar">
+      <h1 class="qp-title">用户管理</h1>
+    </div>
+    <div class="qp-toolbar">
+      <el-input v-model="keyword" size="small" placeholder="搜索用户" clearable style="width: 200px" />
+      <el-select v-model="role" size="small" placeholder="全部角色" style="width: 120px">
+        <el-option value="">全部角色</el-option>
+        <el-option value="user">user</el-option>
+        <el-option value="admin">admin</el-option>
+      </el-select>
+      <el-select v-model="isActive" size="small" placeholder="全部状态" style="width: 120px">
+        <el-option value="">全部状态</el-option>
+        <el-option value="true">启用</el-option>
+        <el-option value="false">禁用</el-option>
+      </el-select>
+      <el-button size="small" type="primary" @click="applyFilters()">筛选</el-button>
     </div>
 
-    <AppLoading v-if="loading" />
-    <AppEmpty v-else-if="!users.length" title="没有匹配的用户" />
-
-    <template v-else>
-      <div class="grid gap-3">
-        <div v-for="user in users" :key="user.id" class="flex flex-wrap items-center justify-between gap-3 py-2.5 border-b border-slate-100">
-          <RouterLink class="min-w-0 hover:text-brand-600" :to="`/users/${user.id}`">
-            <div class="flex min-w-0 flex-wrap items-center gap-2">
-              <strong class="truncate">{{ user.display_name || user.username }}</strong>
-              <span class="text-sm text-slate-500">@{{ user.username }}</span>
+    <el-table v-loading="loading" :data="users" size="small" empty-text="没有匹配的用户">
+      <el-table-column label="用户" min-width="220">
+        <template #default="{ row }">
+          <RouterLink :to="`/users/${row.id}`" class="hover:text-brand-600">
+            <div class="flex flex-wrap items-center gap-2">
+              <strong class="truncate">{{ row.display_name || row.username }}</strong>
+              <span class="text-sm text-slate-500">@{{ row.username }}</span>
             </div>
-            <p class="mt-1 truncate text-sm text-slate-500">{{ user.email }}</p>
+            <p class="truncate text-sm text-slate-500">{{ row.email }}</p>
           </RouterLink>
-          <div class="flex flex-wrap items-center justify-end gap-2">
-            <AppBadge :variant="user.role === 'admin' ? 'info' : 'default'">{{ user.role }}</AppBadge>
-            <AppBadge :variant="user.is_active ? 'success' : 'danger'">{{ user.is_active ? '启用' : '禁用' }}</AppBadge>
-            <AppButton variant="ghost" size="sm" @click="startEdit(user)">编辑</AppButton>
-            <AppButton
-              variant="secondary"
-              size="sm"
-              :disabled="user.id === auth.user?.id"
-              @click="toggleActive(user)"
-            >{{ user.is_active ? '禁用' : '启用' }}</AppButton>
-            <AppButton
-              variant="danger"
-              size="sm"
-              :disabled="user.id === auth.user?.id"
-              :loading="resettingUserId === user.id"
-              @click="resetPassword(user)"
-            >重置密码</AppButton>
-          </div>
-        </div>
-      </div>
+        </template>
+      </el-table-column>
+      <el-table-column label="角色" width="100">
+        <template #default="{ row }">
+          <el-tag v-if="row.role === 'admin'" type="info">{{ row.role }}</el-tag>
+          <el-tag v-else>{{ row.role }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="状态" width="100">
+        <template #default="{ row }">
+          <el-tag :type="row.is_active ? 'success' : 'danger'">{{ row.is_active ? '启用' : '禁用' }}</el-tag>
+        </template>
+      </el-table-column>
+      <el-table-column label="操作" width="300">
+        <template #default="{ row }">
+          <el-button text size="small" @click="startEdit(row)">编辑</el-button>
+          <el-button
+            size="small"
+            :disabled="row.id === auth.user?.id"
+            @click="toggleActive(row)"
+          >{{ row.is_active ? '禁用' : '启用' }}</el-button>
+          <el-button
+            text
+            size="small"
+            type="danger"
+            :disabled="row.id === auth.user?.id"
+            :loading="resettingUserId === row.id"
+            @click="resetPassword(row)"
+          >重置密码</el-button>
+        </template>
+      </el-table-column>
+    </el-table>
 
-      <AppPagination
-        v-if="pageInfo"
-        :page="pageInfo.page"
-        :total-pages="pageInfo.total_pages || 1"
-        :total="pageInfo.total"
-        @update:page="applyFilters"
-      />
-    </template>
+    <el-pagination
+      v-if="pageInfo"
+      background
+      size="small"
+      :current-page="pageInfo.page"
+      :page-count="pageInfo.total_pages || 1"
+      :total="pageInfo.total"
+      layout="prev, pager, next, total"
+      @current-change="applyFilters"
+    />
 
-    <AppModal :model-value="!!editingUser" title="编辑用户" @update:model-value="closeEditModal">
+    <el-dialog :model-value="!!editingUser" title="编辑用户" @update:model-value="closeEditModal">
       <div class="grid gap-4">
-        <label class="grid gap-1">
-          <span class="text-sm font-medium text-slate-700">显示名</span>
-          <input v-model="editForm.display_name" class="rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="可留空" />
-        </label>
-        <label class="grid gap-1">
-          <span class="text-sm font-medium text-slate-700">简介</span>
-          <textarea v-model="editForm.bio" class="min-h-24 rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="可留空" />
-        </label>
-        <label class="flex items-center gap-2 rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-700">
-          <input v-model="editForm.is_active" type="checkbox" class="rounded" :disabled="editingUser?.id === auth.user?.id" />
-          启用账号
-        </label>
+        <div>
+          <p class="mb-1 text-sm font-medium text-slate-700">显示名</p>
+          <el-input v-model="editForm.display_name" placeholder="可留空" />
+        </div>
+        <div>
+          <p class="mb-1 text-sm font-medium text-slate-700">简介</p>
+          <el-input v-model="editForm.bio" type="textarea" :rows="4" placeholder="可留空" />
+        </div>
+        <el-checkbox v-model="editForm.is_active" :disabled="editingUser?.id === auth.user?.id">启用账号</el-checkbox>
       </div>
       <template #footer>
-        <AppButton variant="ghost" @click="editingUser = null">取消</AppButton>
-        <AppButton :loading="savingUser" @click="saveUser">保存</AppButton>
+        <el-button @click="editingUser = null">取消</el-button>
+        <el-button type="primary" :loading="savingUser" @click="saveUser">保存</el-button>
       </template>
-    </AppModal>
+    </el-dialog>
 
-    <AppModal :model-value="!!temporaryPassword" title="临时密码" @update:model-value="closePasswordModal">
+    <el-dialog :model-value="!!temporaryPassword" title="临时密码" @update:model-value="closePasswordModal">
       <div class="grid gap-3">
         <p class="text-sm text-slate-600">请立即把这个临时密码交给用户。关闭后前端不会再显示。</p>
-        <code class="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-base font-semibold text-slate-900">{{ temporaryPassword }}</code>
+        <code class="border border-slate-200 bg-slate-50 px-3 py-2 text-base font-semibold text-slate-900">{{ temporaryPassword }}</code>
       </div>
       <template #footer>
-        <AppButton @click="temporaryPassword = ''">我已记录</AppButton>
+        <el-button type="primary" @click="temporaryPassword = ''">我已记录</el-button>
       </template>
-    </AppModal>
+    </el-dialog>
   </section>
 </template>
