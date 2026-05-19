@@ -3,13 +3,28 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, require_admin
 from app.db.session import get_db
-from app.domains.users.services import AdminUserService, AIProviderService, UserProfileService
+from app.domains.users.services import AdminUserService, AIProviderService, UserAuthService, UserProfileService
 from app.models.user import User
 from app.schemas.ai import AIProviderConfigCreate, AIProviderConfigOut, AIProviderConfigUpdate
 from app.schemas.common import Page
-from app.schemas.user import AdminPasswordResetOut, AdminUserUpdate, PasswordChange, UserMe, UserPublic, UserUpdate
+from app.schemas.user import AdminPasswordResetOut, AdminUserUpdate, PasswordChange, Token, UserCreate, UserLogin, UserMe, UserPublic, UserUpdate
 
 router = APIRouter()
+
+
+@router.post("/auth/register", response_model=Token)
+def register(payload: UserCreate, db: Session = Depends(get_db)):
+    return UserAuthService(db).register(payload)
+
+
+@router.post("/auth/login", response_model=Token)
+def login(payload: UserLogin, db: Session = Depends(get_db)):
+    return UserAuthService(db).login(payload.identifier, payload.email, payload.password)
+
+
+@router.get("/auth/me", response_model=UserMe)
+def auth_me(current_user: User = Depends(get_current_user)):
+    return current_user
 
 
 @router.get("/users/me", response_model=UserMe)

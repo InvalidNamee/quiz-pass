@@ -35,6 +35,10 @@ class ActiveWorkflowOut(BaseModel):
 
 class QuestionBankV2Out(BaseModel):
     id: int
+    owner_id: int
+    owner_username: str | None = None
+    owner_display_name: str | None = None
+    owner_avatar_url: str | None = None
     title: str
     description: str | None = None
     visibility: str
@@ -43,6 +47,8 @@ class QuestionBankV2Out(BaseModel):
     owner: QuestionBankOwnerOut
     tags: list[QuestionBankTagOut] = Field(default_factory=list)
     stats: QuestionBankStatsOut
+    question_count: int = 0
+    favorite_count: int = 0
     permissions: QuestionBankPermissionsOut
     active_workflow: ActiveWorkflowOut | None = None
     ai_model_name: str | None = None

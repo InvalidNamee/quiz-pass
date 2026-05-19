@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { api } from '../api/client'
+import { changePassword as changePasswordApi, updateProfile } from '../api/v2/users'
 import { useAuthStore } from '../stores/auth'
 import AppButton from '../components/AppButton.vue'
 import { useToast } from '../composables/useToast'
@@ -25,10 +25,7 @@ onMounted(() => {
 async function save() {
   saving.value = true
   try {
-    await api('/api/v1/users/me', {
-      method: 'PATCH',
-      body: JSON.stringify({ display_name: displayName.value, bio: bio.value, avatar_source: avatarSource.value }),
-    })
+    await updateProfile({ display_name: displayName.value, bio: bio.value, avatar_source: avatarSource.value })
     await auth.loadMe()
     toast.show('资料已保存', 'success')
   } catch (err) {
@@ -45,10 +42,7 @@ async function changePassword() {
   }
   changingPw.value = true
   try {
-    await api('/api/v1/users/me/change-password', {
-      method: 'POST',
-      body: JSON.stringify({ old_password: oldPassword.value, new_password: newPassword.value }),
-    })
+    await changePasswordApi(oldPassword.value, newPassword.value)
     oldPassword.value = ''
     newPassword.value = ''
     toast.show('密码已更新', 'success')

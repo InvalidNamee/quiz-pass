@@ -1,16 +1,17 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
+import { authHeader, statusVariant } from '../api/http'
 import { getBank, updateBank, deleteBank, favoriteBank, unfavoriteBank, exportBankUrl } from '../api/v2/banks'
 import type { QuestionBankV2, QuestionBankTag } from '../api/types'
 import { useAuthStore } from '../stores/auth'
+import { useToast } from '../composables/useToast'
 import AppBadge from '../components/AppBadge.vue'
 import AppButton from '../components/AppButton.vue'
 import AppAvatar from '../components/AppAvatar.vue'
 import AppModal from '../components/AppModal.vue'
 import AppLoading from '../components/AppLoading.vue'
 import BankTagInput from '../components/BankTagInput.vue'
-import { useToast } from '../composables/useToast'
 
 const route = useRoute()
 const router = useRouter()
@@ -80,7 +81,7 @@ async function exportJson() {
   if (!bank.value) return
   exporting.value = true
   try {
-    const resp = await fetch(exportBankUrl(bank.value.id), { headers: auth.token ? { Authorization: `Bearer ${auth.token}` } : {} })
+    const resp = await fetch(exportBankUrl(bank.value.id), { headers: authHeader() })
     if (!resp.ok) throw new Error('导出失败')
     const blob = await resp.blob()
     const url = URL.createObjectURL(blob)
@@ -91,11 +92,6 @@ async function exportJson() {
   } finally { exporting.value = false }
 }
 
-function statusVariant(s: string): 'default'|'success'|'warning'|'danger'|'info' {
-  const m: Record<string, 'default'|'success'|'warning'|'danger'|'info'> = { none: 'default', pending: 'warning', processing: 'info', succeeded: 'success', failed: 'danger' }
-  return m[s] || 'default'
-}
-
 onMounted(load)
 </script>
 
@@ -103,7 +99,7 @@ onMounted(load)
   <section v-if="loading"><AppLoading /></section>
 
   <section v-else-if="bank" class="grid gap-5">
-    <div class="page-card p-6">
+    <div>
       <div class="flex flex-wrap items-start justify-between gap-4">
         <div class="min-w-0">
           <div class="flex flex-wrap items-center gap-2">
@@ -130,7 +126,7 @@ onMounted(load)
       </div>
     </div>
 
-    <div class="page-card p-4">
+    <div class="border-y border-slate-200 py-3">
       <h2 class="text-base font-semibold mb-2">练习与内容</h2>
       <div class="flex flex-wrap gap-2">
         <RouterLink v-if="bank.permissions.can_practice" :to="`/banks/${bank.id}/practice/setup`" class="inline-flex items-center rounded-btn bg-brand-600 px-4 py-2 text-sm font-medium text-white hover:bg-brand-700">开始练习</RouterLink>
@@ -146,7 +142,7 @@ onMounted(load)
       </div>
     </div>
 
-    <div v-if="canManage" class="page-card p-4">
+    <div v-if="canManage" class="border-b border-slate-200 pb-3">
       <h2 class="text-base font-semibold mb-2">题库管理</h2>
       <div class="flex flex-wrap gap-2">
         <AppButton variant="secondary" @click="editing = !editing">{{ editing ? '收起编辑' : '编辑题库' }}</AppButton>
@@ -154,7 +150,7 @@ onMounted(load)
       </div>
     </div>
 
-    <div v-if="editing" class="page-card grid gap-2 p-4">
+    <div v-if="editing" class="grid gap-2 rounded-lg border border-slate-200 p-4">
       <label class="grid gap-1">
         <span class="text-sm font-medium text-slate-700">题库名称</span>
         <input v-model="editForm.title" class="rounded-input border border-slate-300 bg-white px-3 py-2" />

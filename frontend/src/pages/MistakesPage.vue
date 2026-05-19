@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, type MistakeRecord, type Page, type PracticeSession } from '../api/client'
+import type { MistakeRecord, Page } from '../api/types'
+import { createMistakeSession, listMistakes, resolveMistake } from '../api/v2/practice'
 import AppButton from '../components/AppButton.vue'
 import AppBadge from '../components/AppBadge.vue'
 import AppLoading from '../components/AppLoading.vue'
@@ -20,8 +21,7 @@ const resolving = ref<Set<number>>(new Set())
 async function load(page = 1) {
   loading.value = true
   try {
-    const params = new URLSearchParams({ resolved: 'false', page: String(page) })
-    const data = await api<Page<MistakeRecord>>(`/api/v1/question-banks/${bankId}/mistakes?${params}`)
+    const data = await listMistakes(bankId, false, { page })
     mistakes.value = data.items
     pageInfo.value = data
   } finally {
@@ -32,7 +32,7 @@ async function load(page = 1) {
 async function resolve(questionId: number) {
   resolving.value = new Set([...resolving.value, questionId])
   try {
-    await api(`/api/v1/question-banks/${bankId}/mistakes/${questionId}/resolve`, { method: 'POST' })
+    await resolveMistake(bankId, questionId)
     await load(pageInfo.value?.page || 1)
   } finally {
     const next = new Set(resolving.value)
@@ -42,7 +42,7 @@ async function resolve(questionId: number) {
 }
 
 async function practice() {
-  const session = await api<PracticeSession>(`/api/v1/question-banks/${bankId}/mistakes/practice-sessions`, { method: 'POST' })
+  const session = await createMistakeSession(bankId)
   router.push(`/practice/session/${session.id}`)
 }
 
@@ -55,22 +55,22 @@ onMounted(load)
 
 <template>
   <section class="grid gap-5">
-    <div class="page-card flex flex-wrap items-center justify-between gap-4 p-6">
+    <div class="flex flex-wrap items-center justify-between gap-2">
       <div>
-        <h1 class="text-2xl font-bold">我的错题</h1>
-        <p class="mt-1 text-slate-600">我在这个题库下未掌握的错题 {{ pageInfo?.total ?? mistakes.length }} 道</p>
+        <h1 class="text-lg font-bold">我的错题</h1>
+        <p class="text-sm text-slate-500">{{ pageInfo?.total ?? mistakes.length }} 道未掌握</p>
       </div>
-      <AppButton :disabled="!mistakes.length" @click="practice">错题练习</AppButton>
+      <AppButton size="sm" :disabled="!mistakes.length" @click="practice">错题练习</AppButton>
     </div>
 
     <AppLoading v-if="loading" />
     <AppEmpty v-else-if="!mistakes.length" title="没有错题" description="继续练习，这里只记录你自己在当前题库下做错的题目。" />
 
-    <div v-else class="grid gap-3">
-      <article
+    <div v-else class="divide-y divide-slate-100 border-y border-slate-200">
+      <div
         v-for="(item, index) in mistakes"
         :key="item.id"
-        class="page-card border-l-4 border-l-red-300 bg-red-50/20 p-5"
+        class="flex flex-wrap items-start justify-between gap-3 py-2.5 border-l-2 border-l-red-400 pl-3"
       >
         <div class="flex flex-wrap items-start justify-between gap-4">
           <div class="min-w-0">
@@ -102,7 +102,7 @@ onMounted(load)
         <p v-if="item.explanation" class="mt-3 rounded-lg bg-blue-50 px-3 py-2 text-sm text-blue-800">
           <MathText :text="item.explanation" />
         </p>
-      </article>
+      </div>
 
       <AppPagination
         v-if="pageInfo && pageInfo.total_pages > 1"

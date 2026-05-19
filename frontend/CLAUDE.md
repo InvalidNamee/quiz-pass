@@ -58,19 +58,9 @@ Prefer the newer split API modules over putting new calls into the old `api/clie
 
 ## Backend API Context
 
-The backend now has both v1 compatibility endpoints and a newer `/api/v2` domain-shaped API. Frontend is still mostly v1. Do not switch everything at once unless explicitly asked.
+The backend now exposes only the `/api/v2` domain-shaped API. Do not add new `/api/v1` calls.
 
-Stable v1 areas still used by the frontend:
-
-- `/api/v1/auth`
-- `/api/v1/users`
-- `/api/v1/question-banks`
-- `/api/v1/questions`
-- `/api/v1/ai-generation`
-- `/api/v1/practice`
-- `/api/v1/admin`
-
-New v2 direction:
+Current v2 areas:
 
 - `/api/v2/banks`
 - `/api/v2/banks/{bank_id}/questions`
@@ -86,10 +76,9 @@ New v2 direction:
 Key backend shape changes to remember:
 
 - AI generation is workflow-first internally.
-- v1 still exposes job-based AI generation endpoints.
 - A generated/parsed bank now creates a draft first; user confirmation imports questions into the real bank.
-- `ImportJob` is a queue/projection compatibility layer, not the core AI entity.
-- Bank permissions should eventually come from backend DTOs. Current v1 frontend still computes some owner/admin checks itself.
+- `ImportJob` is a queue/projection layer, not the core AI entity.
+- Bank permissions come from backend DTOs. Prefer `bank.permissions` over frontend owner/admin recomputation.
 
 ## Product Rules To Preserve
 
@@ -135,9 +124,9 @@ Practice:
 
 Use Tailwind CSS utilities and existing base components. Avoid custom CSS unless it is a small shared token or animation in `styles/main.css`.
 
-The current target style is quiet, utilitarian, and information-dense:
+The current target style is quiet, utilitarian, linear, and information-dense. Do not use bloated SaaS card layouts. The UI should feel closer to traditional desktop software, table systems, and document-style tools than to a marketing dashboard.
 
-- Prefer compact list rows and small cards over large editorial cards.
+- Prefer compact list rows, table-like sections, and document-like blocks over large editorial cards.
 - Avoid oversized bank cards. They currently take too much vertical space.
 - Keep card padding modest: usually `p-3` or `p-4`, not `p-6`, unless it is a top-level detail header.
 - Bank list items should fit more records on one screen.
@@ -145,6 +134,11 @@ The current target style is quiet, utilitarian, and information-dense:
 - Do not make nested cards inside cards.
 - Avoid large empty vertical gaps.
 - Avoid big hero-like headers inside app pages.
+- Avoid large rounded corners, heavy shadows, gradients, and decorative surfaces.
+- Prefer thin borders, divider lines, compact spacing, plain buttons, and straightforward alignment.
+- Keep radius restrained. Prefer subtle `rounded-md`/`rounded-lg`; avoid large pill/card rounding unless an existing base component requires it.
+- Use shadows sparingly. Most surfaces should rely on borders, background contrast, and dividers.
+- Avoid large whitespace as a primary visual device. Density and scanability matter more here.
 - Keep filters in a modal or compact toolbar; do not consume an entire screen band for every filter.
 - Use existing `AppButton`, `AppBadge`, `AppAvatar`, `AppPagination`, `AppEmpty`, `AppLoading`, `AppModal`, and toast utilities.
 
@@ -166,39 +160,16 @@ Page density guidance:
 
 ## Frontend Work Needed Next
 
-### 1. Align Frontend Types With Backend Direction
+### 1. Use Backend Permissions For Button Visibility
 
-Audit `src/api/types.ts` and add v2-compatible DTOs without breaking existing v1 pages:
-
-- Bank owner object when using v2.
-- Bank stats object: `question_count`, `favorite_count`.
-- Bank permissions object: `can_read`, `can_manage`, `can_export`, `can_practice`, `can_view_mistakes`, `can_extend_ai`.
-- Active workflow object: `id`, `status`, `purpose`, `draft_question_count`.
-- AI workflow DTOs for `/api/v2/ai/workflows`.
-
-Do not remove current v1 fields until all pages are migrated.
-
-### 2. Add V2 API Modules Incrementally
-
-Add or extend API modules in small slices:
-
-- `src/api/banks.ts`: add v2 bank list/detail/questions/import/export functions alongside current v1 functions.
-- `src/api/aiGeneration.ts`: add v2 workflow functions while keeping v1 job functions.
-- `src/api/practice.ts`: add v2 practice session functions if pages are migrated.
-- `src/api/users.ts`: add v2 users/admin functions if admin/profile pages are migrated.
-
-Migration rule: one page at a time. Do not do a blanket endpoint switch.
-
-### 3. Use Backend Permissions For Button Visibility
-
-Current pages often compute owner/admin in the frontend. When a page is moved to v2 bank detail/list DTOs, use `bank.permissions` for UI decisions:
+Use `bank.permissions` for bank UI decisions:
 
 - readable actions: favorite, practice, mistakes, export.
 - management actions: edit bank, delete bank, questions, append import, AI extend.
 
 Keep route guards defensive. If a user manually opens a management route and backend denies it, show a toast and route back to bank detail.
 
-### 4. Improve Bank List Density
+### 2. Improve Bank List Density
 
 Refactor `src/components/bank/BankCard.vue` first. Preserve all displayed information, but make it denser:
 
@@ -211,7 +182,7 @@ Refactor `src/components/bank/BankCard.vue` first. Preserve all displayed inform
 
 Then adjust `BankListView.vue` only if needed to support the denser item.
 
-### 5. Keep Route Query Behavior
+### 3. Keep Route Query Behavior
 
 All list pages with filters/pagination must read from and write to query strings:
 
@@ -225,7 +196,7 @@ All list pages with filters/pagination must read from and write to query strings
 
 Do not store filter state only in component refs if refresh/back/forward would lose it.
 
-### 6. AI Draft And Queue UX
+### 4. AI Draft And Queue UX
 
 Generation queue should remain compact but informative:
 
@@ -247,7 +218,7 @@ Draft confirmation page must preserve editing of:
 
 On confirm failure, show backend validation details as-is; do not collapse detailed error messages into "请求失败".
 
-### 7. Practice And Mistakes UI Consistency
+### 5. Practice And Mistakes UI Consistency
 
 Practice pages should keep the result-page style:
 
@@ -263,7 +234,7 @@ Practice pages should keep the result-page style:
 - Do not introduce another UI framework.
 - Do not add large custom CSS files.
 - Do not rewrite the whole frontend in one pass.
-- Do not remove v1 calls until the specific page has been tested against v2.
+- Do not add old-version API calls; the frontend should target `/api/v2`.
 - Do not make bank cards or list rows larger than they are now.
 - Do not hide existing functionality while improving layout.
 - Do not use Chinese tag names in URL query; use tag IDs.

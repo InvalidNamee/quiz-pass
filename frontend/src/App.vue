@@ -29,10 +29,10 @@ watch(() => router.currentRoute.value.fullPath, () => { sidebarOpen.value = fals
     </svg>
   </div>
 
-  <div v-else class="min-h-screen bg-slate-50 text-slate-900">
+  <div v-else class="min-h-screen bg-white text-slate-900">
     <!-- Mobile header -->
-    <div v-if="auth.token" class="fixed left-0 right-0 top-0 z-30 flex items-center gap-3 border-b border-slate-200 bg-white px-4 py-3 md:hidden">
-      <button class="grid h-8 w-8 place-items-center rounded-btn text-slate-600 hover:bg-slate-100" @click="sidebarOpen = !sidebarOpen">
+    <div v-if="auth.token" class="fixed left-0 right-0 top-0 z-30 flex items-center gap-3 border-b border-slate-800 bg-slate-900 px-4 py-3 md:hidden">
+      <button class="grid h-8 w-8 place-items-center rounded-btn text-slate-300 hover:bg-slate-800" @click="sidebarOpen = !sidebarOpen">
         <svg v-if="!sidebarOpen" class="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16" />
         </svg>
@@ -40,7 +40,7 @@ watch(() => router.currentRoute.value.fullPath, () => { sidebarOpen.value = fals
           <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12" />
         </svg>
       </button>
-      <span class="font-bold">Quiz Pass</span>
+      <span class="font-bold text-white">Quiz Pass</span>
     </div>
 
     <!-- Mobile overlay -->

@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, type Page, type UserMe } from '../api/client'
+import type { Page, UserMe } from '../api/types'
+import { listAdminUsers, resetAdminPassword, updateAdminUser } from '../api/v2/users'
 import { useAuthStore } from '../stores/auth'
 import AppBadge from '../components/AppBadge.vue'
 import AppButton from '../components/AppButton.vue'
@@ -31,14 +32,14 @@ async function load() {
   keyword.value = String(route.query.keyword || '')
   role.value = String(route.query.role || '')
   isActive.value = String(route.query.is_active || '')
-  const params = new URLSearchParams()
-  params.set('page', String(route.query.page || 1))
-  if (keyword.value) params.set('keyword', keyword.value)
-  if (role.value) params.set('role', role.value)
-  if (isActive.value) params.set('is_active', isActive.value)
   loading.value = true
   try {
-    const data = await api<Page<UserMe>>(`/api/v1/admin/users?${params}`)
+    const data = await listAdminUsers({
+      page: Number(route.query.page || 1),
+      keyword: keyword.value || undefined,
+      role: role.value || undefined,
+      is_active: isActive.value || undefined,
+    })
     pageInfo.value = data
     users.value = data.items
   } finally {
@@ -69,13 +70,10 @@ async function saveUser() {
   const editingUserId = editingUser.value.id
   savingUser.value = true
   try {
-    await api<UserMe>(`/api/v1/admin/users/${editingUserId}`, {
-      method: 'PATCH',
-      body: JSON.stringify({
-        display_name: editForm.value.display_name || null,
-        bio: editForm.value.bio || null,
-        is_active: editForm.value.is_active,
-      }),
+    await updateAdminUser(editingUserId, {
+      display_name: editForm.value.display_name || null,
+      bio: editForm.value.bio || null,
+      is_active: editForm.value.is_active,
     })
     toast.show('用户信息已更新', 'success')
     editingUser.value = null
@@ -98,10 +96,7 @@ function closePasswordModal(open: boolean) {
 
 async function toggleActive(user: UserMe) {
   try {
-    await api<UserMe>(`/api/v1/admin/users/${user.id}`, {
-      method: 'PATCH',
-      body: JSON.stringify({ is_active: !user.is_active }),
-    })
+    await updateAdminUser(user.id, { is_active: !user.is_active })
     toast.show(user.is_active ? '用户已禁用' : '用户已启用', 'success')
     await load()
   } catch (err) {
@@ -112,7 +107,7 @@ async function toggleActive(user: UserMe) {
 async function resetPassword(user: UserMe) {
   resettingUserId.value = user.id
   try {
-    const data = await api<{ temporary_password: string }>(`/api/v1/admin/users/${user.id}/reset-password`, { method: 'POST' })
+    const data = await resetAdminPassword(user.id)
     temporaryPassword.value = data.temporary_password
   } catch (err) {
     toast.show(err instanceof Error ? err.message : '重置失败', 'error')
@@ -127,8 +122,8 @@ watch(() => route.fullPath, load)
 
 <template>
   <section class="grid gap-5">
-    <div class="page-card p-6">
-      <h1 class="text-2xl font-bold">用户管理</h1>
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <h1 class="text-lg font-bold">用户管理</h1>
       <div class="mt-5 grid max-w-3xl gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <input v-model="keyword" class="rounded-input border border-slate-300 bg-white px-3 py-2" placeholder="搜索用户" />
         <select v-model="role" class="rounded-input border border-slate-300 bg-white px-3 py-2">
@@ -150,7 +145,7 @@ watch(() => route.fullPath, load)
 
     <template v-else>
       <div class="grid gap-3">
-        <article v-for="user in users" :key="user.id" class="page-card flex flex-wrap items-center justify-between gap-4 p-4">
+        <div v-for="user in users" :key="user.id" class="flex flex-wrap items-center justify-between gap-3 py-2.5 border-b border-slate-100">
           <RouterLink class="min-w-0 hover:text-brand-600" :to="`/users/${user.id}`">
             <div class="flex min-w-0 flex-wrap items-center gap-2">
               <strong class="truncate">{{ user.display_name || user.username }}</strong>
@@ -176,7 +171,7 @@ watch(() => route.fullPath, load)
               @click="resetPassword(user)"
             >重置密码</AppButton>
           </div>
-        </article>
+        </div>
       </div>
 
       <AppPagination

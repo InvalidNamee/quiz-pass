@@ -1,4 +1,4 @@
-export { api, authHeader } from './http'
+export { api, buildQuery, authHeader, statusVariant } from './http'
 export type {
   Page,
   UserMe,

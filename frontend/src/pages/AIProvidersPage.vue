@@ -1,6 +1,14 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { api, type AIProviderConfig } from '../api/client'
+import type { AIProviderConfig } from '../api/types'
+import {
+  createAIConfig,
+  deleteAIConfig,
+  listAIConfigs,
+  setDefaultAIConfig,
+  testAIConfig,
+  updateAIConfig,
+} from '../api/v2/users'
 import AppBadge from '../components/AppBadge.vue'
 import AppButton from '../components/AppButton.vue'
 import AppModal from '../components/AppModal.vue'
@@ -15,7 +23,7 @@ const deleteTarget = ref<AIProviderConfig | null>(null)
 const toast = useToast()
 
 async function load() {
-  configs.value = await api<AIProviderConfig[]>('/api/v1/users/me/ai-provider-configs')
+  configs.value = await listAIConfigs()
 }
 
 function openAdd() {
@@ -31,13 +39,10 @@ function openEdit(item: AIProviderConfig) {
 async function handleSave(data: { name: string; api_base_url: string; api_key: string; model: string; is_default: boolean }) {
   try {
     if (editingConfig.value) {
-      await api<AIProviderConfig>(`/api/v1/users/me/ai-provider-configs/${editingConfig.value.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify({ name: data.name, api_base_url: data.api_base_url, model: data.model, is_default: data.is_default }),
-      })
+      await updateAIConfig(editingConfig.value.id, { name: data.name, api_base_url: data.api_base_url, model: data.model, is_default: data.is_default })
       toast.show('配置已更新', 'success')
     } else {
-      await api<AIProviderConfig>('/api/v1/users/me/ai-provider-configs', { method: 'POST', body: JSON.stringify(data) })
+      await createAIConfig(data)
       toast.show('配置已添加', 'success')
     }
     formModal.value = false
@@ -49,14 +54,14 @@ async function handleSave(data: { name: string; api_base_url: string; api_key: s
 }
 
 async function setDefault(id: number) {
-  await api(`/api/v1/users/me/ai-provider-configs/${id}/set-default`, { method: 'POST' })
+  await setDefaultAIConfig(id)
   await load()
 }
 
 async function testConfig(id: number) {
   testingId.value = id
   try {
-    await api(`/api/v1/users/me/ai-provider-configs/${id}/test`, { method: 'POST' })
+    await testAIConfig(id)
     toast.show('连接成功', 'success')
   } catch (err) {
     toast.show(err instanceof Error ? err.message : '连接失败', 'error')
@@ -66,7 +71,7 @@ async function testConfig(id: number) {
 }
 
 async function remove(id: number) {
-  await api(`/api/v1/users/me/ai-provider-configs/${id}`, { method: 'DELETE' })
+  await deleteAIConfig(id)
   deleteTarget.value = null
   toast.show('已删除', 'info')
   await load()
@@ -77,36 +82,29 @@ onMounted(load)
 
 <template>
   <section class="grid gap-5">
-    <div class="page-card p-6">
-      <div class="flex flex-wrap items-center justify-between gap-4">
-        <div>
-          <h1 class="text-2xl font-bold">AI 配置</h1>
-          <p class="mt-2 text-slate-600">添加 OpenAI 兼容接口，用于 AI 生成题库。</p>
-        </div>
-        <AppButton @click="openAdd">添加配置</AppButton>
-      </div>
+    <div class="flex flex-wrap items-center justify-between gap-2">
+      <h1 class="text-lg font-bold">AI 配置</h1>
+      <AppButton size="sm" @click="openAdd">添加配置</AppButton>
     </div>
 
-    <div class="grid gap-3">
-      <p v-if="!configs.length" class="page-card p-6 text-center text-sm text-slate-400">暂无配置，请先添加一个接口</p>
-      <article v-for="item in configs" :key="item.id" class="page-card p-5">
-        <div class="flex flex-wrap items-center justify-between gap-4">
-          <div class="min-w-0">
-            <div class="flex flex-wrap items-center gap-2">
-              <strong>{{ item.name || item.model }}</strong>
-              <AppBadge v-if="item.is_default" variant="info">默认</AppBadge>
-              <AppBadge :variant="item.is_active ? 'success' : 'warning'">{{ item.is_active ? '启用' : '未启用' }}</AppBadge>
-            </div>
-            <p class="text-sm text-slate-500">{{ item.model }} · {{ item.api_base_url }}</p>
+    <p v-if="!configs.length" class="py-8 text-center text-sm text-slate-400">暂无配置</p>
+    <div v-else class="divide-y divide-slate-100 border-y border-slate-200">
+      <div v-for="item in configs" :key="item.id" class="flex flex-wrap items-center justify-between gap-3 py-2.5">
+        <div class="min-w-0 text-sm">
+          <div class="flex items-center gap-1.5">
+            <span class="font-medium text-slate-900">{{ item.name || item.model }}</span>
+            <AppBadge v-if="item.is_default" variant="info">默认</AppBadge>
+            <AppBadge :variant="item.is_active ? 'success' : 'warning'">{{ item.is_active ? '启用' : '未启用' }}</AppBadge>
           </div>
-          <div class="flex flex-wrap gap-2">
-            <AppButton variant="ghost" size="sm" :loading="testingId === item.id" @click="testConfig(item.id)">测试连接</AppButton>
-            <AppButton variant="ghost" size="sm" @click="setDefault(item.id)">设为默认</AppButton>
-            <AppButton variant="ghost" size="sm" @click="openEdit(item)">编辑</AppButton>
-            <AppButton variant="danger" size="sm" @click="deleteTarget = item">删除</AppButton>
-          </div>
+          <p class="text-xs text-slate-500">{{ item.model }} · {{ item.api_base_url }}</p>
         </div>
-      </article>
+        <div class="flex gap-1">
+          <AppButton variant="ghost" size="sm" :loading="testingId === item.id" @click="testConfig(item.id)">测试</AppButton>
+          <AppButton variant="ghost" size="sm" @click="setDefault(item.id)">默认</AppButton>
+          <AppButton variant="ghost" size="sm" @click="openEdit(item)">编辑</AppButton>
+          <AppButton variant="danger" size="sm" @click="deleteTarget = item">删除</AppButton>
+        </div>
+      </div>
     </div>
 
     <AIProviderFormModal

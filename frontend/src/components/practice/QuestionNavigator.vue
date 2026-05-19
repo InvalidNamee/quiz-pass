@@ -21,7 +21,7 @@ function getClass(status: string, isCurrent: boolean) {
 </script>
 
 <template>
-  <div class="page-card p-3">
+  <div class="rounded-lg border border-slate-200 bg-white p-3">
     <p class="mb-2 text-center text-xs font-medium text-slate-400">答题卡</p>
     <div class="grid grid-cols-5 gap-1.5">
       <button

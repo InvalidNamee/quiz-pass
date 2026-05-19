@@ -102,6 +102,10 @@ class QuestionBankQueryService:
         owner = bank.owner
         return QuestionBankV2Out(
             id=bank.id,
+            owner_id=bank.owner_id,
+            owner_username=owner.username if owner else None,
+            owner_display_name=owner.display_name if owner else None,
+            owner_avatar_url=owner.avatar_url if owner else None,
             title=bank.title,
             description=bank.description,
             visibility=bank.visibility,
@@ -115,6 +119,8 @@ class QuestionBankQueryService:
             ),
             tags=[QuestionBankTagOut.model_validate(tag, from_attributes=True) for tag in sorted(bank.tags, key=lambda item: item.name)],
             stats=QuestionBankStatsOut(question_count=bank.question_count, favorite_count=bank.favorite_count),
+            question_count=bank.question_count,
+            favorite_count=bank.favorite_count,
             permissions=QuestionBankPermissionsOut(**QuestionBankPermissionService.permissions_for(bank, user)),
             active_workflow=active_workflow,
             ai_model_name=bank.ai_model_name,

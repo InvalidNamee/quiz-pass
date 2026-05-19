@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api } from '../api/client'
 import type { AIGenerationDraft } from '../api/types'
 import {
   confirmDraft as confirmWorkflowDraft,
@@ -20,16 +19,12 @@ const draft = ref<AIGenerationDraft | null>(null)
 const loading = ref(true)
 const saving = ref(false)
 const confirming = ref(false)
-const jobId = computed(() => Number(route.params.jobId))
 const workflowId = computed(() => Number(route.params.workflowId))
-const isWorkflowRoute = computed(() => Number.isFinite(workflowId.value) && workflowId.value > 0)
 
 async function load() {
   loading.value = true
   try {
-    draft.value = isWorkflowRoute.value
-      ? await getWorkflowDraft(workflowId.value)
-      : await api<AIGenerationDraft>(`/api/v1/ai-generation/jobs/${jobId.value}/draft`)
+    draft.value = await getWorkflowDraft(workflowId.value)
   } catch (err) {
     toast.show(err instanceof Error ? err.message : '草稿不存在', 'error')
   } finally {
@@ -86,12 +81,7 @@ async function save() {
 
 async function persistDraft() {
   if (!draft.value) return
-  draft.value = isWorkflowRoute.value
-    ? await updateWorkflowDraft(workflowId.value, draft.value as unknown as Record<string, unknown>)
-    : await api<AIGenerationDraft>(`/api/v1/ai-generation/jobs/${jobId.value}/draft`, {
-        method: 'PATCH',
-        body: JSON.stringify(draft.value),
-      })
+  draft.value = await updateWorkflowDraft(workflowId.value, draft.value as unknown as Record<string, unknown>)
 }
 
 async function confirm() {
@@ -99,9 +89,7 @@ async function confirm() {
   confirming.value = true
   try {
     await persistDraft()
-    const data = isWorkflowRoute.value
-      ? await confirmWorkflowDraft(workflowId.value)
-      : await api<{ ok: boolean; bank_id: number }>(`/api/v1/ai-generation/jobs/${jobId.value}/confirm`, { method: 'POST' })
+    const data = await confirmWorkflowDraft(workflowId.value)
     toast.show('草稿已入库', 'success')
     router.push(`/banks/${data.bank_id}`)
   } catch (err) {
@@ -160,7 +148,7 @@ onMounted(load)
         </label>
 
         <div class="grid gap-2">
-          <div v-for="(option, oIndex) in question.options" :key="oIndex" class="grid gap-2 rounded-xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[auto_auto_1fr_auto] sm:items-center">
+          <div v-for="(option, oIndex) in question.options" :key="oIndex" class="grid gap-2 rounded-lg border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[auto_auto_1fr_auto] sm:items-center">
             <input v-model="option.is_correct" type="checkbox" class="size-4 rounded" />
             <input v-model="option.label" class="w-16 rounded-input border border-slate-300 bg-white px-2 py-1 text-sm" />
             <input v-model="option.content" class="rounded-input border border-slate-300 bg-white px-3 py-2 text-sm" placeholder="选项内容" />

@@ -48,3 +48,11 @@ export function listAdminUsers(params: { page?: number; keyword?: string; role?:
   Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== '') q.set(k, String(v)) })
   return api<Page<UserMe>>(`/api/v2/admin/users?${q}`)
 }
+
+export function updateAdminUser(userId: number, data: Record<string, unknown>) {
+  return api<UserMe>(`/api/v2/admin/users/${userId}`, { method: 'PATCH', body: JSON.stringify(data) })
+}
+
+export function resetAdminPassword(userId: number) {
+  return api<{ temporary_password: string }>(`/api/v2/admin/users/${userId}/reset-password`, { method: 'POST' })
+}

@@ -12,11 +12,9 @@ const cards = [
 
 <template>
   <section class="grid gap-5">
-    <div class="page-card p-4">
-      <h1 class="text-lg font-bold">欢迎，{{ auth.user?.display_name || auth.user?.username }}</h1>
-    </div>
+    <h1 class="text-lg font-bold">欢迎，{{ auth.user?.display_name || auth.user?.username }}</h1>
     <div class="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
-      <RouterLink v-for="card in cards" :key="card.to" :to="card.to" class="page-card group p-4 transition-colors hover:border-brand-500/40">
+      <RouterLink v-for="card in cards" :key="card.to" :to="card.to" class="group rounded-lg border border-slate-200 p-4 transition-colors hover:border-brand-500/40">
         <span class="text-2xl">{{ card.icon }}</span>
         <strong class="mt-2 block group-hover:text-brand-600">{{ card.title }}</strong>
         <span class="mt-1 block text-sm text-slate-500">{{ card.desc }}</span>

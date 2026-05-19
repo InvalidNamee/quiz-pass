@@ -6,7 +6,7 @@ from app.db.session import get_db
 from app.domains.ai_generation.schemas import AIGenerationWorkflowCreatedOut
 from app.domains.ai_generation.services import AIGenerationWorkflowService
 from app.models.user import User
-from app.schemas.ai import AIGenerationDraftOut, AIGenerationWorkflowOut
+from app.schemas.ai import AIGenerationDraftOut, AIGenerationWorkflowOut, AIGenerationWorkflowStepOut
 from app.schemas.common import Page, page_response
 from app.utils.pagination import paginate
 
@@ -86,6 +86,11 @@ def list_workflows(page: int = 1, page_size: int = 20, status: str | None = None
 def get_workflow(workflow_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     service = AIGenerationWorkflowService(db)
     return service.workflow_out(service.get_owned_workflow(workflow_id, current_user))
+
+
+@router.get("/ai/workflows/{workflow_id}/steps", response_model=list[AIGenerationWorkflowStepOut])
+def get_workflow_steps(workflow_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return AIGenerationWorkflowService(db).workflow_steps(workflow_id, current_user)
 
 
 @router.get("/ai/workflows/{workflow_id}/draft", response_model=AIGenerationDraftOut)

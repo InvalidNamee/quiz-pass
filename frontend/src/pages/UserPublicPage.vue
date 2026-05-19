@@ -1,14 +1,16 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { api, type QuestionBank, type UserPublic } from '../api/client'
+import type { QuestionBankV2, UserPublic } from '../api/types'
+import { listBanks } from '../api/v2/banks'
+import { getUserPublic } from '../api/v2/users'
 import AppAvatar from '../components/AppAvatar.vue'
 import AppLoading from '../components/AppLoading.vue'
 import AppEmpty from '../components/AppEmpty.vue'
 
 const route = useRoute()
 const user = ref<UserPublic | null>(null)
-const banks = ref<QuestionBank[]>([])
+const banks = ref<QuestionBankV2[]>([])
 const loading = ref(true)
 
 function formatDate(value: string) {
@@ -17,8 +19,9 @@ function formatDate(value: string) {
 
 onMounted(async () => {
   try {
-    user.value = await api<UserPublic>(`/api/v1/users/${route.params.userId}`)
-    banks.value = await api<QuestionBank[]>(`/api/v1/users/${route.params.userId}/public-question-banks`)
+    const userId = Number(route.params.userId)
+    user.value = await getUserPublic(userId)
+    banks.value = (await listBanks('public', { owner_id: userId, page_size: 100 })).items
   } finally {
     loading.value = false
   }
@@ -31,7 +34,7 @@ onMounted(async () => {
   </section>
 
   <section v-else-if="user" class="grid gap-6">
-    <div class="page-card p-6">
+    <div>
       <div class="flex flex-wrap items-center gap-4">
         <AppAvatar :src="user.avatar_url" :username="user.display_name || user.username" size="lg" />
         <div class="min-w-0">
@@ -64,13 +67,13 @@ onMounted(async () => {
 
       <AppEmpty v-if="!banks.length" title="暂无公开题库" />
 
-      <div v-else class="grid gap-3">
-        <RouterLink v-for="bank in banks" :key="bank.id" class="page-card flex items-center justify-between gap-4 p-4 hover:border-brand-500/30" :to="`/banks/${bank.id}`">
+      <div v-else class="divide-y divide-slate-100 border-y border-slate-200">
+        <RouterLink v-for="bank in banks" :key="bank.id" class="flex items-center justify-between gap-3 py-2.5" :to="`/banks/${bank.id}`">
           <div class="min-w-0">
             <strong class="block truncate">{{ bank.title }}</strong>
             <span class="text-sm text-slate-500">{{ bank.description || '暂无描述' }}</span>
           </div>
-          <span class="shrink-0 text-sm text-slate-500">{{ bank.question_count }} 题 · {{ bank.favorite_count }} 收藏</span>
+          <span class="shrink-0 text-sm text-slate-500">{{ bank.stats.question_count }} 题 · {{ bank.stats.favorite_count }} 收藏</span>
         </RouterLink>
       </div>
     </div>

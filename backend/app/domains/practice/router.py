@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.api.deps import get_current_user
 from app.db.session import get_db
 from app.domains.practice.services import MistakeService, PracticeSessionService
+from app.models.practice import PracticeSession
 from app.models.question import Question
 from app.models.user import User
 from app.schemas.common import Page, page_response
@@ -73,3 +74,26 @@ def create_mistake_session(bank_id: int, current_user: User = Depends(get_curren
 def resolve_mistake(bank_id: int, question_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     MistakeService(db).resolve(bank_id, question_id, current_user)
     return {"ok": True}
+
+
+@router.get("/history/sessions", response_model=Page[PracticeSessionOut])
+def list_history(
+    page: int = 1,
+    page_size: int = 20,
+    bank_id: int | None = None,
+    mode: str | None = None,
+    status: str | None = None,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    stmt = select(PracticeSession).where(PracticeSession.user_id == current_user.id)
+    if bank_id:
+        stmt = stmt.where(PracticeSession.bank_id == bank_id)
+    if mode:
+        stmt = stmt.where(PracticeSession.mode == mode)
+    if status:
+        stmt = stmt.where(PracticeSession.status == status)
+    stmt = stmt.order_by(PracticeSession.started_at.desc())
+    service = PracticeSessionService(db)
+    items, total, page, page_size = paginate(db, stmt, page, page_size)
+    return page_response([service.to_out(item) for item in items], total, page, page_size)

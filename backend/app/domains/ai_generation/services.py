@@ -2,7 +2,7 @@ import json
 from urllib.parse import urlparse
 
 from fastapi import BackgroundTasks, HTTPException, UploadFile
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.session import SessionLocal
@@ -12,11 +12,11 @@ from app.domains.ai_generation.errors import AIOutputValidationError
 from app.domains.ai_generation.workflow_runtime import WorkflowRuntime
 from app.domains.question_banks.permissions import QuestionBankPermissionService
 from app.models.ai_provider_config import UserAIProviderConfig
-from app.models.ai_workflow import AIGenerationDraft, AIGenerationWorkflow, AIGenerationWorkflowStep
+from app.models.ai_workflow import AIGenerationDraft, AIGenerationDraftQuestion, AIGenerationWorkflow, AIGenerationWorkflowStep
 from app.models.import_job import ImportJob
 from app.models.question_bank import QuestionBank
 from app.models.user import User
-from app.schemas.ai import AIGenerationDraftOut, AIGenerationWorkflowOut
+from app.schemas.ai import AIGenerationDraftOut, AIGenerationWorkflowOut, AIGenerationWorkflowStepOut
 from app.services.question_bank_tags import set_bank_tags
 from app.utils.document_extractors import extract_text
 
@@ -24,7 +24,16 @@ from app.utils.document_extractors import extract_text
 def run_generation_task(workflow_id: int, text: str, question_count: int | None, generate_description: bool, generation_mode: str, extra_instruction: str | None) -> None:
     db = SessionLocal()
     try:
-        WorkflowRuntime(db).run(workflow_id, text, question_count, generate_description, generation_mode, extra_instruction)
+        from app.services import ai_generation
+
+        WorkflowRuntime(db, model_client=ai_generation._call_openai_compatible).run(
+            workflow_id,
+            text,
+            question_count,
+            generate_description,
+            generation_mode,
+            extra_instruction,
+        )
     finally:
         db.close()
 
@@ -207,7 +216,27 @@ class AIGenerationWorkflowService:
         return workflow
 
     def workflow_out(self, workflow: AIGenerationWorkflow) -> AIGenerationWorkflowOut:
-        return AIGenerationWorkflowOut.model_validate(workflow, from_attributes=True)
+        out = AIGenerationWorkflowOut.model_validate(workflow, from_attributes=True)
+        out.workflow_id = workflow.id
+        out.workflow_status = workflow.status
+        job = self.db.scalar(select(ImportJob).where(ImportJob.workflow_id == workflow.id))
+        if job:
+            out.job_id = job.id
+            out.type = job.type
+        draft = self.db.scalar(select(AIGenerationDraft).where(AIGenerationDraft.workflow_id == workflow.id, AIGenerationDraft.status == "ready"))
+        if draft:
+            out.draft_question_count = self.db.scalar(select(func.count()).select_from(AIGenerationDraftQuestion).where(AIGenerationDraftQuestion.draft_id == draft.id)) or 0
+            out.can_confirm = workflow.status == "draft_ready"
+        return out
+
+    def workflow_steps(self, workflow_id: int, user: User) -> list[AIGenerationWorkflowStepOut]:
+        workflow = self.get_owned_workflow(workflow_id, user)
+        steps = self.db.scalars(
+            select(AIGenerationWorkflowStep)
+            .where(AIGenerationWorkflowStep.workflow_id == workflow.id)
+            .order_by(AIGenerationWorkflowStep.id.asc())
+        ).all()
+        return [AIGenerationWorkflowStepOut.model_validate(step, from_attributes=True) for step in steps]
 
     def draft_for_workflow(self, workflow_id: int, user: User) -> AIGenerationDraftOut:
         workflow = self.get_owned_workflow(workflow_id, user)

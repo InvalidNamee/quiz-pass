@@ -372,7 +372,7 @@ backend/app/
 
 ## 7. API 设计
 
-统一前缀：`/api/v1`
+统一前缀：`/api/v2`
 
 ### 7.0 Pagination and Filtering
 
@@ -465,16 +465,16 @@ backend/app/
 
 ### 7.5 AI Generation
 
-- `POST /ai-generation/question-bank-jobs`
-- `POST /question-banks/{bank_id}/ai-generation/jobs`
-- `GET /ai-generation/jobs`
-- `GET /ai-generation/jobs/{job_id}`
-- `POST /ai-generation/jobs/{job_id}/confirm`
-- `POST /ai-generation/jobs/{job_id}/cancel`
+- `POST /ai/workflows`
+- `POST /banks/{bank_id}/ai-workflows`
+- `GET /ai/workflows`
+- `GET /ai/workflows/{workflow_id}`
+- `POST /ai/workflows/{workflow_id}/draft/confirm`
+- `POST /ai/workflows/{workflow_id}/draft/discard`
 
-`POST /ai-generation/question-bank-jobs` 用于从文档直接创建一个生成中的题库。后端应先创建 `question_banks` 记录，并设置 `visibility = private`、`desired_visibility = 用户选择值`、`generation_status = pending`，再创建生成任务并返回 `bank_id` 和 `job_id`。这样即使用户刷新页面，生成中的题库和任务也能通过接口恢复。
+`POST /ai/workflows` 用于从文档直接创建一个生成中的题库。后端应先创建 `question_banks` 记录，并设置 `visibility = private`、`desired_visibility = 用户选择值`、`generation_status = pending`，再创建生成任务并返回 `bank_id` 和 `job_id`。这样即使用户刷新页面，生成中的题库和任务也能通过接口恢复。
 
-`GET /ai-generation/jobs` 查询当前用户自己的生成任务，支持 `page`、`page_size`、`bank_id`、`status`、`created_from`、`created_to`、`sort`，用于刷新后恢复生成中列表。
+`GET /ai/workflows` 查询当前用户自己的生成任务，支持 `page`、`page_size`、`bank_id`、`status`、`created_from`、`created_to`、`sort`，用于刷新后恢复生成中列表。
 
 “生成型题库”任务成功后，后端应自动将校验通过的题目写入该题库，并按 `desired_visibility` 更新题库：如果用户预设为 `public`，则将题库切为公开；如果预设为 `private`，则保持私有。`confirm` 接口主要用于后续“生成到已有题库前先预览确认”的增强路径，首版生成新题库不依赖前端确认才能入库。
 
@@ -576,7 +576,7 @@ question_banks.generation_status = pending
 
 - 创建生成型题库时，立即持久化 `question_banks` 和 `import_jobs`，并返回 `bank_id`、`job_id`。
 - 生成中题库必须保持 `visibility = private`，只对 `owner_id` 用户可见。
-- 前端刷新后通过 `GET /question-banks?generation_status=pending|processing` 或 `GET /ai-generation/jobs?status=pending|processing` 恢复生成中题库。
+- 前端刷新后通过 `GET /question-banks?generation_status=pending|processing` 或 `GET /ai/workflows?status=pending|processing` 恢复生成中题库。
 - AI 生成成功后，后端先将规范化题目写入题库，再将 `generation_status` 更新为 `succeeded`。
 - 如果 `desired_visibility = public`，只有在题目写入成功并且题库不为空后，才把 `visibility` 更新为 `public`。
 - 如果 `desired_visibility = private`，生成成功后仍保持私有。
@@ -803,11 +803,10 @@ OpenAI 兼容 API 的 `api_base_url`、`api_key`、`model` 由用户在应用内
 
 ### 20.1 当前代码结构现状
 
-后端已经从最初的 `api/v1 + services` 单层业务编排，演进为“v1 兼容 + v2/domain 分层”的过渡结构：
+后端已经从最初的单层业务编排，演进为“v2/domain 分层”的结构；旧版 v1 API 已删除。
 
 ```text
 backend/app/
-  api/v1/                      # 兼容旧前端路径，部分已降级为 domain wrapper
   api/v2/                      # 新资源化 API 聚合入口
   domains/
     question_banks/            # 题库、题目、标签、收藏、导入导出、权限、统计、生命周期
@@ -816,10 +815,10 @@ backend/app/
     users/                     # 用户资料、AI 配置、管理员用户管理
   models/                      # SQLAlchemy ORM
   schemas/                     # Pydantic DTO
-  services/ai_generation.py    # AI 兼容 facade，保留 v1/测试 monkeypatch 表面
+  services/ai_generation.py    # AI 兼容 facade，保留测试 monkeypatch 表面
 ```
 
-前端已经从单一 `api/client.ts` 类型和请求聚合，演进为“兼容 client + domain API 模块 + v2 API 模块”的过渡结构：
+前端已经从单一 `api/client.ts` 类型和请求聚合，演进为“domain API 模块 + v2 API 模块”的结构：
 
 ```text
 frontend/src/
@@ -959,7 +958,7 @@ cd backend
 - 本文档前面章节仍有旧设计残留：
   - `active_generation_job_id` 已不再是数据库字段。
   - AI 生成不再是成功后直接入库，而是先生成草稿，用户确认后入库。
-  - 后端已存在 `/api/v2`，不再只有 `/api/v1`。
+  - 后端已存在 `/api/v2`，不再只有 `/api/v2`。
   - 后端业务已进入 `domains/` 分层，不再是单纯 `services/`。
   - JWT refresh token 仍未完整落地，当前主要是 access token。
   - `user_prompt_templates` 模型仍在，但前端和业务流程没有成为核心能力。
@@ -967,7 +966,7 @@ cd backend
 #### 前端迁移未完成
 
 - 前端仍处在 v1/v2 混用阶段，部分页面使用 v1 job API，部分页面使用 v2 workflow/bank API。
-- 草稿确认路由仍以 `/ai-generation/jobs/:jobId/draft` 命名，和 v2 workflow-first 语义不完全一致。
+- 草稿确认路由仍以 `/ai/workflows/:jobId/draft` 命名，和 v2 workflow-first 语义不完全一致。
 - 部分页面仍从 `api/client.ts` 兼容层取类型或请求。
 - 前端需要继续统一到 `api/http.ts` + `api/types.ts` + domain API 模块。
 - 前端缺少系统化测试，主要依赖 `npm run build` 和手动验证。
@@ -1018,7 +1017,7 @@ cd backend
 
 - 新增或调整路由：
   - `/ai-generation/workflows/:workflowId/draft`
-  - 保留 `/ai-generation/jobs/:jobId/draft` 作为 v1 兼容入口，或在页面内部根据来源分别调用 API。
+  - 草稿入口统一为 `/ai-generation/workflows/:workflowId/draft`。
 - `BankDetailPage` 的 `active_workflow` 草稿入口应跳转 workflow 路由。
 - `GenerationDraftPage` 支持 workflow ID 调用 `/api/v2/ai/workflows/{workflow_id}/draft`、confirm、discard。
 - `GenerationJobsPage` 如果仍展示 v1 job，应使用 job id；如果切 v2 workflow 队列，则改名和数据结构。
@@ -1145,3 +1144,46 @@ npm run build
 4. 压缩题库卡片和列表 UI，提高信息密度。
 5. 补统一错误响应，先从 v2 API 和前端 `api/http.ts` 开始。
 6. 再做 AI workflow retry/cancel/partial repair。
+
+## 21. 旧接口清理进展
+
+### 21.1 已完成
+
+- 前端业务源码已迁移到 `/api/v2`：
+  - `auth.ts` 登录、注册、当前用户改用 `/api/v2/auth/*` 和 `/api/v2/users/me`。
+  - 用户资料、AI Provider、管理员用户管理改用 `/api/v2/users`、`/api/v2/admin/users`。
+  - 题库、题目、标签、收藏、导入导出改用 `/api/v2/banks`。
+  - 练习、历史、错题改用 `/api/v2/practice`、`/api/v2/history`、`/api/v2/banks/{bank_id}/mistakes`。
+  - AI 生成队列切到 workflow-first：`/api/v2/ai/workflows`。
+- 前端已移除旧 job 草稿路由，统一使用 `/ai-generation/workflows/:workflowId/draft`。
+- 后端补齐 v2 缺口：
+  - 新增 `/api/v2/auth/register`、`/api/v2/auth/login`、`/api/v2/auth/me`。
+  - 新增 `/api/v2/history/sessions`。
+  - OAuth2 文档入口改为 `/api/v2/auth/login`。
+- 后端旧版 API 已删除：
+  - 旧版 API 源文件已移除。
+  - `app.main` 只挂载 `/api/v2`。
+  - 后端测试已迁移到 `/api/v2`。
+- 验证：
+  - `frontend npm run build` 已通过。
+  - `backend .venv/bin/python -m compileall app` 已通过。
+  - `backend .venv/bin/python -m pytest tests -q` 已通过。
+
+### 21.2 仍保留
+
+- `frontend/src/api/client.ts` 仍作为类型和 `api` re-export 存在；部分组件只从这里导入类型，不再代表 v1 依赖。
+- `frontend/src/api/banks.ts`、`users.ts`、`practice.ts`、`aiGeneration.ts` 已改为 v2 facade；后续可以按引用情况进一步合并到 `frontend/src/api/v2/*`。
+- `app.services.ai_generation` 仍作为测试 monkeypatch facade 存在，底层业务已经走 `domains/ai_generation`。
+
+### 21.3 下一步建议
+
+1. 合并前端重复 API facade：
+   - `frontend/src/api/banks.ts`
+   - `frontend/src/api/users.ts`
+   - `frontend/src/api/practice.ts`
+   - `frontend/src/api/aiGeneration.ts`
+2. 继续收敛 DTO 中为测试兼容保留的平铺字段，例如 `owner_id`、`question_count`、`workflow_status`。
+3. 全量验证后再提交：
+   - `npm run build`
+   - `.venv/bin/python -m compileall app`
+   - `.venv/bin/python -m pytest tests -q`

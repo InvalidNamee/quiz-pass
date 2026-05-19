@@ -62,8 +62,9 @@ export function usePracticeSession(sessionId: number) {
   async function load() {
     loading.value = true
     try {
-      session.value = await getSession(sessionId)
-      questions.value = await getSessionQuestions(sessionId)
+      const [sessionData, questionsData] = await Promise.all([getSession(sessionId), getSessionQuestions(sessionId)])
+      session.value = sessionData
+      questions.value = questionsData
 
       const restored: Record<number, number[]> = {}
       const restoredAnswered: Record<number, boolean> = {}

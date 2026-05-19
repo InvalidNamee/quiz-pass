@@ -50,13 +50,8 @@ export function useBankList(scope: 'mine' | 'public' | 'favorites') {
   async function load() {
     readQuery()
     await syncTagsFromQuery()
-    const params: Record<string, string> = { page: String(route.query.page || 1) }
-    if (keyword.value.trim()) params.keyword = keyword.value.trim()
-    if (ownerId.value) params.owner_id = String(ownerId.value)
-    const tids = selectedTags.value.map(t => t.id).filter(Boolean).join(',')
-    if (tids) params.tag_ids = tids
-    if (visibility.value) params.visibility = visibility.value
-    if (generationStatus.value) params.generation_status = generationStatus.value
+    const params = buildQuery(Number(route.query.page || 1))
+    params.page = params.page || '1'
     loading.value = true
     try {
       const data = await v2.listBanks(scope, params)

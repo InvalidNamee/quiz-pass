@@ -1,36 +1,37 @@
 import { api } from './http'
-import type { Page, AIGenerationDraft, GenerationJob } from './types'
+import type { Page, AIGenerationDraft } from './types'
+import type { WorkflowListItem } from './v2/aiGeneration'
 
 export function createJob(form: FormData) {
-  return api<{ bank_id: number; job_id: number }>('/api/v1/ai-generation/question-bank-jobs', { method: 'POST', body: form })
+  return api<{ bank_id: number; workflow_id: number; job_id: number }>('/api/v2/ai/workflows', { method: 'POST', body: form })
 }
 
 export function listJobs(params: { page?: number; page_size?: number; status?: string }) {
   const q = new URLSearchParams()
   Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== '') q.set(k, String(v)) })
-  return api<Page<GenerationJob>>(`/api/v1/ai-generation/jobs?${q}`)
+  return api<Page<WorkflowListItem>>(`/api/v2/ai/workflows?${q}`)
 }
 
-export function getJob(jobId: number) {
-  return api<GenerationJob>(`/api/v1/ai-generation/jobs/${jobId}`)
+export function getJob(workflowId: number) {
+  return api<WorkflowListItem>(`/api/v2/ai/workflows/${workflowId}`)
 }
 
-export function cancelJob(jobId: number) {
-  return api(`/api/v1/ai-generation/jobs/${jobId}/cancel`, { method: 'POST' })
+export function cancelJob(_workflowId: number) {
+  return Promise.reject(new Error('v2 workflow cancellation is not available yet'))
 }
 
-export function confirmJob(jobId: number) {
-  return api<{ ok: boolean; bank_id: number }>(`/api/v1/ai-generation/jobs/${jobId}/confirm`, { method: 'POST' })
+export function confirmJob(workflowId: number) {
+  return api<{ ok: boolean; bank_id: number }>(`/api/v2/ai/workflows/${workflowId}/draft/confirm`, { method: 'POST' })
 }
 
-export function getDraft(jobId: number) {
-  return api<AIGenerationDraft>(`/api/v1/ai-generation/jobs/${jobId}/draft`)
+export function getDraft(workflowId: number) {
+  return api<AIGenerationDraft>(`/api/v2/ai/workflows/${workflowId}/draft`)
 }
 
-export function updateDraft(jobId: number, data: Record<string, unknown>) {
-  return api<AIGenerationDraft>(`/api/v1/ai-generation/jobs/${jobId}/draft`, { method: 'PATCH', body: JSON.stringify(data) })
+export function updateDraft(workflowId: number, data: Record<string, unknown>) {
+  return api<AIGenerationDraft>(`/api/v2/ai/workflows/${workflowId}/draft`, { method: 'PATCH', body: JSON.stringify(data) })
 }
 
-export function discardDraft(jobId: number) {
-  return api(`/api/v1/ai-generation/jobs/${jobId}/discard`, { method: 'POST' })
+export function discardDraft(workflowId: number) {
+  return api(`/api/v2/ai/workflows/${workflowId}/draft/discard`, { method: 'POST' })
 }

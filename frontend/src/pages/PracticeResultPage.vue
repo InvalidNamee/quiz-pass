@@ -1,7 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import { api, type PracticeSession } from '../api/client'
+import type { PracticeSession } from '../api/types'
+import { getResult, getSession } from '../api/v2/practice'
 import AppBadge from '../components/AppBadge.vue'
 import AppLoading from '../components/AppLoading.vue'
 import MathText from '../components/MathText.vue'
@@ -29,8 +30,8 @@ const loading = ref(true)
 
 onMounted(async () => {
   try {
-    session.value = await api<PracticeSession>(`/api/v1/practice/sessions/${sessionId}`)
-    results.value = await api<Result[]>(`/api/v1/practice/sessions/${sessionId}/result`)
+    session.value = await getSession(sessionId)
+    results.value = await getResult(sessionId)
   } finally {
     loading.value = false
   }
@@ -39,7 +40,7 @@ onMounted(async () => {
 
 <template>
   <section class="grid gap-5">
-    <div class="page-card p-4">
+    <div>
       <h1 class="text-lg font-bold">练习结果</h1>
       <p v-if="session" class="mt-2 text-slate-600">
         得分 <strong class="text-slate-900">{{ session.score }}</strong>，正确 {{ session.correct_count }} / {{ session.total_questions }}
@@ -52,11 +53,11 @@ onMounted(async () => {
       <article
         v-for="(item, index) in results"
         :key="item.question_id"
-        class="page-card p-4"
+        class="border-y border-slate-100 py-4"
         :class="{
-          'border-l-4 border-l-green-500': item.is_correct,
-          'border-l-4 border-l-red-500': !item.is_correct && !item.is_unanswered,
-          'border-l-4 border-l-yellow-500': item.is_unanswered,
+          'border-l-4 border-l-green-500 pl-4': item.is_correct,
+          'border-l-4 border-l-red-500 pl-4': !item.is_correct && !item.is_unanswered,
+          'border-l-4 border-l-yellow-500 pl-4': item.is_unanswered,
         }"
       >
         <div class="flex items-start justify-between gap-2">

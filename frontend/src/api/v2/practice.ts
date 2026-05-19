@@ -29,9 +29,11 @@ export function getResult(sessionId: number) {
   return api<any[]>(`/api/v2/practice/sessions/${sessionId}/result`)
 }
 
-export function listMistakes(bankId: number, resolved?: boolean) {
-  const q = resolved !== undefined ? `?resolved=${resolved}` : ''
-  return api<Page<MistakeRecord>>(`/api/v2/banks/${bankId}/mistakes${q}`)
+export function listMistakes(bankId: number, resolved?: boolean, params: { page?: number; page_size?: number } = {}) {
+  const q = new URLSearchParams()
+  if (resolved !== undefined) q.set('resolved', String(resolved))
+  Object.entries(params).forEach(([k, v]) => { if (v !== undefined) q.set(k, String(v)) })
+  return api<Page<MistakeRecord>>(`/api/v2/banks/${bankId}/mistakes?${q}`)
 }
 
 export function createMistakeSession(bankId: number) {
@@ -40,4 +42,10 @@ export function createMistakeSession(bankId: number) {
 
 export function resolveMistake(bankId: number, questionId: number) {
   return api(`/api/v2/banks/${bankId}/mistakes/${questionId}/resolve`, { method: 'POST' })
+}
+
+export function listHistory(params: { page?: number; page_size?: number; bank_id?: number; mode?: string; status?: string }) {
+  const q = new URLSearchParams()
+  Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== '') q.set(k, String(v)) })
+  return api<Page<PracticeSession>>(`/api/v2/history/sessions?${q}`)
 }

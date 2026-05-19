@@ -78,12 +78,15 @@ class AIGenerationBankJobOut(BaseModel):
 
 class AIGenerationWorkflowOut(BaseModel):
     id: int
+    workflow_id: int | None = None
     bank_id: int
     user_id: int
     job_id: int | None = None
+    type: str | None = None
     purpose: str
     generation_mode: str
     status: str
+    workflow_status: str | None = None
     source_file_name: str | None
     requested_count: int | None
     generate_description: str
@@ -92,6 +95,8 @@ class AIGenerationWorkflowOut(BaseModel):
     ai_base_url_snapshot: str | None
     repair_attempts: int
     error_message: str | None
+    draft_question_count: int = 0
+    can_confirm: bool = False
     finished_at: datetime | None
     created_at: datetime
     updated_at: datetime

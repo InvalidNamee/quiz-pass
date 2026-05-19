@@ -1,13 +1,15 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, type PracticeSession, type QuestionBank } from '../api/client'
+import type { QuestionBankV2 } from '../api/types'
+import { getBank } from '../api/v2/banks'
+import { createSession } from '../api/v2/practice'
 import AppButton from '../components/AppButton.vue'
 import AppLoading from '../components/AppLoading.vue'
 
 const route = useRoute()
 const router = useRouter()
-const bank = ref<QuestionBank | null>(null)
+const bank = ref<QuestionBankV2 | null>(null)
 const mode = ref('practice')
 const useLimit = ref(false)
 const limit = ref(20)
@@ -23,7 +25,7 @@ const modeDescriptions: Record<string, string> = {
 async function load() {
   loading.value = true
   try {
-    bank.value = await api<QuestionBank>(`/api/v1/question-banks/${route.params.bankId}`)
+    bank.value = await getBank(Number(route.params.bankId))
   } finally {
     loading.value = false
   }
@@ -34,7 +36,7 @@ async function start() {
   try {
     const body: Record<string, unknown> = { bank_id: Number(route.params.bankId), mode: mode.value }
     if (useLimit.value) body.question_limit = limit.value
-    const session = await api<PracticeSession>('/api/v1/practice/sessions', { method: 'POST', body: JSON.stringify(body) })
+    const session = await createSession(body as { bank_id: number; mode: string; question_limit?: number })
     router.push(`/practice/session/${session.id}`)
   } catch {
     starting.value = false
@@ -46,14 +48,14 @@ onMounted(load)
 
 <template>
   <section class="grid gap-5">
-    <div class="page-card p-4">
+    <div>
       <h1 class="text-lg font-bold">开始刷题</h1>
-      <p v-if="bank" class="mt-1 text-slate-600">{{ bank.title }} · {{ bank.question_count }} 题</p>
+      <p v-if="bank" class="mt-1 text-sm text-slate-500">{{ bank.title }} · {{ bank.stats.question_count }} 题</p>
     </div>
 
     <AppLoading v-if="loading" />
 
-    <div v-else class="grid max-w-2xl gap-4 page-card p-4">
+    <div v-else class="grid max-w-2xl gap-4 rounded-lg border border-slate-200 p-4">
       <label class="grid gap-1">
         <span class="text-sm font-medium text-slate-700">练习模式</span>
         <select v-model="mode" class="rounded-input border border-slate-300 bg-white px-3 py-2">

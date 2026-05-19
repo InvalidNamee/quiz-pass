@@ -28,7 +28,7 @@ async function submit() {
 
 <template>
   <div class="flex min-h-[80vh] items-center justify-center">
-    <form class="grid w-full max-w-sm gap-3 rounded-xl border border-slate-200 bg-white p-8 shadow-card" @submit.prevent="submit">
+    <form class="grid w-full max-w-sm gap-3 rounded-lg border border-slate-200 bg-white p-8" @submit.prevent="submit">
       <h1 class="text-center text-2xl font-bold tracking-tight">Quiz Pass</h1>
       <input v-model="identifier" class="w-full rounded-input border border-slate-300 bg-white px-3 py-2.5" placeholder="用户名或邮箱" autocomplete="off" />
       <div class="relative">

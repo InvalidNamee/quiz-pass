@@ -1,8 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { api, type AIProviderConfig, type QuestionBank, type QuestionBankTag } from '../api/client'
-import { importJsonNewBank, importJsonToBank } from '../api/v2/banks'
+import type { AIProviderConfig, QuestionBankTag, QuestionBankV2 } from '../api/types'
+import { createWorkflow, extendWorkflow } from '../api/v2/aiGeneration'
+import { getBank, importJsonNewBank, importJsonToBank } from '../api/v2/banks'
+import { listAIConfigs } from '../api/v2/users'
 import AppButton from '../components/AppButton.vue'
 import BankTagInput from '../components/BankTagInput.vue'
 import { useToast } from '../composables/useToast'
@@ -21,7 +23,7 @@ const extraInstruction = ref('')
 const selectedTags = ref<QuestionBankTag[]>([])
 const file = ref<File | null>(null)
 const configs = ref<AIProviderConfig[]>([])
-const bank = ref<QuestionBank | null>(null)
+const bank = ref<QuestionBankV2 | null>(null)
 const submitting = ref(false)
 const toast = useToast()
 const route = useRoute()
@@ -30,11 +32,11 @@ const extendBankId = computed(() => route.params.bankId ? Number(route.params.ba
 const isExtend = computed(() => Boolean(extendBankId.value))
 
 async function load() {
-  configs.value = await api<AIProviderConfig[]>('/api/v1/users/me/ai-provider-configs')
+  configs.value = await listAIConfigs()
   const preferred = configs.value.find((item) => item.is_default) ?? configs.value[0]
   if (preferred && !aiProviderConfigId.value) aiProviderConfigId.value = String(preferred.id)
   if (extendBankId.value) {
-    bank.value = await api<QuestionBank>(`/api/v1/question-banks/${extendBankId.value}`)
+    bank.value = await getBank(extendBankId.value)
   }
 }
 
@@ -75,18 +77,16 @@ async function submit() {
       }
       if (extraInstruction.value.trim()) form.set('extra_instruction', extraInstruction.value.trim())
       form.set('generate_description', String(generateDescription.value))
-      const endpoint = isExtend.value
-        ? `/api/v1/question-banks/${extendBankId.value}/ai-generation/extend-jobs`
-        : '/api/v1/ai-generation/question-bank-jobs'
-      const data = await api<{ bank_id: number; job_id: number }>(endpoint, { method: 'POST', body: form })
-      toast.show(`已创建${isExtend.value ? '扩展' : '生成'}任务 #${data.job_id}`, 'success')
+      const data = isExtend.value && extendBankId.value
+        ? await extendWorkflow(extendBankId.value, form)
+        : await createWorkflow(form)
+      toast.show(`已创建${isExtend.value ? '扩展' : '生成'}工作流 #${data.workflow_id}`, 'success')
     }
 
     title.value = ''
     extraInstruction.value = ''
     selectedTags.value = []
     file.value = null
-    await load()
     router.push('/banks/generation-jobs')
   } catch (err) {
     toast.show(err instanceof Error ? err.message : '提交失败', 'error')
@@ -101,14 +101,14 @@ watch(() => route.fullPath, load)
 
 <template>
   <section class="mx-auto grid max-w-3xl gap-5">
-    <div class="page-card p-6">
-      <h1 class="text-2xl font-bold">{{ isExtend ? `扩展题库${bank ? '：' + bank.title : ''}` : '新建题库' }}</h1>
-      <p class="mt-2 text-slate-600">
+    <div>
+      <h1 class="text-lg font-bold">{{ isExtend ? `扩展题库${bank ? '：' + bank.title : ''}` : '新建题库' }}</h1>
+      <p class="mt-1 text-sm text-slate-500">
         {{ isExtend ? '为已有题库追加题目。' : '选择一种方式创建题库。' }}
       </p>
     </div>
 
-    <div class="page-card grid gap-5 p-6">
+    <div class="grid gap-5 rounded-lg border border-slate-200 p-5">
       <!-- Mode selection -->
       <div class="grid gap-3 sm:grid-cols-3">
         <button
@@ -118,7 +118,7 @@ watch(() => route.fullPath, load)
             { key: 'json_import', title: '导入 JSON', desc: '导入 Quiz Pass JSON' },
           ] as { key: CreateMode; title: string; desc: string }[]"
           :key="mode.key"
-          class="rounded-xl border p-4 text-left transition-colors"
+          class="rounded-lg border p-4 text-left transition-colors"
           :class="createMode === mode.key ? 'border-brand-500 bg-brand-50 text-brand-900' : 'border-slate-200 bg-white text-slate-700 hover:border-slate-300'"
           type="button"
           @click="createMode = mode.key"

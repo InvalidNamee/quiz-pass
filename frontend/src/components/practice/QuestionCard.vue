@@ -42,7 +42,7 @@ function optionClass(optionId: number) {
 </script>
 
 <template>
-  <article :class="['grid self-start gap-4 rounded-xl border p-6', answerStatus === 'correct' ? 'border-emerald-400 bg-emerald-50/20' : answerStatus === 'wrong' ? 'border-red-400 bg-red-50/20' : 'border-slate-200 bg-white']">
+  <article :class="['grid self-start gap-4 rounded-lg border p-6', answerStatus === 'correct' ? 'border-emerald-400 bg-emerald-50/20' : answerStatus === 'wrong' ? 'border-red-400 bg-red-50/20' : 'border-slate-200 bg-white']">
     <span class="w-fit rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-600">
       {{ question.type === 'single' ? '单选题' : '多选题' }}
     </span>
