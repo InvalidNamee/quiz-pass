@@ -1,50 +1,15 @@
-let mathJaxReady: Promise<unknown> | null = null
+import katex from 'katex'
 
-declare global {
-  interface Window {
-    MathJax?: {
-      tex?: unknown
-      options?: unknown
-      startup?: { promise?: Promise<unknown> }
-      texReset?: () => void
-      tex2chtmlPromise?: (math: string, options?: { display?: boolean }) => Promise<HTMLElement>
-      typesetPromise?: (elements: HTMLElement[]) => Promise<void>
-      typesetClear?: (elements: HTMLElement[]) => void
-    }
-  }
+type MathToken = { type: 'text'; value: string } | { type: 'math'; value: string; display: boolean; raw: string }
+
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
 }
-
-function ensureMathJax() {
-  if (!mathJaxReady) {
-    window.MathJax = {
-      tex: {
-        inlineMath: [['\\(', '\\)']],
-        displayMath: [['$$', '$$'], ['\\[', '\\]']],
-        processEscapes: true,
-      },
-      options: {
-        enableMenu: false,
-      },
-    }
-    mathJaxReady = import('mathjax/tex-chtml.js').then(async () => {
-      await Promise.race([
-        window.MathJax?.startup?.promise ?? Promise.resolve(),
-        new Promise((resolve) => setTimeout(resolve, 1500)),
-      ])
-    })
-  }
-  return mathJaxReady
-}
-
-export async function typesetMath(element: HTMLElement) {
-  await ensureMathJax()
-  if (!window.MathJax?.typesetPromise) return
-  window.MathJax.typesetClear?.([element])
-  window.MathJax.texReset?.()
-  await window.MathJax.typesetPromise([element])
-}
-
-type MathToken = { type: 'text'; value: string } | { type: 'math'; value: string; display: boolean }
 
 function findNextDelimiter(text: string, start: number) {
   const candidates = [
@@ -74,34 +39,29 @@ function tokenizeMathText(text: string): MathToken[] {
       tokens.push({ type: 'text', value: text.slice(delimiter.index) })
       break
     }
-    tokens.push({ type: 'math', value: text.slice(contentStart, contentEnd), display: delimiter.display })
+    tokens.push({
+      type: 'math',
+      value: text.slice(contentStart, contentEnd),
+      display: delimiter.display,
+      raw: text.slice(delimiter.index, contentEnd + delimiter.close.length),
+    })
     cursor = contentEnd + delimiter.close.length
   }
   return tokens
 }
 
-export async function renderMathText(element: HTMLElement, text: string) {
-  element.textContent = text
-  await ensureMathJax()
-  window.MathJax?.typesetClear?.([element])
-  const renderer = window.MathJax?.tex2chtmlPromise
-  if (!renderer) {
-    await window.MathJax?.typesetPromise?.([element])
-    return
-  }
-  const tokens = tokenizeMathText(text)
-  const fragment = document.createDocumentFragment()
-  for (const token of tokens) {
-    if (token.type === 'text') {
-      fragment.appendChild(document.createTextNode(token.value))
-    } else {
-      try {
-        const node = await renderer(token.value, { display: token.display })
-        fragment.appendChild(node)
-      } catch {
-        fragment.appendChild(document.createTextNode(token.display ? `\\[${token.value}\\]` : `\\(${token.value}\\)`))
-      }
+export function renderMathTextToHtml(text: string) {
+  return tokenizeMathText(text).map((token) => {
+    if (token.type === 'text') return escapeHtml(token.value)
+    try {
+      return katex.renderToString(token.value, {
+        displayMode: token.display,
+        throwOnError: false,
+        strict: 'ignore',
+        trust: false,
+      })
+    } catch {
+      return escapeHtml(token.raw)
     }
-  }
-  element.replaceChildren(fragment)
+  }).join('')
 }
