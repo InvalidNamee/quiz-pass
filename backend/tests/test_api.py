@@ -4,6 +4,7 @@ from pathlib import Path
 
 os.environ["DATABASE_URL"] = "sqlite:///./test_quiz_pass.db"
 os.environ["JWT_SECRET_KEY"] = "test-secret"
+os.environ["APP_ENV"] = "test"
 Path("test_quiz_pass.db").unlink(missing_ok=True)
 
 from alembic import command  # noqa: E402
@@ -21,13 +22,20 @@ from app.models.import_job import ImportJob  # noqa: E402
 from app.models.practice import MistakeRecord, PracticeAnswer, PracticeSession, PracticeSessionQuestion  # noqa: E402
 from app.models.question import Question, QuestionOption  # noqa: E402
 from app.models.question_bank import QuestionBank, QuestionBankFavorite, question_bank_tag_links  # noqa: E402
-from app.models.user import User  # noqa: E402
+from app.models.user import EmailAuthToken, User  # noqa: E402
+from app.core.config import get_settings  # noqa: E402
+import app.services.email_delivery as email_delivery  # noqa: E402
 
 
 def _register(client: TestClient, email: str, username: str) -> dict[str, str]:
     response = client.post("/api/v2/auth/register", json={"email": email, "username": username, "password": "password123"})
     assert response.status_code == 200, response.text
-    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+    token = response.json()["debug_token"]
+    verified = client.get(f"/api/v2/auth/verify-email?token={token}")
+    assert verified.status_code == 200, verified.text
+    login = client.post("/api/v2/auth/login", json={"identifier": username, "password": "password123"})
+    assert login.status_code == 200, login.text
+    return {"Authorization": f"Bearer {login.json()['access_token']}"}
 
 
 def _login(client: TestClient, identifier: str, password: str = "password123") -> dict[str, str]:
@@ -84,8 +92,9 @@ def test_login_identifier_and_change_password():
             json={"email": "login-v2@example.com", "username": "loginuserv2", "password": "password123"},
         )
         assert v2_headers.status_code == 200, v2_headers.text
+        assert client.get(f"/api/v2/auth/verify-email?token={v2_headers.json()['debug_token']}").status_code == 200
         assert client.post("/api/v2/auth/login", json={"identifier": "loginuserv2", "password": "password123"}).status_code == 200
-        v2_token = v2_headers.json()["access_token"]
+        v2_token = client.post("/api/v2/auth/login", json={"identifier": "loginuserv2", "password": "password123"}).json()["access_token"]
         assert client.get("/api/v2/auth/me", headers={"Authorization": f"Bearer {v2_token}"}).json()["username"] == "loginuserv2"
         assert _login(client, "login@example.com")
         assert _login(client, "loginuser")
@@ -107,7 +116,10 @@ def test_refresh_token_can_refresh_access_but_not_access_api():
             json={"email": "refresh@example.com", "username": "refreshuser", "password": "password123"},
         )
         assert response.status_code == 200, response.text
-        data = response.json()
+        assert client.get(f"/api/v2/auth/verify-email?token={response.json()['debug_token']}").status_code == 200
+        login = client.post("/api/v2/auth/login", json={"identifier": "refreshuser", "password": "password123"})
+        assert login.status_code == 200, login.text
+        data = login.json()
         assert data["access_token"]
         assert data["refresh_token"]
 
@@ -122,6 +134,144 @@ def test_refresh_token_can_refresh_access_but_not_access_api():
         me = client.get("/api/v2/users/me", headers={"Authorization": f"Bearer {new_access_token}"})
         assert me.status_code == 200
         assert me.json()["username"] == "refreshuser"
+
+
+def test_email_verification_required_before_login():
+    with TestClient(app) as client:
+        registered = client.post(
+            "/api/v2/auth/register",
+            json={"email": "verify@example.com", "username": "verifyuser", "password": "password123"},
+        )
+        assert registered.status_code == 200, registered.text
+        assert registered.json()["ok"] is True
+        assert "access_token" not in registered.json()
+
+        login = client.post("/api/v2/auth/login", json={"identifier": "verifyuser", "password": "password123"})
+        assert login.status_code == 403
+        assert login.json()["error"]["message"] == "请先验证邮箱"
+
+        db = SessionLocal()
+        try:
+            user = db.scalar(select(User).where(User.username == "verifyuser"))
+            assert user is not None
+            assert user.email_verified_at is None
+            token = db.scalar(select(EmailAuthToken).where(EmailAuthToken.user_id == user.id, EmailAuthToken.purpose == "email_verify"))
+            assert token is not None
+            assert token.token_hash
+            assert len(token.token_hash) == 64
+        finally:
+            db.close()
+
+        # Tests use the development outbox hook to retrieve the plaintext token.
+        verify_token = registered.json()["debug_token"]
+        verified = client.get(f"/api/v2/auth/verify-email?token={verify_token}")
+        assert verified.status_code == 200, verified.text
+        assert verified.json()["ok"] is True
+        assert _login(client, "verifyuser")
+        assert client.get(f"/api/v2/auth/verify-email?token={verify_token}").status_code == 400
+
+
+def test_resend_verification_and_password_reset_flow():
+    with TestClient(app) as client:
+        registered = client.post(
+            "/api/v2/auth/register",
+            json={"email": "reset@example.com", "username": "resetuser", "password": "password123"},
+        )
+        assert registered.status_code == 200, registered.text
+
+        resent = client.post("/api/v2/auth/resend-verification", json={"email": "reset@example.com"})
+        assert resent.status_code == 200
+        verify_token = resent.json()["debug_token"]
+        assert verify_token != registered.json()["debug_token"]
+        assert client.get(f"/api/v2/auth/verify-email?token={verify_token}").status_code == 200
+
+        missing = client.post("/api/v2/auth/forgot-password", json={"email": "missing@example.com"})
+        assert missing.status_code == 200
+        assert missing.json()["ok"] is True
+
+        forgot = client.post("/api/v2/auth/forgot-password", json={"email": "reset@example.com"})
+        assert forgot.status_code == 200
+        reset_token = forgot.json()["debug_token"]
+
+        bad = client.post("/api/v2/auth/reset-password", json={"token": "bad-token", "new_password": "newpass123"})
+        assert bad.status_code == 400
+        ok = client.post("/api/v2/auth/reset-password", json={"token": reset_token, "new_password": "newpass123"})
+        assert ok.status_code == 200
+        assert client.post("/api/v2/auth/reset-password", json={"token": reset_token, "new_password": "another123"}).status_code == 400
+        assert client.post("/api/v2/auth/login", json={"identifier": "resetuser", "password": "password123"}).status_code == 401
+        assert _login(client, "resetuser", "newpass123")
+
+
+def test_forgot_password_sends_reset_for_existing_unverified_user():
+    with TestClient(app) as client:
+        registered = client.post(
+            "/api/v2/auth/register",
+            json={"email": "legacy-reset@example.com", "username": "legacyreset", "password": "password123"},
+        )
+        assert registered.status_code == 200, registered.text
+
+        forgot = client.post("/api/v2/auth/forgot-password", json={"email": "legacy-reset@example.com"})
+        assert forgot.status_code == 200
+        assert forgot.json()["debug_token"]
+
+
+def test_forgot_password_reports_delivery_failure_for_existing_user(monkeypatch):
+    with TestClient(app) as client:
+        registered = client.post(
+            "/api/v2/auth/register",
+            json={"email": "delivery-fail@example.com", "username": "deliveryfail", "password": "password123"},
+        )
+        assert registered.status_code == 200, registered.text
+
+        monkeypatch.setattr(email_delivery.EmailDeliveryService, "send", lambda *args, **kwargs: False)
+        forgot = client.post("/api/v2/auth/forgot-password", json={"email": "delivery-fail@example.com"})
+        assert forgot.status_code == 503
+        assert forgot.json()["error"]["message"] == "重置密码邮件发送失败，请稍后重试"
+
+
+def test_email_tokens_must_match_current_user_email():
+    with TestClient(app) as client:
+        registered = client.post(
+            "/api/v2/auth/register",
+            json={"email": "token-original@example.com", "username": "tokenuser", "password": "password123"},
+        )
+        assert registered.status_code == 200, registered.text
+        verify_token = registered.json()["debug_token"]
+
+        db = SessionLocal()
+        try:
+            user = db.scalar(select(User).where(User.username == "tokenuser"))
+            assert user is not None
+            user.email = "token-changed@example.com"
+            db.commit()
+        finally:
+            db.close()
+
+        assert client.get(f"/api/v2/auth/verify-email?token={verify_token}").status_code == 400
+
+
+def test_email_delivery_uses_fastapi_mail_when_smtp_configured(monkeypatch):
+    sent: list[tuple[str, list[str], str, str]] = []
+
+    class FakeFastMail:
+        def __init__(self, config):
+            self.config = config
+
+        async def send_message(self, message):
+            sent.append((message.subject, message.recipients, message.body, message.subtype.value))
+
+    monkeypatch.setenv("SMTP_HOST", "smtp.example.com")
+    monkeypatch.setenv("SMTP_FROM_EMAIL", "noreply@example.com")
+    monkeypatch.setenv("SMTP_USERNAME", "user")
+    monkeypatch.setenv("SMTP_PASSWORD", "secret")
+    get_settings.cache_clear()
+    monkeypatch.setattr(email_delivery, "FastMail", FakeFastMail)
+
+    try:
+        assert email_delivery.EmailDeliveryService().send("to@example.com", "Subject", "Body", "<strong>Body</strong>") is True
+        assert sent == [("Subject", ["to@example.com"], "<strong>Body</strong>", "html")]
+    finally:
+        get_settings.cache_clear()
 
 
 def test_v2_errors_use_unified_shape():

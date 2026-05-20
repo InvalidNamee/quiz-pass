@@ -2,6 +2,9 @@ import { createRouter, createWebHistory } from 'vue-router'
 import { useAuthStore } from './stores/auth'
 import LoginPage from './pages/LoginPage.vue'
 import RegisterPage from './pages/RegisterPage.vue'
+import VerifyEmailPage from './pages/VerifyEmailPage.vue'
+import ForgotPasswordPage from './pages/ForgotPasswordPage.vue'
+import ResetPasswordPage from './pages/ResetPasswordPage.vue'
 import DashboardPage from './pages/DashboardPage.vue'
 import BanksPage from './pages/BanksPage.vue'
 import PublicBanksPage from './pages/PublicBanksPage.vue'
@@ -27,6 +30,9 @@ export const router = createRouter({
     { path: '/', redirect: '/dashboard' },
     { path: '/login', component: LoginPage },
     { path: '/register', component: RegisterPage },
+    { path: '/verify-email', component: VerifyEmailPage },
+    { path: '/forgot-password', component: ForgotPasswordPage },
+    { path: '/reset-password', component: ResetPasswordPage },
     { path: '/dashboard', component: DashboardPage, meta: { auth: true } },
     { path: '/profile', component: ProfilePage, meta: { auth: true } },
     { path: '/users/:userId', component: UserPublicPage, meta: { auth: true } },

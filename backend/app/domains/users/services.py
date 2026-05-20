@@ -1,5 +1,8 @@
+import hashlib
+import html
 import secrets
 import string
+from datetime import UTC, datetime, timedelta
 
 from fastapi import HTTPException, status
 from openai import OpenAI
@@ -7,22 +10,26 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.security import create_access_token, create_refresh_token, decode_token, get_password_hash, verify_password
+from app.core.config import get_settings
 from app.models.ai_provider_config import UserAIProviderConfig
 from app.models.question_bank import QuestionBank
-from app.models.user import User
+from app.models.user import EmailAuthToken, User
 from app.schemas.ai import AIProviderConfigCreate, AIProviderConfigUpdate
 from app.schemas.common import page_response
-from app.schemas.user import AdminPasswordResetOut, AdminUserUpdate, PasswordChange, Token, UserCreate, UserPublic, UserUpdate
+from app.schemas.user import AdminPasswordResetOut, AdminUserUpdate, AuthMessage, PasswordChange, Token, UserCreate, UserPublic, UserUpdate
 from app.utils.avatar import build_qq_avatar_url
 from app.utils.crypto import decrypt_secret, encrypt_secret
 from app.utils.pagination import paginate
+from app.services.email_delivery import EmailDeliveryService
 
 
 class UserAuthService:
     def __init__(self, db: Session):
         self.db = db
+        self.settings = get_settings()
+        self.email_delivery = EmailDeliveryService()
 
-    def register(self, payload: UserCreate) -> Token:
+    def register(self, payload: UserCreate) -> AuthMessage:
         email = str(payload.email).strip()
         username = payload.username.strip()
         existing = self.db.scalar(select(User).where((User.email == email) | (User.username == username)))
@@ -35,9 +42,11 @@ class UserAuthService:
             password_hash=get_password_hash(payload.password),
         )
         self.db.add(user)
+        self.db.flush()
+        token = self.create_email_token(user, "email_verify", self.settings.email_verify_token_expire_hours * 60)
         self.db.commit()
-        self.db.refresh(user)
-        return self.issue_tokens(user)
+        self.send_verification_email(user.email, token)
+        return self.message("请查收邮箱完成验证", token)
 
     def login(self, identifier: str | None, legacy_email: object, password: str) -> Token:
         normalized = (identifier or str(legacy_email or "")).strip()
@@ -47,6 +56,8 @@ class UserAuthService:
         user = self.db.scalar(select(User).where(field == normalized))
         if not user or not user.is_active or not verify_password(password, user.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名/邮箱或密码错误")
+        if not user.email_verified_at:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="请先验证邮箱")
         return self.issue_tokens(user)
 
     def refresh(self, refresh_token: str) -> Token:
@@ -58,6 +69,45 @@ class UserAuthService:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
         return Token(access_token=create_access_token(str(user.id), user.role), refresh_token=refresh_token)
 
+    def resend_verification(self, email: str) -> AuthMessage:
+        user = self.db.scalar(select(User).where(User.email == str(email).strip()))
+        if not user:
+            return AuthMessage(ok=True, message="如果邮箱存在，验证邮件已发送")
+        if user.email_verified_at:
+            return AuthMessage(ok=True, message="邮箱已验证")
+        token = self.create_email_token(user, "email_verify", self.settings.email_verify_token_expire_hours * 60)
+        self.db.commit()
+        self.send_verification_email(user.email, token)
+        return self.message("验证邮件已发送", token)
+
+    def verify_email(self, token: str) -> AuthMessage:
+        auth_token = self.consume_email_token(token, "email_verify")
+        user = self.db.get(User, auth_token.user_id)
+        if not user or user.email != auth_token.email:
+            raise HTTPException(status_code=400, detail="验证链接无效或已过期")
+        user.email_verified_at = datetime.now(UTC)
+        self.db.commit()
+        return AuthMessage(ok=True, message="邮箱验证成功")
+
+    def forgot_password(self, email: str) -> AuthMessage:
+        user = self.db.scalar(select(User).where(User.email == str(email).strip()))
+        if not user or not user.is_active:
+            return AuthMessage(ok=True, message="如果邮箱存在，重置密码邮件已发送")
+        token = self.create_email_token(user, "password_reset", self.settings.password_reset_token_expire_minutes)
+        self.db.commit()
+        if not self.send_password_reset_email(user.email, token):
+            raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="重置密码邮件发送失败，请稍后重试")
+        return self.message("如果邮箱存在，重置密码邮件已发送", token)
+
+    def reset_password(self, token: str, new_password: str) -> AuthMessage:
+        auth_token = self.consume_email_token(token, "password_reset")
+        user = self.db.get(User, auth_token.user_id)
+        if not user or user.email != auth_token.email:
+            raise HTTPException(status_code=400, detail="重置链接无效或已过期")
+        user.password_hash = get_password_hash(new_password)
+        self.db.commit()
+        return AuthMessage(ok=True, message="密码已重置")
+
     @staticmethod
     def issue_tokens(user: User) -> Token:
         subject = str(user.id)
@@ -65,6 +115,78 @@ class UserAuthService:
             access_token=create_access_token(subject, user.role),
             refresh_token=create_refresh_token(subject, user.role),
         )
+
+    def create_email_token(self, user: User, purpose: str, expire_minutes: int) -> str:
+        token = secrets.token_urlsafe(32)
+        self.db.add(
+            EmailAuthToken(
+                user_id=user.id,
+                email=user.email,
+                purpose=purpose,
+                token_hash=self.hash_token(token),
+                expires_at=datetime.now(UTC) + timedelta(minutes=expire_minutes),
+            )
+        )
+        return token
+
+    def consume_email_token(self, token: str, purpose: str) -> EmailAuthToken:
+        auth_token = self.db.scalar(
+            select(EmailAuthToken).where(
+                EmailAuthToken.token_hash == self.hash_token(token),
+                EmailAuthToken.purpose == purpose,
+            )
+        )
+        if not auth_token or auth_token.used_at:
+            raise HTTPException(status_code=400, detail="链接无效或已过期")
+        now = datetime.now(UTC)
+        expires_at = auth_token.expires_at
+        if expires_at.tzinfo is None:
+            expires_at = expires_at.replace(tzinfo=UTC)
+        if expires_at < now:
+            raise HTTPException(status_code=400, detail="链接无效或已过期")
+        auth_token.used_at = now
+        return auth_token
+
+    def send_verification_email(self, email: str, token: str) -> bool:
+        link = f"{self.settings.frontend_base_url.rstrip('/')}/verify-email?token={token}"
+        text = f"请点击下面的链接完成邮箱验证：\n\n{link}\n\n如果不是你本人操作，请忽略此邮件。"
+        return self.email_delivery.send(email, "验证 Quiz Pass 邮箱", text, self.auth_email_html("验证邮箱", "点击下面的按钮完成邮箱验证。", "验证邮箱", link))
+
+    def send_password_reset_email(self, email: str, token: str) -> bool:
+        link = f"{self.settings.frontend_base_url.rstrip('/')}/reset-password?token={token}"
+        text = f"请点击下面的链接重置密码：\n\n{link}\n\n如果不是你本人操作，请忽略此邮件。"
+        return self.email_delivery.send(email, "重置 Quiz Pass 密码", text, self.auth_email_html("重置密码", "点击下面的按钮设置新密码。链接有效期较短，请尽快完成。", "重置密码", link))
+
+    @staticmethod
+    def auth_email_html(title: str, intro: str, button_text: str, link: str) -> str:
+        escaped_title = html.escape(title)
+        escaped_intro = html.escape(intro)
+        escaped_button = html.escape(button_text)
+        escaped_link = html.escape(link, quote=True)
+        return f"""<!doctype html>
+<html>
+  <body style="margin:0;background:#f5f7fb;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;color:#1f2937;">
+    <div style="max-width:560px;margin:0 auto;padding:32px 16px;">
+      <div style="background:#ffffff;border:1px solid #d8dee9;border-radius:8px;padding:28px;">
+        <div style="font-size:14px;color:#64748b;margin-bottom:12px;">Quiz Pass</div>
+        <h1 style="font-size:22px;line-height:1.3;margin:0 0 12px;color:#0f172a;">{escaped_title}</h1>
+        <p style="font-size:15px;line-height:1.7;margin:0 0 22px;">{escaped_intro}</p>
+        <a href="{escaped_link}" style="display:inline-block;background:#2563eb;color:#ffffff;text-decoration:none;border-radius:6px;padding:10px 16px;font-size:15px;">{escaped_button}</a>
+        <p style="font-size:13px;line-height:1.6;color:#64748b;margin:22px 0 0;">如果按钮无法打开，请复制下面的链接到浏览器：</p>
+        <p style="font-size:13px;line-height:1.6;word-break:break-all;margin:6px 0 0;color:#2563eb;">{escaped_link}</p>
+        <p style="font-size:12px;line-height:1.6;color:#94a3b8;margin:24px 0 0;">如果不是你本人操作，请忽略此邮件。</p>
+      </div>
+    </div>
+  </body>
+</html>"""
+
+    def message(self, text: str, token: str | None = None) -> AuthMessage:
+        debug_token = token if self.settings.app_env in {"development", "test"} else None
+        return AuthMessage(ok=True, message=text, debug_token=debug_token)
+
+    @staticmethod
+    def hash_token(token: str) -> str:
+        return hashlib.sha256(token.encode("utf-8")).hexdigest()
 
 
 class UserProfileService:

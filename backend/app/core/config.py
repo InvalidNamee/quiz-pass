@@ -13,6 +13,15 @@ class Settings(BaseSettings):
     jwt_secret_key: str = "change-me"
     jwt_access_token_expire_minutes: int = 30
     jwt_refresh_token_expire_days: int = 14
+    frontend_base_url: str = "http://localhost:5173"
+    email_verify_token_expire_hours: int = 24
+    password_reset_token_expire_minutes: int = 30
+    smtp_host: str = ""
+    smtp_port: int = 587
+    smtp_username: str = ""
+    smtp_password: str = ""
+    smtp_from_email: str = ""
+    smtp_use_tls: bool = True
     ai_config_encryption_key: str = ""
     upload_max_mb: int = 10
     ai_max_text_chars: int = 30000

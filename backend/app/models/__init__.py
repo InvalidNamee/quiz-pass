@@ -5,7 +5,7 @@ from app.models.practice import MistakeRecord, PracticeAnswer, PracticeSession, 
 from app.models.prompt_template import UserPromptTemplate
 from app.models.question import Question, QuestionOption
 from app.models.question_bank import QuestionBank, QuestionBankFavorite, QuestionBankTag
-from app.models.user import User
+from app.models.user import EmailAuthToken, User
 
 __all__ = [
     "ImportJob",
@@ -23,6 +23,7 @@ __all__ = [
     "QuestionBankTag",
     "QuestionOption",
     "User",
+    "EmailAuthToken",
     "UserAIProviderConfig",
     "UserPromptTemplate",
 ]

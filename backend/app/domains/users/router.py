@@ -7,12 +7,12 @@ from app.domains.users.services import AdminUserService, AIProviderService, User
 from app.models.user import User
 from app.schemas.ai import AIProviderConfigCreate, AIProviderConfigOut, AIProviderConfigUpdate
 from app.schemas.common import Page
-from app.schemas.user import AdminPasswordResetOut, AdminUserUpdate, PasswordChange, RefreshTokenRequest, Token, UserCreate, UserLogin, UserMe, UserPublic, UserUpdate
+from app.schemas.user import AdminPasswordResetOut, AdminUserUpdate, AuthMessage, EmailRequest, PasswordChange, PasswordResetConfirm, RefreshTokenRequest, Token, UserCreate, UserLogin, UserMe, UserPublic, UserUpdate
 
 router = APIRouter()
 
 
-@router.post("/auth/register", response_model=Token)
+@router.post("/auth/register", response_model=AuthMessage)
 def register(payload: UserCreate, db: Session = Depends(get_db)):
     return UserAuthService(db).register(payload)
 
@@ -25,6 +25,26 @@ def login(payload: UserLogin, db: Session = Depends(get_db)):
 @router.post("/auth/refresh", response_model=Token)
 def refresh_token(payload: RefreshTokenRequest, db: Session = Depends(get_db)):
     return UserAuthService(db).refresh(payload.refresh_token)
+
+
+@router.post("/auth/resend-verification", response_model=AuthMessage)
+def resend_verification(payload: EmailRequest, db: Session = Depends(get_db)):
+    return UserAuthService(db).resend_verification(str(payload.email))
+
+
+@router.get("/auth/verify-email", response_model=AuthMessage)
+def verify_email(token: str, db: Session = Depends(get_db)):
+    return UserAuthService(db).verify_email(token)
+
+
+@router.post("/auth/forgot-password", response_model=AuthMessage)
+def forgot_password(payload: EmailRequest, db: Session = Depends(get_db)):
+    return UserAuthService(db).forgot_password(str(payload.email))
+
+
+@router.post("/auth/reset-password", response_model=AuthMessage)
+def reset_password(payload: PasswordResetConfirm, db: Session = Depends(get_db)):
+    return UserAuthService(db).reset_password(payload.token, payload.new_password)
 
 
 @router.get("/auth/me", response_model=UserMe)

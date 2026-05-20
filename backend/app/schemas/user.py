@@ -9,6 +9,16 @@ class UserCreate(BaseModel):
     password: str = Field(min_length=8, max_length=128)
 
 
+class AuthMessage(BaseModel):
+    ok: bool = True
+    message: str
+    debug_token: str | None = None
+
+
+class EmailRequest(BaseModel):
+    email: EmailStr
+
+
 class UserLogin(BaseModel):
     identifier: str | None = None
     email: EmailStr | None = None
@@ -37,6 +47,7 @@ class UserMe(BaseModel):
     bio: str | None
     role: str
     is_active: bool
+    email_verified_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
@@ -64,6 +75,11 @@ class UserUpdate(BaseModel):
 
 class PasswordChange(BaseModel):
     old_password: str = Field(min_length=1, max_length=128)
+    new_password: str = Field(min_length=8, max_length=128)
+
+
+class PasswordResetConfirm(BaseModel):
+    token: str = Field(min_length=1)
     new_password: str = Field(min_length=8, max_length=128)
 
 

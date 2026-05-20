@@ -9,6 +9,7 @@ export type Page<T> = {
 export type UserMe = {
   id: number
   email: string
+  email_verified_at: string | null
   username: string
   display_name: string | null
   avatar_url: string | null
