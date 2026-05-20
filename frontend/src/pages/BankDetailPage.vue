@@ -10,6 +10,8 @@ import UserAvatar from '../components/UserAvatar.vue'
 import PracticeSetupDialog from '../components/PracticeSetupDialog.vue'
 import GenerateBankDialog from '../components/GenerateBankDialog.vue'
 
+type TagInputValue = QuestionBankTag | string | null | undefined
+
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
@@ -19,7 +21,7 @@ const loading = ref(true)
 const editing = ref(false)
 const deleteModal = ref(false)
 const editForm = ref({ title: '', description: '', visibility: 'private' })
-const editTags = ref<QuestionBankTag[]>([])
+const editTags = ref<TagInputValue[]>([])
 const editIsPublic = computed({
   get: () => editForm.value.visibility === 'public',
   set: (val: boolean) => { editForm.value.visibility = val ? 'public' : 'private' },
@@ -44,6 +46,28 @@ async function load() {
   } finally { loading.value = false }
 }
 
+function normalizeTagNames(values: TagInputValue[]) {
+  const seen = new Set<string>()
+  const names: string[] = []
+  values.forEach((value) => {
+    const rawName = typeof value === 'string' ? value : value?.name
+    const name = (rawName || '').trim()
+    if (!name || name.toLowerCase() === 'none' || seen.has(name)) return
+    seen.add(name)
+    names.push(name)
+  })
+  return names
+}
+
+function tagKey(tag: TagInputValue, index: number) {
+  if (typeof tag === 'string') return tag
+  return tag?.id || tag?.name || index
+}
+
+function tagLabel(tag: TagInputValue) {
+  return typeof tag === 'string' ? tag : tag?.name || ''
+}
+
 async function favorite() {
   if (!bank.value) return
   if (bank.value.is_favorited) await unfavoriteBank(bank.value.id)
@@ -55,7 +79,7 @@ async function saveEdit() {
   if (!bank.value) return
   saving.value = true
   try {
-    await updateBank(bank.value.id, { ...editForm.value, tag_names: editTags.value.map(t => t.name) })
+    await updateBank(bank.value.id, { ...editForm.value, tag_names: normalizeTagNames(editTags.value) })
     editing.value = false
     toast.show('题库已更新', 'success')
     await load()
@@ -153,10 +177,10 @@ onMounted(load)
         <el-form-item><el-checkbox v-model="editIsPublic">公开题库</el-checkbox></el-form-item>
         <el-form-item label="标签">
           <div class="flex flex-wrap gap-1.5 mb-2">
-            <el-tag v-for="(tag, i) in editTags" :key="tag.id || i" closable size="small" :disable-transitions="true" @close="editTags.splice(i, 1)">{{ tag.name }}</el-tag>
+            <el-tag v-for="(tag, i) in editTags" :key="tagKey(tag, i)" closable size="small" :disable-transitions="true" @close="editTags.splice(i, 1)">{{ tagLabel(tag) }}</el-tag>
           </div>
           <el-select v-model="editTags" multiple filterable allow-create default-first-option clearable placeholder="添加标签" style="width: 100%">
-            <el-option v-for="tag in editTags" :key="tag.id || tag.name" :label="tag.name || tag" :value="tag" />
+            <el-option v-for="(tag, i) in editTags" :key="tagKey(tag, i)" :label="tagLabel(tag)" :value="tag" />
           </el-select>
         </el-form-item>
         <el-button type="primary" :loading="saving" @click="saveEdit">保存</el-button>

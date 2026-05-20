@@ -66,7 +66,7 @@ onMounted(load)
   <section class="qp-page">
     <div class="qp-titlebar">
       <h1 class="qp-title">AI 配置</h1>
-      <el-button size="small" @click="openAdd">添加配置</el-button>
+      <el-button size="small" type="primary" @click="openAdd">添加配置</el-button>
     </div>
 
     <el-table :data="configs" size="small" empty-text="暂无配置">

@@ -39,6 +39,15 @@ function optionClass(optionId: number) {
   if (selected) return 'is-selected-choice'
   return ''
 }
+
+function chooseOption(optionId: number) {
+  if (props.isLocked) return
+  if (props.question.type === 'single') {
+    emit('setSelection', [optionId])
+  } else {
+    emit('toggle', optionId)
+  }
+}
 </script>
 
 <template>
@@ -48,45 +57,21 @@ function optionClass(optionId: number) {
       <el-tag v-if="isLocked" size="small" type="info">已锁定</el-tag>
     </div>
 
-    <MathText as="h2" class="mb-4 text-lg font-semibold leading-relaxed text-slate-900" :text="question.stem" />
+    <MathText :key="`stem-${question.id}`" as="h2" class="mb-4 text-lg font-semibold leading-relaxed text-slate-900" :text="question.stem" />
 
-    <el-radio-group
-      v-if="question.type === 'single'"
-      :model-value="selectedOptionIds[0]"
-      class="grid w-full gap-2"
-      :disabled="isLocked"
-      @change="(value: string | number | boolean | undefined) => emit('setSelection', value === undefined ? [] : [Number(value)])"
-    >
-      <el-radio
+    <div class="grid w-full gap-2">
+      <button
         v-for="option in question.options"
         :key="option.id"
-        :value="option.id"
-        border
-        :class="['question-choice !m-0 !h-auto !w-full !items-start !px-3 !py-3', optionClass(option.id)]"
+        type="button"
+        :disabled="isLocked"
+        :class="['question-choice', optionClass(option.id)]"
+        @click="chooseOption(option.id)"
       >
         <span class="choice-label">{{ option.label }}.</span>
-        <MathText class="inline" :text="option.content" />
-      </el-radio>
-    </el-radio-group>
-
-    <el-checkbox-group
-      v-else
-      :model-value="selectedOptionIds"
-      class="grid w-full gap-2"
-      :disabled="isLocked"
-      @change="(value: unknown[]) => emit('setSelection', value.map(Number))"
-    >
-      <el-checkbox
-        v-for="option in question.options"
-        :key="option.id"
-        :value="option.id"
-        border
-        :class="['question-choice !m-0 !h-auto !w-full !items-start !px-3 !py-3', optionClass(option.id)]"
-      >
-        <span class="choice-label">{{ option.label }}.</span>
-        <MathText class="inline" :text="option.content" />
-      </el-checkbox>
-    </el-checkbox-group>
+        <MathText :key="`option-${question.id}-${option.id}`" class="min-w-0 flex-1 text-left" :text="option.content" />
+      </button>
+    </div>
 
     <div v-if="showSubmitButton" class="flex gap-2">
       <el-button type="primary" :disabled="isLocked || !selectedOptionIds.length" @click="emit('answer')">提交本题</el-button>
@@ -108,7 +93,7 @@ function optionClass(optionId: number) {
       </p>
       <p v-if="explanation" class="text-slate-600">
         <span class="font-medium">解析：</span>
-        <MathText class="inline" :text="explanation" />
+        <MathText :key="`explanation-${question.id}`" class="inline" :text="explanation" />
       </p>
     </div>
 
@@ -138,9 +123,21 @@ function optionClass(optionId: number) {
 }
 
 .question-choice {
+  display: flex;
+  min-height: 44px;
+  width: 100%;
+  align-items: flex-start;
+  gap: 10px;
+  border: 1px solid #d8dee8;
+  padding: 10px 12px;
+  text-align: left;
   border-color: #d8dee8;
   background: #fff;
   color: #334155;
+  transition: border-color .15s ease, background-color .15s ease, color .15s ease;
+}
+.question-choice:disabled {
+  cursor: default;
 }
 .question-choice:hover {
   border-color: #93c5fd;
@@ -165,19 +162,6 @@ function optionClass(optionId: number) {
   border-color: #e5e7eb;
   background: #fff;
   color: #64748b;
-}
-.question-choice :deep(.el-radio__input),
-.question-choice :deep(.el-checkbox__input) {
-  display: none;
-}
-.question-choice :deep(.el-radio__label),
-.question-choice :deep(.el-checkbox__label) {
-  display: inline-flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding-left: 0;
-  color: inherit;
-  line-height: 1.55;
 }
 .choice-label {
   min-width: 24px;

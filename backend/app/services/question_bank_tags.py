@@ -7,14 +7,16 @@ MAX_TAGS_PER_BANK = 20
 MAX_TAG_NAME_LENGTH = 32
 
 
-def normalize_tag_names(tag_names: list[str] | None) -> list[str]:
+def normalize_tag_names(tag_names: list[object] | None) -> list[str]:
     if not tag_names:
         return []
     normalized: list[str] = []
     seen: set[str] = set()
     for raw_name in tag_names:
-        name = str(raw_name).strip()
-        if not name:
+        if raw_name is None or not isinstance(raw_name, str):
+            continue
+        name = raw_name.strip()
+        if not name or name.lower() == "none":
             continue
         if len(name) > MAX_TAG_NAME_LENGTH:
             raise ValueError(f"标签不能超过 {MAX_TAG_NAME_LENGTH} 个字符")
@@ -26,7 +28,7 @@ def normalize_tag_names(tag_names: list[str] | None) -> list[str]:
     return normalized
 
 
-def get_or_create_tags(db: Session, tag_names: list[str] | None) -> list[QuestionBankTag]:
+def get_or_create_tags(db: Session, tag_names: list[object] | None) -> list[QuestionBankTag]:
     names = normalize_tag_names(tag_names)
     if not names:
         return []
@@ -43,12 +45,12 @@ def get_or_create_tags(db: Session, tag_names: list[str] | None) -> list[Questio
     return tags
 
 
-def set_bank_tags(db: Session, bank: QuestionBank, tag_names: list[str] | None) -> None:
+def set_bank_tags(db: Session, bank: QuestionBank, tag_names: list[object] | None) -> None:
     bank.tags = get_or_create_tags(db, tag_names)
 
 
-def merge_tag_names(*tag_name_groups: list[str] | None) -> list[str]:
-    merged: list[str] = []
+def merge_tag_names(*tag_name_groups: list[object] | None) -> list[str]:
+    merged: list[object] = []
     for tag_names in tag_name_groups:
         merged.extend(tag_names or [])
     return normalize_tag_names(merged)

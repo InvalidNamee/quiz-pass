@@ -70,13 +70,13 @@ onMounted(load)
             <strong class="mt-3 block text-slate-900">
               {{ ((pageInfo?.page || 1) - 1) * (pageInfo?.page_size || mistakes.length) + $index + 1 }}.
               [{{ row.type === 'single' ? '单选' : '多选' }}]
-              <MathText class="inline" :text="row.stem" />
+              <MathText :key="`mistake-stem-${row.question_id}`" class="inline" :text="row.stem" />
             </strong>
 
             <div class="mt-3 grid gap-1 text-sm text-slate-700">
               <p v-for="option in row.options" :key="option.id" class="m-0 border border-slate-200 bg-white px-3 py-2">
                 <span class="font-semibold text-slate-900">{{ option.label }}.</span>
-                <MathText class="inline" :text="option.content" />
+                <MathText :key="`mistake-option-${row.question_id}-${option.id}`" class="inline" :text="option.content" />
               </p>
             </div>
 
@@ -86,7 +86,7 @@ onMounted(load)
             </div>
 
             <p v-if="row.explanation" class="mt-3 border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
-              <MathText :text="row.explanation" />
+              <MathText :key="`mistake-explanation-${row.question_id}`" :text="row.explanation" />
             </p>
           </div>
         </template>

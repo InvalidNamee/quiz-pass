@@ -10,7 +10,7 @@ from app.domains.question_banks.queries import QuestionBankQueryService
 from app.domains.question_banks.stats import QuestionBankStatsService
 from app.models.question_bank import QuestionBank
 from app.models.user import User
-from app.services.question_bank_tags import merge_tag_names, set_bank_tags
+from app.services.question_bank_tags import merge_tag_names, normalize_tag_names, set_bank_tags
 from app.utils.json_io import create_question_from_payload, question_to_json
 
 
@@ -58,11 +58,22 @@ class QuestionBankImportExportService:
             self.db.rollback()
             raise HTTPException(status_code=400, detail=f"JSON 导入失败: {exc}") from exc
 
-    def import_new_bank(self, payload: dict, user: User, visibility: str = "private", form_tag_names: list[str] | None = None):
+    def import_new_bank(
+        self,
+        payload: dict,
+        user: User,
+        visibility: str = "private",
+        form_tag_names: list[object] | None = None,
+        file_stem: str | None = None,
+    ):
         try:
-            bank_info = payload.get("bank") or {}
-            title = str(bank_info.get("title") or "导入题库")
-            description = bank_info.get("description")
+            raw_bank_info = payload.get("bank") or {}
+            bank_info = raw_bank_info if isinstance(raw_bank_info, dict) else {}
+            title = str(bank_info.get("title") or "").strip()
+            if not title:
+                title = (file_stem or "").strip() or "导入题库"
+            raw_description = bank_info.get("description")
+            description = raw_description.strip() or None if isinstance(raw_description, str) else None
             file_tag_names = bank_info.get("tags") if isinstance(bank_info.get("tags"), list) else []
             questions = self.extract_questions(payload)
             bank = QuestionBank(owner_id=user.id, title=title, description=description, visibility=visibility, desired_visibility=visibility)
@@ -102,7 +113,10 @@ class QuestionBankImportExportService:
             raise HTTPException(status_code=422, detail="tag_names 必须是字符串数组") from exc
         if not isinstance(tag_names, list):
             raise HTTPException(status_code=422, detail="tag_names 必须是字符串数组")
-        return tag_names
+        try:
+            return normalize_tag_names(tag_names)
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     @staticmethod
     def extract_questions(payload: dict) -> list[dict]:

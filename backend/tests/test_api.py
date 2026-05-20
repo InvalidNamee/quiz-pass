@@ -11,8 +11,7 @@ from alembic.config import Config  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402
 from sqlalchemy import select  # noqa: E402
 
-alembic_cfg = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
-alembic_cfg.set_main_option("script_location", str(Path(__file__).resolve().parents[1] / "alembic"))
+alembic_cfg = Config(str(Path(__file__).resolve().parents[1] / "alembic.ini"))
 command.upgrade(alembic_cfg, "head")
 
 from app.db.session import SessionLocal  # noqa: E402
@@ -1132,13 +1131,36 @@ def test_v2_question_crud_permissions_and_json_import_export():
         imported = client.post(
             "/api/v2/banks/import-json",
             headers=owner_headers,
-            data={"visibility": "private", "tag_names": '["表单标签"]'},
+            data={"visibility": "private", "tag_names": '["表单标签", null, "", 42, "None"]'},
             files={"file": ("bank.json", json.dumps(imported_payload).encode("utf-8"), "application/json")},
         )
         assert imported.status_code == 200, imported.text
         assert imported.json()["title"] == "Imported Bank"
+        assert imported.json()["description"] == "Imported description"
         assert imported.json()["stats"]["question_count"] == 1
         assert [tag["name"] for tag in imported.json()["tags"]] == ["导入标签", "表单标签"]
+
+        fallback_payload = {
+            "version": 1,
+            "bank": {"description": "Fallback description", "tags": ["JSON 标签", None, ""]},
+            "questions": [
+                {
+                    "type": "single",
+                    "stem": "Fallback title question",
+                    "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
+                }
+            ],
+        }
+        fallback_import = client.post(
+            "/api/v2/banks/import-json",
+            headers=owner_headers,
+            data={"visibility": "private", "file_stem": "fallback-title", "tag_names": '["表单兜底标签", null]'},
+            files={"file": ("fallback.json", json.dumps(fallback_payload).encode("utf-8"), "application/json")},
+        )
+        assert fallback_import.status_code == 200, fallback_import.text
+        assert fallback_import.json()["title"] == "fallback-title"
+        assert fallback_import.json()["description"] == "Fallback description"
+        assert [tag["name"] for tag in fallback_import.json()["tags"]] == ["JSON 标签", "表单兜底标签"]
 
         bad_import = client.post(
             "/api/v2/banks/import-json",
@@ -1154,7 +1176,7 @@ def test_v2_question_crud_permissions_and_json_import_export():
 
 
 def test_ai_generation_prompt_builder_and_validator_components():
-    from app.domains.ai_generation.prompts import ANSWER_RULES, PromptBuilder
+    from app.domains.ai_generation.prompts import ANSWER_RULES, FORMULA_RULES, PromptBuilder
     from app.domains.ai_generation.validator import AIPayloadValidator, AIOutputValidationError
 
     knowledge_prompt = PromptBuilder.build_generation_prompt("material", 3, True, "knowledge_generate", "偏难")
@@ -1168,6 +1190,11 @@ def test_ai_generation_prompt_builder_and_validator_components():
     assert ANSWER_RULES in PromptBuilder.system_prompt("knowledge_generate")
     assert ANSWER_RULES in PromptBuilder.system_prompt("bank_parse")
     assert ANSWER_RULES in PromptBuilder.REPAIR_SYSTEM_PROMPT
+    assert FORMULA_RULES in PromptBuilder.system_prompt("knowledge_generate")
+    assert FORMULA_RULES in PromptBuilder.system_prompt("bank_parse")
+    assert FORMULA_RULES in PromptBuilder.REPAIR_SYSTEM_PROMPT
+    assert "\\(...\\)" in FORMULA_RULES
+    assert "\\[...\\]" in FORMULA_RULES
     assert "缺少题目" in repair_prompt
 
     questions, summary = AIPayloadValidator.validate(

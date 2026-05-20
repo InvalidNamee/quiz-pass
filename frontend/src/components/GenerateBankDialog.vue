@@ -8,6 +8,7 @@ import { listAIConfigs } from '../api/v2/users'
 import { useToast } from '../composables/useToast'
 
 type CreateMode = 'ai_knowledge' | 'ai_parse' | 'json_import'
+type TagInputValue = QuestionBankTag | string | null | undefined
 
 const props = defineProps<{
   modelValue: boolean
@@ -24,11 +25,11 @@ const description = ref('')
 const createMode = ref<CreateMode>('ai_knowledge')
 const isPublic = ref(false)
 const aiProviderConfigId = ref('')
-const questionCountMode = ref('fixed')
+const useQuestionCount = ref(true)
 const questionCount = ref(10)
 const generateDescription = ref(false)
 const extraInstruction = ref('')
-const selectedTags = ref<QuestionBankTag[]>([])
+const selectedTags = ref<TagInputValue[]>([])
 const file = ref<File | null>(null)
 const configs = ref<AIProviderConfig[]>([])
 const bank = ref<QuestionBankV2 | null>(props.initialBank ?? null)
@@ -39,6 +40,7 @@ const visible = computed({
   set: (value: boolean) => emit('update:modelValue', value),
 })
 const isExtend = computed(() => Boolean(props.extendBankId))
+const showNewBankFields = computed(() => !isExtend.value)
 
 async function load() {
   configs.value = await listAIConfigs()
@@ -61,8 +63,58 @@ function configLabel(config: AIProviderConfig) {
   return config.name ? `${config.name} · ${config.model}` : config.model
 }
 
-function onUploadChange(uploadFile: { raw?: File }) {
+function fileStem(fileName: string) {
+  return fileName.replace(/\.[^/.]+$/, '')
+}
+
+function normalizeTagNames(values: TagInputValue[] = selectedTags.value) {
+  const seen = new Set<string>()
+  const names: string[] = []
+  values.forEach((value) => {
+    const rawName = typeof value === 'string' ? value : value?.name
+    const name = (rawName || '').trim()
+    if (!name || name.toLowerCase() === 'none' || seen.has(name)) return
+    seen.add(name)
+    names.push(name)
+  })
+  return names
+}
+
+function tagKey(tag: TagInputValue, index: number) {
+  if (typeof tag === 'string') return tag
+  return tag?.id || tag?.name || index
+}
+
+function tagLabel(tag: TagInputValue) {
+  return typeof tag === 'string' ? tag : tag?.name || ''
+}
+
+async function prefillFromJson(uploadedFile: File) {
+  if (isExtend.value || createMode.value !== 'json_import') return
+  try {
+    const payload = JSON.parse(await uploadedFile.text())
+    const bankInfo = payload?.bank && typeof payload.bank === 'object' ? payload.bank : {}
+    if (typeof bankInfo.title === 'string' && bankInfo.title.trim()) {
+      title.value = bankInfo.title.trim()
+    } else if (!title.value.trim()) {
+      title.value = fileStem(uploadedFile.name)
+    }
+    if (typeof bankInfo.description === 'string') description.value = bankInfo.description.trim()
+    if (Array.isArray(bankInfo.tags)) {
+      selectedTags.value = bankInfo.tags
+        .filter((tag: unknown): tag is string => typeof tag === 'string' && Boolean(tag.trim()))
+        .map((name: string) => name.trim())
+    }
+  } catch {
+    if (!title.value.trim()) title.value = fileStem(uploadedFile.name)
+  }
+}
+
+async function onUploadChange(uploadFile: { raw?: File }) {
   file.value = uploadFile.raw ?? null
+  if (!file.value) return
+  if (!isExtend.value && !title.value.trim()) title.value = fileStem(file.value.name)
+  await prefillFromJson(file.value)
 }
 
 function onUploadRemove() {
@@ -85,7 +137,9 @@ async function submit() {
 
     if (createMode.value === 'json_import') {
       form.set('visibility', isPublic.value ? 'public' : 'private')
-      if (selectedTags.value.length) form.set('tag_names', JSON.stringify(selectedTags.value.map(tag => tag.name)))
+      const tagNames = normalizeTagNames()
+      if (tagNames.length) form.set('tag_names', JSON.stringify(tagNames))
+      if (!isExtend.value) form.set('file_stem', fileStem(file.value.name))
       const importedBank = isExtend.value && props.extendBankId
         ? await importJsonToBank(props.extendBankId, form)
         : await importJsonNewBank(form)
@@ -95,13 +149,14 @@ async function submit() {
         form.set('title', title.value)
         if (description.value.trim()) form.set('description', description.value.trim())
         form.set('desired_visibility', isPublic.value ? 'public' : 'private')
-        if (selectedTags.value.length) form.set('tag_names', JSON.stringify(selectedTags.value.map(tag => tag.name)))
+        const tagNames = normalizeTagNames()
+        if (tagNames.length) form.set('tag_names', JSON.stringify(tagNames))
       }
       form.set('generation_mode', createMode.value === 'ai_parse' ? 'bank_parse' : 'knowledge_generate')
       if (aiProviderConfigId.value) form.set('ai_provider_config_id', aiProviderConfigId.value)
       if (createMode.value === 'ai_knowledge') {
-        form.set('question_count_mode', questionCountMode.value)
-        if (questionCountMode.value === 'fixed') form.set('question_count', String(questionCount.value))
+        form.set('question_count_mode', useQuestionCount.value ? 'fixed' : 'adaptive')
+        if (useQuestionCount.value) form.set('question_count', String(questionCount.value))
       }
       if (extraInstruction.value.trim()) form.set('extra_instruction', extraInstruction.value.trim())
       form.set('generate_description', String(generateDescription.value))
@@ -136,7 +191,7 @@ watch(() => props.modelValue, (open) => { if (open) load() }, { immediate: true 
         </el-radio-group>
       </el-form-item>
 
-      <template v-if="!(isExtend && createMode !== 'json_import')">
+      <template v-if="showNewBankFields">
         <div class="grid gap-3 sm:grid-cols-2">
           <el-form-item label="题库名称"><el-input v-model="title" placeholder="起个名字" /></el-form-item>
           <el-form-item label="可见性">
@@ -146,7 +201,7 @@ watch(() => props.modelValue, (open) => { if (open) load() }, { immediate: true 
         <el-form-item label="描述"><el-input v-model="description" type="textarea" :rows="2" placeholder="简短描述（可选）" /></el-form-item>
         <el-form-item label="标签">
           <el-select v-model="selectedTags" multiple filterable allow-create default-first-option clearable placeholder="添加标签" style="width: 100%">
-            <el-option v-for="tag in selectedTags" :key="tag.id || tag.name" :label="tag.name || tag" :value="tag" />
+            <el-option v-for="(tag, index) in selectedTags" :key="tagKey(tag, index)" :label="tagLabel(tag)" :value="tag" />
           </el-select>
         </el-form-item>
       </template>
@@ -159,13 +214,10 @@ watch(() => props.modelValue, (open) => { if (open) load() }, { immediate: true 
             </el-select>
           </el-form-item>
           <template v-if="createMode === 'ai_knowledge'">
-            <el-form-item label="题数模式">
-              <el-select v-model="questionCountMode" class="w-full">
-                <el-option value="fixed" label="指定题数" />
-                <el-option value="adaptive" label="AI 自适应" />
-              </el-select>
+            <el-form-item label="题数">
+              <el-checkbox v-model="useQuestionCount">指定题数</el-checkbox>
             </el-form-item>
-            <el-form-item v-if="questionCountMode === 'fixed'" label="题目数量">
+            <el-form-item v-if="useQuestionCount" label="题目数量">
               <el-input-number v-model="questionCount" :min="1" :max="100" />
             </el-form-item>
           </template>

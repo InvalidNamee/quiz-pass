@@ -61,7 +61,7 @@ onMounted(async () => {
             <div class="flex items-start justify-between gap-2">
               <strong class="text-slate-900">
                 {{ $index + 1 }}. [{{ row.type === 'single' ? '单选' : '多选' }}]
-                <MathText class="inline" :text="row.stem" />
+                <MathText :key="`result-stem-${row.question_id}`" class="inline" :text="row.stem" />
               </strong>
               <el-tag v-if="row.is_unanswered" type="warning">未作答</el-tag>
               <el-tag v-else-if="row.is_correct" type="success">正确</el-tag>
@@ -70,7 +70,7 @@ onMounted(async () => {
             <div class="mt-2 grid gap-1 text-sm text-slate-700">
               <p v-for="option in row.options" :key="option.id" class="m-0">
                 <span class="font-medium">{{ option.label }}.</span>
-                <MathText class="inline" :text="option.content" />
+                <MathText :key="`result-option-${row.question_id}-${option.id}`" class="inline" :text="option.content" />
               </p>
             </div>
             <div class="mt-2 flex flex-wrap gap-2 text-sm">
@@ -78,7 +78,7 @@ onMounted(async () => {
               <span class="font-medium text-slate-700">正确答案：{{ row.correct_labels.join('、') }}</span>
             </div>
             <p v-if="row.explanation" class="mt-2 border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
-              <MathText :text="row.explanation" />
+              <MathText :key="`result-explanation-${row.question_id}`" :text="row.explanation" />
             </p>
           </div>
         </template>

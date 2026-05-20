@@ -22,7 +22,7 @@ Backend for local integration, from `backend/`:
 
 ```bash
 .venv/bin/uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
-.venv/bin/alembic -c ../alembic.ini upgrade head
+.venv/bin/alembic upgrade head
 .venv/bin/python -m pytest tests -q
 ```
 

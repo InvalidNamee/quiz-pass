@@ -12,23 +12,32 @@ ANSWER_RULES = """硬性规则，必须逐题自检后再输出：
 5. 每题建议 4 个选项，选项 label 使用 A、B、C、D 顺序。
 6. 输出前请检查：所有 single 题只有一个 true，所有 multiple 题至少两个 true。"""
 
+FORMULA_RULES = """公式规则：
+1. 题干、选项和解析中的公式必须保留为纯文本 LaTeX。
+2. 行内公式必须使用 \\(...\\)，块级公式必须使用 \\[...\\]。
+3. 禁止输出 Markdown 公式围栏，禁止把公式转成图片、HTML、MathML 或自然语言替代。
+4. JSON 字符串中的反斜杠必须按 JSON 规则正确转义，不能吞掉反斜杠。"""
+
 
 class PromptBuilder:
     KNOWLEDGE_GENERATE_SYSTEM_PROMPT = f"""你是一个严谨的题库生成助手。只能输出 JSON，不要输出 Markdown。
 {QUESTION_JSON_SCHEMA}
-{ANSWER_RULES}"""
+{ANSWER_RULES}
+{FORMULA_RULES}"""
 
     BANK_PARSE_SYSTEM_PROMPT = f"""你是一个严谨的题库解析助手。只能输出 JSON，不要输出 Markdown。
 你的任务是从用户提供的已有题库文档中提取题目，而不是根据材料额外创造新题。
 {QUESTION_JSON_SCHEMA}
 {ANSWER_RULES}
+{FORMULA_RULES}
 如果源题格式不完整、答案标记不规范或存在轻微坏题，请在不改变题意的前提下修复成合法格式。
 尽量保留原题干、选项、正确答案和解析；源文档没有解析时 explanation 可以为空。"""
 
     REPAIR_SYSTEM_PROMPT = f"""你是题库 JSON 修复助手。只能输出完整 JSON，不要输出 Markdown。
 根据后端校验错误修复用户给出的 JSON。不要解释，不要新增无关题目。
 {QUESTION_JSON_SCHEMA}
-{ANSWER_RULES}"""
+{ANSWER_RULES}
+{FORMULA_RULES}"""
 
     @staticmethod
     def normalize_extra_instruction(extra_instruction: str | None) -> str | None:

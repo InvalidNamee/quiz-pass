@@ -2,14 +2,16 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useToast } from '../composables/useToast'
 
 const identifier = ref(''); const password = ref(''); const loading = ref(false)
 const auth = useAuthStore(); const router = useRouter()
+const toast = useToast()
 
 async function submit() {
   loading.value = true
-  try { await auth.login(identifier.value, password.value); router.push('/dashboard') }
-  catch (e: any) { /* error shown by store */ }
+  try { await auth.login(identifier.value.trim(), password.value); router.push('/dashboard') }
+  catch (e) { toast.show(e instanceof Error ? e.message : '登录失败', 'error') }
   finally { loading.value = false }
 }
 </script>
