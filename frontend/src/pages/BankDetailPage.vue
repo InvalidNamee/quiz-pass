@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { authHeader, statusVariant } from '../api/http'
 import { getBank, updateBank, deleteBank, favoriteBank, unfavoriteBank, exportBankUrl } from '../api/v2/banks'
@@ -9,6 +9,7 @@ import { useToast } from '../composables/useToast'
 import UserAvatar from '../components/UserAvatar.vue'
 import PracticeSetupDialog from '../components/PracticeSetupDialog.vue'
 import GenerateBankDialog from '../components/GenerateBankDialog.vue'
+import { isUnstableBankStatus, isUnstableWorkflowStatus } from '../utils/generationStatus'
 
 type TagInputValue = QuestionBankTag | string | null | undefined
 
@@ -32,9 +33,34 @@ const deleting = ref(false)
 const exporting = ref(false)
 const practiceDialogVisible = ref(false)
 const generateDialogVisible = ref(false)
+let pollingTimer: number | null = null
 
-async function load() {
-  loading.value = true
+function shouldPollBank() {
+  return isUnstableBankStatus(bank.value?.generation_status) || isUnstableWorkflowStatus(bank.value?.active_workflow?.status)
+}
+
+function stopPolling() {
+  if (pollingTimer !== null) {
+    window.clearInterval(pollingTimer)
+    pollingTimer = null
+  }
+}
+
+function syncPolling() {
+  if (!shouldPollBank()) {
+    stopPolling()
+    return
+  }
+  if (pollingTimer === null) {
+    pollingTimer = window.setInterval(() => {
+      if (shouldPollBank()) void load(true)
+      else stopPolling()
+    }, 3000)
+  }
+}
+
+async function load(silent = false) {
+  if (!silent) loading.value = true
   try {
     bank.value = await getBank(Number(route.params.bankId))
     editForm.value = {
@@ -43,7 +69,7 @@ async function load() {
       visibility: bank.value.visibility,
     }
     editTags.value = bank.value.tags || []
-  } finally { loading.value = false }
+  } finally { if (!silent) loading.value = false }
 }
 
 function normalizeTagNames(values: TagInputValue[]) {
@@ -116,6 +142,8 @@ async function exportJson() {
 }
 
 onMounted(load)
+watch(bank, syncPolling, { deep: true })
+onBeforeUnmount(stopPolling)
 </script>
 
 <template>

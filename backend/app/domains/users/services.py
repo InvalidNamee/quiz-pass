@@ -6,7 +6,7 @@ from openai import OpenAI
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.core.security import create_access_token, get_password_hash, verify_password
+from app.core.security import create_access_token, create_refresh_token, decode_token, get_password_hash, verify_password
 from app.models.ai_provider_config import UserAIProviderConfig
 from app.models.question_bank import QuestionBank
 from app.models.user import User
@@ -37,7 +37,7 @@ class UserAuthService:
         self.db.add(user)
         self.db.commit()
         self.db.refresh(user)
-        return Token(access_token=create_access_token(str(user.id), user.role))
+        return self.issue_tokens(user)
 
     def login(self, identifier: str | None, legacy_email: object, password: str) -> Token:
         normalized = (identifier or str(legacy_email or "")).strip()
@@ -47,7 +47,24 @@ class UserAuthService:
         user = self.db.scalar(select(User).where(field == normalized))
         if not user or not user.is_active or not verify_password(password, user.password_hash):
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名/邮箱或密码错误")
-        return Token(access_token=create_access_token(str(user.id), user.role))
+        return self.issue_tokens(user)
+
+    def refresh(self, refresh_token: str) -> Token:
+        payload = decode_token(refresh_token)
+        if not payload or payload.get("token_type") != "refresh" or not payload.get("sub"):
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+        user = self.db.get(User, int(payload["sub"]))
+        if not user or not user.is_active:
+            raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid refresh token")
+        return Token(access_token=create_access_token(str(user.id), user.role), refresh_token=refresh_token)
+
+    @staticmethod
+    def issue_tokens(user: User) -> Token:
+        subject = str(user.id)
+        return Token(
+            access_token=create_access_token(subject, user.role),
+            refresh_token=create_refresh_token(subject, user.role),
+        )
 
 
 class UserProfileService:

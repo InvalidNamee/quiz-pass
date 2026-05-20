@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { listHistory } from '../api/practice'
+import { listHistory } from '../api/v2/practice'
 import type { Page, PracticeSession } from '../api/types'
 
 const route = useRoute(); const router = useRouter()

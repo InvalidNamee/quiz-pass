@@ -100,6 +100,30 @@ def test_login_identifier_and_change_password():
         assert _login(client, "loginuser", "newpass123")
 
 
+def test_refresh_token_can_refresh_access_but_not_access_api():
+    with TestClient(app) as client:
+        response = client.post(
+            "/api/v2/auth/register",
+            json={"email": "refresh@example.com", "username": "refreshuser", "password": "password123"},
+        )
+        assert response.status_code == 200, response.text
+        data = response.json()
+        assert data["access_token"]
+        assert data["refresh_token"]
+
+        refresh_headers = {"Authorization": f"Bearer {data['refresh_token']}"}
+        assert client.get("/api/v2/users/me", headers=refresh_headers).status_code == 401
+
+        refreshed = client.post("/api/v2/auth/refresh", json={"refresh_token": data["refresh_token"]})
+        assert refreshed.status_code == 200, refreshed.text
+        new_access_token = refreshed.json()["access_token"]
+        assert new_access_token
+        assert refreshed.json()["refresh_token"] == data["refresh_token"]
+        me = client.get("/api/v2/users/me", headers={"Authorization": f"Bearer {new_access_token}"})
+        assert me.status_code == 200
+        assert me.json()["username"] == "refreshuser"
+
+
 def test_v2_errors_use_unified_shape():
     with TestClient(app) as client:
         headers = _register(client, "errors@example.com", "errors")

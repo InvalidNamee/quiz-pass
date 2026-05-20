@@ -23,7 +23,14 @@ def get_password_hash(password: str) -> str:
 def create_access_token(subject: str, role: str) -> str:
     settings = get_settings()
     expire = datetime.now(UTC) + timedelta(minutes=settings.jwt_access_token_expire_minutes)
-    payload: dict[str, Any] = {"sub": subject, "role": role, "exp": expire}
+    payload: dict[str, Any] = {"sub": subject, "role": role, "token_type": "access", "exp": expire}
+    return jwt.encode(payload, settings.jwt_secret_key, algorithm="HS256")
+
+
+def create_refresh_token(subject: str, role: str) -> str:
+    settings = get_settings()
+    expire = datetime.now(UTC) + timedelta(days=settings.jwt_refresh_token_expire_days)
+    payload: dict[str, Any] = {"sub": subject, "role": role, "token_type": "refresh", "exp": expire}
     return jwt.encode(payload, settings.jwt_secret_key, algorithm="HS256")
 
 

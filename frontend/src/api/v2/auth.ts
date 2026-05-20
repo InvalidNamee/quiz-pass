@@ -1,7 +1,7 @@
-import { api } from './http'
-import type { UserMe } from './types'
+import { api } from '../http'
+import type { UserMe } from '../types'
 
-type TokenResponse = { access_token: string; token_type: string }
+type TokenResponse = { access_token: string; refresh_token: string; token_type: string }
 
 export function login(identifier: string, password: string) {
   return api<TokenResponse>('/api/v2/auth/login', {
@@ -20,3 +20,4 @@ export function register(email: string, username: string, password: string) {
 export function getMe() {
   return api<UserMe>('/api/v2/users/me')
 }
+

@@ -1,8 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { Page } from '../api/types'
 import { listWorkflows, type WorkflowListItem } from '../api/v2/aiGeneration'
+import { isUnstableWorkflowStatus } from '../utils/generationStatus'
 
 const route = useRoute()
 const router = useRouter()
@@ -10,16 +11,41 @@ const jobs = ref<WorkflowListItem[]>([])
 const status = ref('')
 const pageInfo = ref<Page<WorkflowListItem> | null>(null)
 const loading = ref(true)
+let pollingTimer: number | null = null
 
-async function load() {
+function hasUnstableJobs() {
+  return jobs.value.some((job) => isUnstableWorkflowStatus(job.status))
+}
+
+function stopPolling() {
+  if (pollingTimer !== null) {
+    window.clearInterval(pollingTimer)
+    pollingTimer = null
+  }
+}
+
+function syncPolling() {
+  if (!hasUnstableJobs()) {
+    stopPolling()
+    return
+  }
+  if (pollingTimer === null) {
+    pollingTimer = window.setInterval(() => {
+      if (hasUnstableJobs()) void load(true)
+      else stopPolling()
+    }, 3000)
+  }
+}
+
+async function load(silent = false) {
   status.value = String(route.query.status || '')
-  loading.value = true
+  if (!silent) loading.value = true
   try {
     const data = await listWorkflows({ page: Number(route.query.page || 1), status: status.value || undefined })
     pageInfo.value = data
     jobs.value = data.items
   } finally {
-    loading.value = false
+    if (!silent) loading.value = false
   }
 }
 
@@ -71,7 +97,9 @@ function typeText(item: WorkflowListItem) {
 }
 
 onMounted(load)
-watch(() => route.fullPath, load)
+watch(() => route.fullPath, () => { void load() })
+watch(jobs, syncPolling, { deep: true })
+onBeforeUnmount(stopPolling)
 </script>
 
 <template>

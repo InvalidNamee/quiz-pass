@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useBankList } from '../composables/useBankList'
 import { favoriteBank, unfavoriteBank, listTags } from '../api/v2/banks'
 import type { QuestionBankV2, QuestionBankTag } from '../api/types'
 import GenerateBankDialog from './GenerateBankDialog.vue'
+import { isUnstableBankStatus, isUnstableWorkflowStatus } from '../utils/generationStatus'
 
 const props = defineProps<{
   title: string; subtitle: string
@@ -22,6 +23,33 @@ const createDialogVisible = ref(false)
 const allTags = ref<QuestionBankTag[]>([])
 const selectedTagIds = ref<number[]>([])
 const tagKeyword = ref('')
+let pollingTimer: number | null = null
+
+function hasUnstableBanks() {
+  return banks.value.some((bank) =>
+    isUnstableBankStatus(bank.generation_status) || isUnstableWorkflowStatus(bank.active_workflow?.status),
+  )
+}
+
+function stopPolling() {
+  if (pollingTimer !== null) {
+    window.clearInterval(pollingTimer)
+    pollingTimer = null
+  }
+}
+
+function syncPolling() {
+  if (!hasUnstableBanks()) {
+    stopPolling()
+    return
+  }
+  if (pollingTimer === null) {
+    pollingTimer = window.setInterval(() => {
+      if (hasUnstableBanks()) void load(true)
+      else stopPolling()
+    }, 3000)
+  }
+}
 
 async function toggleFavorite(bank: QuestionBankV2) {
   const next = !bank.is_favorited
@@ -72,7 +100,9 @@ function removeSelectedTag(tagId: number) {
 }
 
 onMounted(load)
-watch(() => route.fullPath, load)
+watch(() => route.fullPath, () => { void load() })
+watch(banks, syncPolling, { deep: true })
+onBeforeUnmount(stopPolling)
 </script>
 
 <template>

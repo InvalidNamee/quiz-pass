@@ -1,6 +1,46 @@
-const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
+export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
+
+type TokenResponse = {
+  access_token: string
+  refresh_token: string
+  token_type: string
+}
+
+let refreshPromise: Promise<string | null> | null = null
+
+async function refreshAccessToken() {
+  const refreshToken = localStorage.getItem('refresh_token')
+  if (!refreshToken) return null
+  if (!refreshPromise) {
+    refreshPromise = fetch(`${API_BASE}/api/v2/auth/refresh`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('refresh failed')
+        const data = await response.json() as TokenResponse
+        localStorage.setItem('access_token', data.access_token)
+        localStorage.setItem('refresh_token', data.refresh_token)
+        return data.access_token
+      })
+      .catch(() => {
+        localStorage.removeItem('access_token')
+        localStorage.removeItem('refresh_token')
+        return null
+      })
+      .finally(() => {
+        refreshPromise = null
+      })
+  }
+  return refreshPromise
+}
 
 export async function api<T>(path: string, options: RequestInit = {}): Promise<T> {
+  return requestWithAuth<T>(path, options, true)
+}
+
+async function requestWithAuth<T>(path: string, options: RequestInit = {}, allowRefresh: boolean): Promise<T> {
   const token = localStorage.getItem('access_token')
   const headers = new Headers(options.headers)
   if (!(options.body instanceof FormData)) {
@@ -9,6 +49,12 @@ export async function api<T>(path: string, options: RequestInit = {}): Promise<T
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
   const response = await fetch(`${API_BASE}${path}`, { ...options, headers })
+  if (response.status === 401 && allowRefresh && !path.includes('/auth/refresh')) {
+    const nextToken = await refreshAccessToken()
+    if (nextToken) {
+      return requestWithAuth<T>(path, options, false)
+    }
+  }
   if (!response.ok) {
     const error = await response.json().catch(() => ({ detail: response.statusText }))
     if (typeof error?.error?.message === 'string' && error.error.message) {

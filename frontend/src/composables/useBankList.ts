@@ -47,17 +47,17 @@ export function useBankList(scope: 'mine' | 'public' | 'favorites') {
     return q
   }
 
-  async function load() {
+  async function load(silent = false) {
     readQuery()
     await syncTagsFromQuery()
     const params = buildQuery(Number(route.query.page || 1))
     params.page = params.page || '1'
-    loading.value = true
+    if (!silent) loading.value = true
     try {
       const data = await v2.listBanks(scope, params)
       pageInfo.value = data as unknown as Page<QuestionBankV2>
       banks.value = data.items
-    } finally { loading.value = false }
+    } finally { if (!silent) loading.value = false }
   }
 
   function applyFilters(filters: { keyword: string; ownerId: number | null; selectedTags: QuestionBankTag[]; visibility: string; generationStatus: string }) {

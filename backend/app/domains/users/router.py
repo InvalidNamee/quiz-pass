@@ -7,7 +7,7 @@ from app.domains.users.services import AdminUserService, AIProviderService, User
 from app.models.user import User
 from app.schemas.ai import AIProviderConfigCreate, AIProviderConfigOut, AIProviderConfigUpdate
 from app.schemas.common import Page
-from app.schemas.user import AdminPasswordResetOut, AdminUserUpdate, PasswordChange, Token, UserCreate, UserLogin, UserMe, UserPublic, UserUpdate
+from app.schemas.user import AdminPasswordResetOut, AdminUserUpdate, PasswordChange, RefreshTokenRequest, Token, UserCreate, UserLogin, UserMe, UserPublic, UserUpdate
 
 router = APIRouter()
 
@@ -20,6 +20,11 @@ def register(payload: UserCreate, db: Session = Depends(get_db)):
 @router.post("/auth/login", response_model=Token)
 def login(payload: UserLogin, db: Session = Depends(get_db)):
     return UserAuthService(db).login(payload.identifier, payload.email, payload.password)
+
+
+@router.post("/auth/refresh", response_model=Token)
+def refresh_token(payload: RefreshTokenRequest, db: Session = Depends(get_db)):
+    return UserAuthService(db).refresh(payload.refresh_token)
 
 
 @router.get("/auth/me", response_model=UserMe)
