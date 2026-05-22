@@ -100,6 +100,7 @@ class QuestionBankQueryService:
             )
         active_workflow = self._active_workflow(bank.id)
         owner = bank.owner
+        permissions = QuestionBankPermissionService.permissions_for(bank, user)
         return QuestionBankV2Out(
             id=bank.id,
             owner_id=bank.owner_id,
@@ -108,6 +109,7 @@ class QuestionBankQueryService:
             owner_avatar_url=owner.avatar_url if owner else None,
             title=bank.title,
             description=bank.description,
+            ai_context=bank.ai_context if permissions.get("can_manage") else None,
             visibility=bank.visibility,
             desired_visibility=bank.desired_visibility,
             generation_status=bank.generation_status,
@@ -121,7 +123,7 @@ class QuestionBankQueryService:
             stats=QuestionBankStatsOut(question_count=bank.question_count, favorite_count=bank.favorite_count),
             question_count=bank.question_count,
             favorite_count=bank.favorite_count,
-            permissions=QuestionBankPermissionsOut(**QuestionBankPermissionService.permissions_for(bank, user)),
+            permissions=QuestionBankPermissionsOut(**permissions),
             active_workflow=active_workflow,
             ai_model_name=bank.ai_model_name,
             is_favorited=favorite,

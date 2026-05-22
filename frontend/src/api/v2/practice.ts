@@ -21,6 +21,13 @@ export function answerQuestion(sessionId: number, questionId: number, selectedOp
   })
 }
 
+export function saveAnswerDraft(sessionId: number, questionId: number, selectedOptionIds: number[]) {
+  return api<{ ok: boolean; changed: boolean }>(`/api/v2/practice/sessions/${sessionId}/answers/${questionId}/draft`, {
+    method: 'PUT',
+    body: JSON.stringify({ question_id: questionId, selected_option_ids: selectedOptionIds }),
+  })
+}
+
 export function submitSession(sessionId: number) {
   return api<PracticeSession>(`/api/v2/practice/sessions/${sessionId}/submit`, { method: 'POST' })
 }

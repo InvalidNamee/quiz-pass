@@ -2,7 +2,7 @@ import json
 from urllib.parse import urlparse
 
 from fastapi import BackgroundTasks, HTTPException, UploadFile
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.db.session import SessionLocal
@@ -10,6 +10,7 @@ from app.domains.ai_generation.schemas import AIGenerationWorkflowCreatedOut
 from app.domains.ai_generation.drafts import DraftService
 from app.domains.ai_generation.errors import AIOutputValidationError
 from app.domains.ai_generation.workflow_runtime import WorkflowRuntime
+from app.domains.ai_generation.workflow_state import now_utc
 from app.domains.question_banks.permissions import QuestionBankPermissionService
 from app.models.ai_provider_config import UserAIProviderConfig
 from app.models.ai_workflow import AIGenerationDraft, AIGenerationDraftQuestion, AIGenerationWorkflow, AIGenerationWorkflowStep
@@ -66,6 +67,7 @@ class AIGenerationWorkflowService:
         generate_description: bool,
         generation_mode: str,
         extra_instruction: str | None,
+        inherit_context: bool,
         tag_names: str | None,
         file: UploadFile,
     ) -> AIGenerationWorkflowCreatedOut:
@@ -113,9 +115,11 @@ class AIGenerationWorkflowService:
             status="pending",
             source_file_name=file.filename,
             source_text_snapshot=text,
+            bank_title_snapshot=title,
             requested_count=effective_count,
             generate_description="true" if generate_description else "false",
             extra_instruction=normalized_extra_instruction,
+            inherit_context=inherit_context,
             ai_provider_config_id=config.id,
             ai_base_url_snapshot=host,
             ai_model_snapshot=config.model,
@@ -151,6 +155,7 @@ class AIGenerationWorkflowService:
         generate_description: bool,
         generation_mode: str,
         extra_instruction: str | None,
+        inherit_context: bool,
         file: UploadFile,
     ) -> AIGenerationWorkflowCreatedOut:
         bank = self.db.get(QuestionBank, bank_id)
@@ -173,9 +178,11 @@ class AIGenerationWorkflowService:
             status="pending",
             source_file_name=file.filename,
             source_text_snapshot=text,
+            bank_title_snapshot=bank.title,
             requested_count=effective_count,
             generate_description="true" if generate_description else "false",
             extra_instruction=normalized_extra_instruction,
+            inherit_context=inherit_context,
             ai_provider_config_id=config.id,
             ai_base_url_snapshot=host,
             ai_model_snapshot=config.model,
@@ -199,6 +206,117 @@ class AIGenerationWorkflowService:
         bank.generation_status = "processing"
         self.db.commit()
         background_tasks.add_task(run_generation_task, workflow.id, text, effective_count, generate_description, generation_mode, normalized_extra_instruction)
+        return AIGenerationWorkflowCreatedOut(workflow_id=workflow.id, bank_id=bank.id, job_id=job.id)
+
+    async def retry_workflow(
+        self,
+        workflow_id: int,
+        user: User,
+        background_tasks: BackgroundTasks,
+        ai_provider_config_id: int | None,
+        question_count_mode: str | None,
+        question_count: int | None,
+        generate_description: bool | None,
+        generation_mode: str | None,
+        extra_instruction: str | None,
+        inherit_context: bool | None,
+        source_text: str | None,
+        title: str | None,
+        description: str | None,
+        desired_visibility: str | None,
+        file: UploadFile | None,
+    ) -> AIGenerationWorkflowCreatedOut:
+        original = self.get_owned_workflow(workflow_id, user)
+        if original.status != "failed":
+            raise HTTPException(status_code=400, detail="只有失败的 workflow 可以重新生成")
+
+        old_bank = self.db.get(QuestionBank, original.bank_id) if original.bank_id else None
+        if original.purpose == "extend_bank" and not QuestionBankPermissionService.can_extend_with_ai(old_bank, user):
+            raise HTTPException(status_code=404, detail="Question bank not found")
+
+        next_mode = generation_mode or original.generation_mode
+        next_count_mode = question_count_mode or ("fixed" if original.requested_count else "adaptive")
+        next_count = question_count if question_count is not None else original.requested_count
+        next_generate_description = bool(generate_description) if generate_description is not None else original.generate_description == "true"
+        next_extra_instruction = extra_instruction if extra_instruction is not None else original.extra_instruction
+        next_inherit_context = bool(inherit_context) if inherit_context is not None else bool(original.inherit_context)
+        effective_count, normalized_extra_instruction = self._normalize_generation_inputs(next_count_mode, next_count, next_mode, next_extra_instruction)
+        config = self.pick_ai_config(user.id, ai_provider_config_id or original.ai_provider_config_id)
+
+        source_file_name = original.source_file_name
+        if file:
+            content = await file.read()
+            try:
+                text = extract_text(file.filename or "upload.txt", content)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+            source_file_name = file.filename
+        else:
+            text = (source_text or "").strip() or (original.source_text_snapshot or "")
+        if not text.strip():
+            raise HTTPException(status_code=422, detail="重新生成需要源文本或上传文件")
+
+        host = urlparse(config.api_base_url).netloc or config.api_base_url
+        if original.purpose == "create_bank":
+            desired = desired_visibility or (old_bank.desired_visibility if old_bank else "private")
+            if desired not in ("private", "public"):
+                raise HTTPException(status_code=422, detail="Invalid desired_visibility")
+            bank = QuestionBank(
+                owner_id=user.id,
+                title=(title or (old_bank.title if old_bank else original.bank_title_snapshot) or "重新生成题库").strip(),
+                description=description if description is not None else (old_bank.description if old_bank else None),
+                visibility="private",
+                desired_visibility=desired,
+                generation_status="pending",
+                ai_provider_config_id=config.id,
+                ai_model_name=config.model,
+                ai_base_url_host=host,
+            )
+            self.db.add(bank)
+            self.db.flush()
+            if old_bank and old_bank.tags:
+                set_bank_tags(self.db, bank, [tag.name for tag in old_bank.tags])
+        else:
+            if not old_bank:
+                raise HTTPException(status_code=404, detail="Question bank not found")
+            bank = old_bank
+
+        workflow = AIGenerationWorkflow(
+            bank_id=bank.id,
+            user_id=user.id,
+            purpose=original.purpose,
+            generation_mode=next_mode,
+            status="pending",
+            source_file_name=source_file_name,
+            source_text_snapshot=text,
+            bank_title_snapshot=bank.title,
+            requested_count=effective_count,
+            generate_description="true" if next_generate_description else "false",
+            extra_instruction=normalized_extra_instruction,
+            inherit_context=next_inherit_context,
+            retry_of_workflow_id=original.id,
+            ai_provider_config_id=config.id,
+            ai_base_url_snapshot=host,
+            ai_model_snapshot=config.model,
+        )
+        self.db.add(workflow)
+        self.db.flush()
+        job = ImportJob(
+            user_id=user.id,
+            bank_id=bank.id,
+            workflow_id=workflow.id,
+            type="bank_parse_ai" if next_mode == "bank_parse" else "document_ai",
+            status="pending",
+            desired_visibility=bank.desired_visibility,
+            file_name=source_file_name,
+            ai_provider_config_id=config.id,
+            ai_base_url_snapshot=host,
+            ai_model_snapshot=config.model,
+        )
+        self.db.add(job)
+        bank.generation_status = "processing"
+        self.db.commit()
+        background_tasks.add_task(run_generation_task, workflow.id, text, effective_count, next_generate_description, next_mode, normalized_extra_instruction)
         return AIGenerationWorkflowCreatedOut(workflow_id=workflow.id, bank_id=bank.id, job_id=job.id)
 
     def workflows_for_user_stmt(self, user: User, status: str | None = None, bank_id: int | None = None):
@@ -277,14 +395,34 @@ class AIGenerationWorkflowService:
             raise HTTPException(status_code=422, detail=str(exc)) from exc
 
     def discard_draft(self, workflow_id: int, user: User) -> dict:
+        return self.cancel_workflow(workflow_id, user, "用户丢弃草稿")
+
+    def cancel_workflow(self, workflow_id: int, user: User, cancel_reason: str | None = None) -> dict:
         workflow = self.get_owned_workflow(workflow_id, user)
+        if workflow.status not in {"draft_ready", "failed"}:
+            raise HTTPException(status_code=400, detail="当前 workflow 状态不允许撤销")
         draft = self.db.scalar(select(AIGenerationDraft).where(AIGenerationDraft.workflow_id == workflow.id, AIGenerationDraft.status == "ready"))
         if draft:
             draft.status = "discarded"
+        bank = self.db.get(QuestionBank, workflow.bank_id) if workflow.bank_id else None
+        if bank and not workflow.bank_title_snapshot:
+            workflow.bank_title_snapshot = bank.title
         workflow.status = "cancelled"
+        workflow.cancel_reason = (cancel_reason or "").strip() or "用户撤销"
+        workflow.finished_at = now_utc()
         job = self.db.scalar(select(ImportJob).where(ImportJob.workflow_id == workflow.id))
         if job:
             job.status = "cancelled"
+            job.error_message = workflow.cancel_reason
+            job.finished_at = now_utc()
+        if workflow.purpose == "create_bank" and bank:
+            workflow.bank_id = None
+            if job:
+                job.bank_id = None
+            self.db.execute(delete(AIGenerationDraft).where(AIGenerationDraft.workflow_id == workflow.id))
+            self.db.delete(bank)
+        elif bank:
+            bank.generation_status = "none" if bank.question_count == 0 else "succeeded"
         self.db.commit()
         return {"ok": True}
 

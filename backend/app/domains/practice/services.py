@@ -90,7 +90,10 @@ class PracticeSessionService:
         self.mistakes = MistakeService(db)
 
     def to_out(self, session: PracticeSession) -> PracticeSessionOut:
-        answered_count = self.db.query(PracticeAnswer).filter(PracticeAnswer.session_id == session.id).count()
+        answered_query = self.db.query(PracticeAnswer).filter(PracticeAnswer.session_id == session.id)
+        if session.mode != "exam":
+            answered_query = answered_query.filter(PracticeAnswer.is_submitted.is_(True))
+        answered_count = answered_query.count()
         bank = self.db.get(QuestionBank, session.bank_id)
         last_answered_at = self.db.scalar(select(func.max(PracticeAnswer.answered_at)).where(PracticeAnswer.session_id == session.id))
         return PracticeSessionOut.model_validate(session, from_attributes=True).model_copy(
@@ -163,46 +166,92 @@ class PracticeSessionService:
             answer = answers_by_question.get(question.id)
             state = PracticeQuestionAnswerStateOut()
             if answer:
+                is_answered = answer.is_submitted or session.mode == "exam"
+                can_reveal_answer = reveal and answer.is_submitted
                 state = PracticeQuestionAnswerStateOut(
-                    is_answered=True,
+                    is_answered=is_answered,
                     selected_option_ids=answer.selected_option_ids,
-                    reveal=reveal,
-                    is_correct=answer.is_correct if reveal else None,
-                    correct_labels=[option.label for option in options if option.is_correct] if reveal else [],
-                    explanation=question.explanation if reveal else None,
+                    reveal=can_reveal_answer,
+                    is_correct=answer.is_correct if can_reveal_answer else None,
+                    correct_labels=[option.label for option in options if option.is_correct] if can_reveal_answer else [],
+                    explanation=question.explanation if can_reveal_answer else None,
                 )
             result.append(PracticeQuestionOut.model_validate(question, from_attributes=True).model_copy(update={"answer_state": state}))
         return result
 
-    def answer_question(self, session_id: int, payload: PracticeAnswerCreate, user: User) -> PracticeAnswerOut:
-        session = self.get_owned_session(session_id, user)
+    def _get_session_question_options(self, session: PracticeSession, question_id: int) -> tuple[Question, list[QuestionOption]]:
         in_session = self.db.scalar(
             select(PracticeSessionQuestion).where(
                 PracticeSessionQuestion.session_id == session.id,
-                PracticeSessionQuestion.question_id == payload.question_id,
+                PracticeSessionQuestion.question_id == question_id,
             )
         )
-        question = self.db.get(Question, payload.question_id)
+        question = self.db.get(Question, question_id)
         if not in_session or not question or question.bank_id != session.bank_id:
             raise HTTPException(status_code=400, detail="题目不属于当前练习")
+        options = self.db.scalars(select(QuestionOption).where(QuestionOption.question_id == question_id).order_by(QuestionOption.sort_order)).all()
+        return question, options
+
+    @staticmethod
+    def _validate_option_ids(options: list[QuestionOption], selected_option_ids: list[int]) -> None:
+        option_ids = {option.id for option in options}
+        if any(option_id not in option_ids for option_id in selected_option_ids):
+            raise HTTPException(status_code=400, detail="选项不属于当前题目")
+
+    @staticmethod
+    def _is_correct(options: list[QuestionOption], selected_option_ids: list[int]) -> bool:
+        correct_ids = [option.id for option in options if option.is_correct]
+        return set(selected_option_ids) == set(correct_ids)
+
+    def save_answer_draft(self, session_id: int, payload: PracticeAnswerCreate, user: User) -> dict:
+        session = self.get_owned_session(session_id, user)
+        if session.status == "submitted":
+            raise HTTPException(status_code=400, detail="会话已提交，不能保存答案")
+        question, options = self._get_session_question_options(session, payload.question_id)
+        self._validate_option_ids(options, payload.selected_option_ids)
+        existing = self.db.scalar(select(PracticeAnswer).where(PracticeAnswer.session_id == session.id, PracticeAnswer.question_id == payload.question_id))
+        if existing and existing.is_submitted and session.mode != "exam":
+            return {"ok": True, "changed": False}
+        is_correct = self._is_correct(options, payload.selected_option_ids)
+        if existing:
+            if existing.selected_option_ids == payload.selected_option_ids and existing.is_submitted == (session.mode == "exam"):
+                return {"ok": True, "changed": False}
+            existing.selected_option_ids = payload.selected_option_ids
+            existing.is_correct = is_correct
+            existing.is_submitted = session.mode == "exam"
+            existing.answered_at = datetime.now(UTC)
+        else:
+            self.db.add(
+                PracticeAnswer(
+                    session_id=session.id,
+                    question_id=question.id,
+                    selected_option_ids=payload.selected_option_ids,
+                    is_correct=is_correct,
+                    is_submitted=session.mode == "exam",
+                )
+            )
+        self.db.commit()
+        return {"ok": True, "changed": True}
+
+    def answer_question(self, session_id: int, payload: PracticeAnswerCreate, user: User) -> PracticeAnswerOut:
+        session = self.get_owned_session(session_id, user)
+        question, options = self._get_session_question_options(session, payload.question_id)
 
         existing = self.db.scalar(select(PracticeAnswer).where(PracticeAnswer.session_id == session.id, PracticeAnswer.question_id == payload.question_id))
         if existing:
-            if session.mode != "exam" or session.status == "submitted":
+            if (session.mode != "exam" and existing.is_submitted) or session.status == "submitted":
                 raise HTTPException(status_code=400, detail="这道题已经作答，不能重复修改")
 
-        options = self.db.scalars(select(QuestionOption).where(QuestionOption.question_id == payload.question_id).order_by(QuestionOption.sort_order)).all()
-        option_ids = {option.id for option in options}
-        if any(option_id not in option_ids for option_id in payload.selected_option_ids):
-            raise HTTPException(status_code=400, detail="选项不属于当前题目")
+        self._validate_option_ids(options, payload.selected_option_ids)
         correct_ids = [option.id for option in options if option.is_correct]
-        is_correct = set(payload.selected_option_ids) == set(correct_ids)
+        is_correct = self._is_correct(options, payload.selected_option_ids)
         if existing:
             existing.selected_option_ids = payload.selected_option_ids
             existing.is_correct = is_correct
+            existing.is_submitted = True
             existing.answered_at = datetime.now(UTC)
         else:
-            self.db.add(PracticeAnswer(session_id=session.id, question_id=payload.question_id, selected_option_ids=payload.selected_option_ids, is_correct=is_correct))
+            self.db.add(PracticeAnswer(session_id=session.id, question_id=payload.question_id, selected_option_ids=payload.selected_option_ids, is_correct=is_correct, is_submitted=True))
         if not is_correct and session.mode != "exam":
             self.mistakes.record_wrong_answer(user.id, session.bank_id, payload.question_id)
         self.db.commit()
@@ -218,6 +267,9 @@ class PracticeSessionService:
     def submit_session(self, session_id: int, user: User) -> PracticeSessionOut:
         session = self.get_owned_session(session_id, user)
         answers = self.db.scalars(select(PracticeAnswer).where(PracticeAnswer.session_id == session.id)).all()
+        if session.mode == "exam":
+            for answer in answers:
+                answer.is_submitted = True
         session.correct_count = sum(1 for answer in answers if answer.is_correct)
         session.score = round(session.correct_count / session.total_questions * 100, 2) if session.total_questions else 0
         if session.mode == "exam":
@@ -242,7 +294,7 @@ class PracticeSessionService:
                 continue
             answer = answers_by_question.get(question.id)
             options = sorted(question.options, key=lambda item: item.sort_order)
-            selected_ids = answer.selected_option_ids if answer else []
+            selected_ids = answer.selected_option_ids if answer and answer.is_submitted else []
             correct_ids = [option.id for option in options if option.is_correct]
             option_by_id = {option.id: option for option in options}
             results.append(
@@ -255,8 +307,8 @@ class PracticeSessionService:
                     selected_labels=[option_by_id[id].label for id in selected_ids if id in option_by_id],
                     correct_option_ids=correct_ids,
                     correct_labels=[option.label for option in options if option.is_correct],
-                    is_correct=bool(answer and answer.is_correct),
-                    is_unanswered=answer is None,
+                    is_correct=bool(answer and answer.is_submitted and answer.is_correct),
+                    is_unanswered=answer is None or not answer.is_submitted,
                     explanation=question.explanation,
                 )
             )

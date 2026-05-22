@@ -2,7 +2,7 @@
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { authHeader, statusVariant } from '../api/http'
-import { getBank, updateBank, deleteBank, favoriteBank, unfavoriteBank, exportBankUrl } from '../api/v2/banks'
+import { getBank, updateBank, updateBankAIContext, deleteBank, favoriteBank, unfavoriteBank, exportBankUrl } from '../api/v2/banks'
 import type { QuestionBankV2, QuestionBankTag } from '../api/types'
 import { useAuthStore } from '../stores/auth'
 import { useToast } from '../composables/useToast'
@@ -33,6 +33,8 @@ const deleting = ref(false)
 const exporting = ref(false)
 const practiceDialogVisible = ref(false)
 const generateDialogVisible = ref(false)
+const aiContext = ref('')
+const savingAIContext = ref(false)
 let pollingTimer: number | null = null
 
 function shouldPollBank() {
@@ -69,6 +71,7 @@ async function load(silent = false) {
       visibility: bank.value.visibility,
     }
     editTags.value = bank.value.tags || []
+    aiContext.value = bank.value.ai_context || ''
   } finally { if (!silent) loading.value = false }
 }
 
@@ -141,6 +144,20 @@ async function exportJson() {
   } finally { exporting.value = false }
 }
 
+async function saveAIContext() {
+  if (!bank.value) return
+  savingAIContext.value = true
+  try {
+    bank.value = await updateBankAIContext(bank.value.id, aiContext.value.trim() || null)
+    aiContext.value = bank.value.ai_context || ''
+    toast.show('AI 上下文已保存', 'success')
+  } catch (err) {
+    toast.show(err instanceof Error ? err.message : '保存失败', 'error')
+  } finally {
+    savingAIContext.value = false
+  }
+}
+
 onMounted(load)
 watch(bank, syncPolling, { deep: true })
 onBeforeUnmount(stopPolling)
@@ -197,6 +214,21 @@ onBeforeUnmount(stopPolling)
           <el-button @click="editing = !editing">{{ editing ? '收起编辑' : '编辑题库' }}</el-button>
           <el-button type="danger" @click="deleteModal = true">删除题库</el-button>
         </div>
+      </div>
+
+      <div v-if="canManage" class="qp-section">
+        <div class="mb-2 flex items-center justify-between gap-2">
+          <h2 class="qp-section-title m-0">AI 上下文</h2>
+          <el-button size="small" type="primary" :loading="savingAIContext" @click="saveAIContext">保存上下文</el-button>
+        </div>
+        <el-input
+          v-model="aiContext"
+          type="textarea"
+          :rows="4"
+          maxlength="12000"
+          show-word-limit
+          placeholder="写给后续扩展题库继承的背景、命题风格、覆盖范围或避免重复的规则"
+        />
       </div>
 
       <el-form v-if="editing" class="qp-section" label-position="top">

@@ -44,6 +44,15 @@ def answer_question(session_id: int, payload: PracticeAnswerCreate, current_user
     return PracticeSessionService(db).answer_question(session_id, payload, current_user)
 
 
+@router.put("/practice/sessions/{session_id}/answers/{question_id}/draft")
+def save_answer_draft(session_id: int, question_id: int, payload: PracticeAnswerCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return PracticeSessionService(db).save_answer_draft(
+        session_id,
+        PracticeAnswerCreate(question_id=question_id, selected_option_ids=payload.selected_option_ids),
+        current_user,
+    )
+
+
 @router.post("/practice/sessions/{session_id}/submit", response_model=PracticeSessionOut)
 def submit_session(session_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return PracticeSessionService(db).submit_session(session_id, current_user)

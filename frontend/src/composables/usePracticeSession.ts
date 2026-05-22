@@ -1,5 +1,5 @@
 import { ref, computed } from 'vue'
-import { getSession, getSessionQuestions, answerQuestion, submitSession } from '../api/v2/practice'
+import { getSession, getSessionQuestions, answerQuestion, saveAnswerDraft, submitSession } from '../api/v2/practice'
 import type { PracticeSession } from '../api/types'
 import { useToast } from './useToast'
 
@@ -36,6 +36,8 @@ export function usePracticeSession(sessionId: number) {
   const answerStatus = ref<Record<number, 'correct' | 'wrong'>>({})
   const answerResults = ref<Record<number, AnswerResult>>({})
   const answered = ref<Record<number, boolean>>({})
+  const lastSyncedSelections = ref<Record<number, string>>({})
+  const draftSaving = ref<Record<number, boolean>>({})
   const loading = ref(true)
 
   const currentQuestion = computed(() => questions.value[currentIndex.value] || null)
@@ -61,6 +63,10 @@ export function usePracticeSession(sessionId: number) {
     return 'none'
   }
 
+  function selectionKey(optionIds: number[] = []) {
+    return [...optionIds].sort((a, b) => a - b).join(',')
+  }
+
   async function load() {
     loading.value = true
     try {
@@ -72,10 +78,14 @@ export function usePracticeSession(sessionId: number) {
       const restoredAnswered: Record<number, boolean> = {}
       const restoredStatus: Record<number, 'correct' | 'wrong'> = {}
       const restoredResults: Record<number, AnswerResult> = {}
+      lastSyncedSelections.value = {}
 
       questions.value.forEach((q) => {
         const state = q.answer_state
-        if (state?.selected_option_ids?.length) restored[q.id] = state.selected_option_ids
+        if (state?.selected_option_ids?.length) {
+          restored[q.id] = state.selected_option_ids
+          lastSyncedSelections.value[q.id] = selectionKey(state.selected_option_ids)
+        }
         if (state?.is_answered) restoredAnswered[q.id] = true
         if (state?.reveal) {
           if (state.is_correct !== null) restoredStatus[q.id] = state.is_correct ? 'correct' : 'wrong'
@@ -124,6 +134,7 @@ export function usePracticeSession(sessionId: number) {
       answered.value[q.id] = true
       if (result.reveal && result.is_correct !== null) answerStatus.value[q.id] = result.is_correct ? 'correct' : 'wrong'
       answerResults.value[q.id] = result
+      lastSyncedSelections.value[q.id] = selectionKey(selected.value[q.id] ?? [])
       toast.show(session.value?.mode === 'exam' ? '答案已保存' : '答案已同步', 'success')
     } catch (error) {
       toast.show(error instanceof Error ? error.message : '答案同步失败', 'error')
@@ -132,25 +143,48 @@ export function usePracticeSession(sessionId: number) {
   }
 
   async function submitAll() {
+    await saveDraftIfChanged(currentQuestion.value)
     await submitSession(sessionId)
   }
 
-  function previousQuestion() {
+  async function saveDraftIfChanged(question = currentQuestion.value) {
+    if (!question || session.value?.status === 'submitted' || isLocked(question.id)) return
+    const values = selected.value[question.id] ?? []
+    const key = selectionKey(values)
+    if (!key && !lastSyncedSelections.value[question.id]) return
+    if (lastSyncedSelections.value[question.id] === key || draftSaving.value[question.id]) return
+    try {
+      draftSaving.value[question.id] = true
+      await saveAnswerDraft(sessionId, question.id, values)
+      lastSyncedSelections.value[question.id] = key
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : '答案草稿保存失败', 'error')
+      throw error
+    } finally {
+      draftSaving.value[question.id] = false
+    }
+  }
+
+  async function previousQuestion() {
+    await saveDraftIfChanged()
     if (currentIndex.value > 0) currentIndex.value -= 1
   }
 
-  function nextQuestion() {
+  async function nextQuestion() {
+    await saveDraftIfChanged()
     if (currentIndex.value < questions.value.length - 1) currentIndex.value += 1
   }
 
-  function goToQuestion(index: number) {
+  async function goToQuestion(index: number) {
+    if (index === currentIndex.value) return
+    await saveDraftIfChanged()
     currentIndex.value = index
   }
 
   return {
     session, questions, currentIndex, selected, answerStatus, answerResults, answered,
     loading, currentQuestion, totalQuestions,
-    load, toggle, setSelection, submitAnswer, submitAll, previousQuestion, nextQuestion, goToQuestion,
+    load, toggle, setSelection, submitAnswer, submitAll, saveDraftIfChanged, previousQuestion, nextQuestion, goToQuestion,
     isLocked, shouldReveal, hasSelection, questionStatus,
   }
 }

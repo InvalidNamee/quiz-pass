@@ -11,7 +11,7 @@ class WorkflowContextBuilder:
         self.db = db
 
     def build(self, bank: QuestionBank, workflow: AIGenerationWorkflow) -> str:
-        if workflow.purpose != "extend_bank":
+        if workflow.purpose != "extend_bank" or not workflow.inherit_context:
             return ""
         stems = self.db.scalars(select(Question.stem).where(Question.bank_id == bank.id).limit(80)).all()
         previous = self.db.scalars(
@@ -27,6 +27,8 @@ class WorkflowContextBuilder:
 这是对已有题库的扩展，请延续题库风格并避免和已有题目重复。
 题库标题：{bank.title}
 题库描述：{bank.description or '无'}
+题库级上下文：
+{bank.ai_context or '无'}
 题库标签：{', '.join(tag_names) or '无'}
 当前模型：{bank.ai_model_name or '无'}
 最近成功 workflow：

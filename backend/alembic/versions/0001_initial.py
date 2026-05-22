@@ -87,6 +87,7 @@ def upgrade() -> None:
         sa.Column("visibility", sa.String(length=32), nullable=False),
         sa.Column("desired_visibility", sa.String(length=32), nullable=False),
         sa.Column("generation_status", sa.String(length=32), nullable=False),
+        sa.Column("ai_context", sa.Text(), nullable=True),
         sa.Column("question_count", sa.Integer(), nullable=False),
         sa.Column("favorite_count", sa.Integer(), nullable=False),
         sa.Column("ai_provider_config_id", sa.Integer(), nullable=True),
@@ -197,6 +198,7 @@ def upgrade() -> None:
         sa.Column("question_id", sa.Integer(), nullable=False),
         sa.Column("selected_option_ids", sa.JSON(), nullable=False),
         sa.Column("is_correct", sa.Boolean(), nullable=False),
+        sa.Column("is_submitted", sa.Boolean(), nullable=False),
         sa.Column("answered_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
         sa.ForeignKeyConstraint(["question_id"], ["questions.id"], ondelete="CASCADE"),
         sa.ForeignKeyConstraint(["session_id"], ["practice_sessions.id"], ondelete="CASCADE"),
@@ -227,31 +229,37 @@ def upgrade() -> None:
     op.create_table(
         "ai_generation_workflows",
         sa.Column("id", sa.Integer(), nullable=False),
-        sa.Column("bank_id", sa.Integer(), nullable=False),
+        sa.Column("bank_id", sa.Integer(), nullable=True),
         sa.Column("user_id", sa.Integer(), nullable=False),
         sa.Column("purpose", sa.String(length=32), nullable=False),
         sa.Column("generation_mode", sa.String(length=32), nullable=False),
         sa.Column("status", sa.String(length=32), nullable=False),
         sa.Column("source_file_name", sa.String(length=255), nullable=True),
         sa.Column("source_text_snapshot", sa.Text(), nullable=True),
+        sa.Column("bank_title_snapshot", sa.String(length=255), nullable=True),
         sa.Column("requested_count", sa.Integer(), nullable=True),
         sa.Column("generate_description", sa.String(length=8), nullable=False),
         sa.Column("extra_instruction", sa.Text(), nullable=True),
+        sa.Column("inherit_context", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("retry_of_workflow_id", sa.Integer(), nullable=True),
         sa.Column("ai_provider_config_id", sa.Integer(), nullable=True),
         sa.Column("ai_model_snapshot", sa.String(length=128), nullable=True),
         sa.Column("ai_base_url_snapshot", sa.String(length=512), nullable=True),
         sa.Column("repair_attempts", sa.Integer(), nullable=False),
         sa.Column("error_message", sa.Text(), nullable=True),
+        sa.Column("cancel_reason", sa.Text(), nullable=True),
         sa.Column("finished_at", sa.DateTime(), nullable=True),
         sa.Column("created_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
         sa.Column("updated_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
         sa.ForeignKeyConstraint(["ai_provider_config_id"], ["user_ai_provider_configs.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["bank_id"], ["question_banks.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["bank_id"], ["question_banks.id"], ondelete="SET NULL"),
+        sa.ForeignKeyConstraint(["retry_of_workflow_id"], ["ai_generation_workflows.id"], ondelete="SET NULL"),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
         sa.PrimaryKeyConstraint("id"),
     )
     op.create_index(op.f("ix_ai_generation_workflows_bank_id"), "ai_generation_workflows", ["bank_id"], unique=False)
     op.create_index(op.f("ix_ai_generation_workflows_purpose"), "ai_generation_workflows", ["purpose"], unique=False)
+    op.create_index(op.f("ix_ai_generation_workflows_retry_of_workflow_id"), "ai_generation_workflows", ["retry_of_workflow_id"], unique=False)
     op.create_index(op.f("ix_ai_generation_workflows_status"), "ai_generation_workflows", ["status"], unique=False)
     op.create_index(op.f("ix_ai_generation_workflows_user_id"), "ai_generation_workflows", ["user_id"], unique=False)
 
@@ -335,7 +343,7 @@ def upgrade() -> None:
         sa.Column("created_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
         sa.Column("updated_at", sa.DateTime(), server_default=sa.text("CURRENT_TIMESTAMP"), nullable=False),
         sa.ForeignKeyConstraint(["ai_provider_config_id"], ["user_ai_provider_configs.id"], ondelete="SET NULL"),
-        sa.ForeignKeyConstraint(["bank_id"], ["question_banks.id"], ondelete="CASCADE"),
+        sa.ForeignKeyConstraint(["bank_id"], ["question_banks.id"], ondelete="SET NULL"),
         sa.ForeignKeyConstraint(["user_id"], ["users.id"]),
         sa.ForeignKeyConstraint(["workflow_id"], ["ai_generation_workflows.id"], ondelete="CASCADE"),
         sa.PrimaryKeyConstraint("id"),
@@ -365,6 +373,7 @@ def downgrade() -> None:
     op.drop_table("ai_generation_workflow_steps")
     op.drop_index(op.f("ix_ai_generation_workflows_user_id"), table_name="ai_generation_workflows")
     op.drop_index(op.f("ix_ai_generation_workflows_status"), table_name="ai_generation_workflows")
+    op.drop_index(op.f("ix_ai_generation_workflows_retry_of_workflow_id"), table_name="ai_generation_workflows")
     op.drop_index(op.f("ix_ai_generation_workflows_purpose"), table_name="ai_generation_workflows")
     op.drop_index(op.f("ix_ai_generation_workflows_bank_id"), table_name="ai_generation_workflows")
     op.drop_table("ai_generation_workflows")

@@ -25,6 +25,7 @@ async def create_workflow(
     generate_description: bool = Form(False),
     generation_mode: str = Form("knowledge_generate"),
     extra_instruction: str | None = Form(None),
+    inherit_context: bool = Form(False),
     tag_names: str | None = Form(None),
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
@@ -42,6 +43,7 @@ async def create_workflow(
         generate_description,
         generation_mode,
         extra_instruction,
+        inherit_context,
         tag_names,
         file,
     )
@@ -57,6 +59,7 @@ async def create_extend_workflow(
     generate_description: bool = Form(False),
     generation_mode: str = Form("knowledge_generate"),
     extra_instruction: str | None = Form(None),
+    inherit_context: bool = Form(True),
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -71,6 +74,7 @@ async def create_extend_workflow(
         generate_description,
         generation_mode,
         extra_instruction,
+        inherit_context,
         file,
     )
 
@@ -111,3 +115,46 @@ def confirm_draft(workflow_id: int, current_user: User = Depends(get_current_use
 @router.post("/ai/workflows/{workflow_id}/draft/discard")
 def discard_draft(workflow_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return AIGenerationWorkflowService(db).discard_draft(workflow_id, current_user)
+
+
+@router.post("/ai/workflows/{workflow_id}/cancel")
+def cancel_workflow(workflow_id: int, cancel_reason: str | None = Form(None), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return AIGenerationWorkflowService(db).cancel_workflow(workflow_id, current_user, cancel_reason)
+
+
+@router.post("/ai/workflows/{workflow_id}/retry", response_model=AIGenerationWorkflowCreatedOut)
+async def retry_workflow(
+    workflow_id: int,
+    background_tasks: BackgroundTasks,
+    ai_provider_config_id: int | None = Form(None),
+    question_count_mode: str | None = Form(None),
+    question_count: int | None = Form(None),
+    generate_description: bool | None = Form(None),
+    generation_mode: str | None = Form(None),
+    extra_instruction: str | None = Form(None),
+    inherit_context: bool | None = Form(None),
+    source_text: str | None = Form(None),
+    title: str | None = Form(None),
+    description: str | None = Form(None),
+    desired_visibility: str | None = Form(None),
+    file: UploadFile | None = File(None),
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    return await AIGenerationWorkflowService(db).retry_workflow(
+        workflow_id,
+        current_user,
+        background_tasks,
+        ai_provider_config_id,
+        question_count_mode,
+        question_count,
+        generate_description,
+        generation_mode,
+        extra_instruction,
+        inherit_context,
+        source_text,
+        title,
+        description,
+        desired_visibility,
+        file,
+    )

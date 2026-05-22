@@ -73,7 +73,7 @@ class OpenAICompatibleClient:
     ) -> dict:
         api_key = decrypt_secret(config.api_key_encrypted)
         base_url = config.api_base_url.rstrip("/")
-        client = OpenAI(api_key=api_key, base_url=base_url, timeout=90)
+        client = OpenAI(api_key=api_key, base_url=base_url, timeout=1200)
         response = client.chat.completions.create(
             model=config.model,
             messages=[

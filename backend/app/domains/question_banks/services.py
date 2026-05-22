@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.domains.question_banks.lifecycle import QuestionBankLifecycleService
 from app.domains.question_banks.permissions import QuestionBankPermissionService
 from app.domains.question_banks.queries import QuestionBankQueryService
-from app.domains.question_banks.schemas import QuestionBankV2Create, QuestionBankV2Out, QuestionBankV2Update
+from app.domains.question_banks.schemas import QuestionBankAIContextUpdate, QuestionBankV2Create, QuestionBankV2Out, QuestionBankV2Update
 from app.domains.question_banks.stats import QuestionBankStatsService
 from app.models.question_bank import QuestionBank, QuestionBankFavorite
 from app.models.user import User
@@ -60,6 +60,13 @@ class QuestionBankService:
                 set_bank_tags(self.db, bank, tag_names)
             except ValueError as exc:
                 raise HTTPException(status_code=422, detail=str(exc)) from exc
+        self.db.commit()
+        self.db.refresh(bank)
+        return self.query.to_out(bank, user)
+
+    def update_ai_context(self, bank_id: int, payload: QuestionBankAIContextUpdate, user: User) -> QuestionBankV2Out:
+        bank = self.get_manageable(bank_id, user)
+        bank.ai_context = (payload.ai_context or "").strip() or None
         self.db.commit()
         self.db.refresh(bank)
         return self.query.to_out(bank, user)

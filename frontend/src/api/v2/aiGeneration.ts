@@ -2,9 +2,13 @@ import { api } from '../http'
 import type { Page, AIGenerationDraft } from '../types'
 
 export type WorkflowListItem = {
-  id: number; bank_id: number; purpose: string; generation_mode: string
-  status: string; source_file_name: string | null; ai_model_snapshot: string | null
-  repair_attempts: number; error_message: string | null
+  id: number; bank_id: number | null; purpose: string; generation_mode: string
+  status: string; source_file_name: string | null; source_text_snapshot: string | null
+  bank_title_snapshot: string | null; requested_count: number | null
+  generate_description: string; extra_instruction: string | null
+  ai_provider_config_id: number | null; inherit_context: boolean
+  retry_of_workflow_id: number | null; ai_model_snapshot: string | null
+  repair_attempts: number; error_message: string | null; cancel_reason: string | null
   draft_question_count: number; can_confirm: boolean
   created_at: string; finished_at: string | null
 }
@@ -41,4 +45,14 @@ export function confirmDraft(workflowId: number) {
 
 export function discardDraft(workflowId: number) {
   return api(`/api/v2/ai/workflows/${workflowId}/draft/discard`, { method: 'POST' })
+}
+
+export function cancelWorkflow(workflowId: number, reason?: string) {
+  const form = new FormData()
+  if (reason) form.set('cancel_reason', reason)
+  return api(`/api/v2/ai/workflows/${workflowId}/cancel`, { method: 'POST', body: form })
+}
+
+export function retryWorkflow(workflowId: number, form: FormData) {
+  return api<{ workflow_id: number; bank_id: number; job_id: number }>(`/api/v2/ai/workflows/${workflowId}/retry`, { method: 'POST', body: form })
 }

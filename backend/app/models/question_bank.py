@@ -25,6 +25,7 @@ class QuestionBank(Base):
     visibility: Mapped[str] = mapped_column(String(32), default="private", index=True)
     desired_visibility: Mapped[str] = mapped_column(String(32), default="private")
     generation_status: Mapped[str] = mapped_column(String(32), default="none", index=True)
+    ai_context: Mapped[str | None] = mapped_column(Text, nullable=True)
     question_count: Mapped[int] = mapped_column(Integer, default=0)
     favorite_count: Mapped[int] = mapped_column(Integer, default=0)
     ai_provider_config_id: Mapped[int | None] = mapped_column(ForeignKey("user_ai_provider_configs.id", ondelete="SET NULL"), nullable=True)

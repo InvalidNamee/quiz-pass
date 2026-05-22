@@ -41,6 +41,7 @@ class QuestionBankV2Out(BaseModel):
     owner_avatar_url: str | None = None
     title: str
     description: str | None = None
+    ai_context: str | None = None
     visibility: str
     desired_visibility: str
     generation_status: str
@@ -69,3 +70,7 @@ class QuestionBankV2Update(BaseModel):
     description: str | None = None
     visibility: str | None = Field(default=None, pattern="^(private|public)$")
     tag_names: list[str] | None = None
+
+
+class QuestionBankAIContextUpdate(BaseModel):
+    ai_context: str | None = Field(default=None, max_length=12000)

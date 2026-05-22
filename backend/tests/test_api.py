@@ -67,7 +67,7 @@ def test_database_model_removes_workflow_job_cycle_and_uses_cascades():
     assert "active_generation_job_id" not in QuestionBank.__table__.c
 
     assert _fk_ondelete(ImportJob, "workflow_id") == "CASCADE"
-    assert _fk_ondelete(ImportJob, "bank_id") == "CASCADE"
+    assert _fk_ondelete(ImportJob, "bank_id") == "SET NULL"
     assert _fk_ondelete(Question, "bank_id") == "CASCADE"
     assert _fk_ondelete(QuestionOption, "question_id") == "CASCADE"
     assert _fk_ondelete(QuestionBankFavorite, "bank_id") == "CASCADE"
@@ -76,7 +76,9 @@ def test_database_model_removes_workflow_job_cycle_and_uses_cascades():
     assert _fk_ondelete(PracticeSessionQuestion, "session_id") == "CASCADE"
     assert _fk_ondelete(PracticeAnswer, "session_id") == "CASCADE"
     assert _fk_ondelete(MistakeRecord, "bank_id") == "CASCADE"
-    assert _fk_ondelete(AIGenerationWorkflow, "bank_id") == "CASCADE"
+    assert _fk_ondelete(AIGenerationWorkflow, "bank_id") == "SET NULL"
+    assert AIGenerationWorkflow.__table__.c.bank_id.nullable is True
+    assert "ai_context" in QuestionBank.__table__.c
     assert _fk_ondelete(AIGenerationWorkflowStep, "workflow_id") == "CASCADE"
     assert _fk_ondelete(AIGenerationDraft, "workflow_id") == "CASCADE"
     assert _fk_ondelete(AIGenerationDraftQuestion, "draft_id") == "CASCADE"
@@ -474,6 +476,58 @@ def test_register_validation_and_exam_hides_answer_until_submit():
         assert result["explanation"] == "basic arithmetic"
 
 
+def test_practice_answer_draft_saves_without_locking_normal_practice():
+    with TestClient(app) as client:
+        headers = _register(client, "draft-practice@example.com", "draftpractice")
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Draft Practice", "visibility": "private"}).json()
+        question = client.post(
+            f"/api/v2/banks/{bank['id']}/questions",
+            headers=headers,
+            json={
+                "type": "multiple",
+                "stem": "Pick letters",
+                "options": [
+                    {"label": "A", "content": "A", "is_correct": True},
+                    {"label": "B", "content": "B", "is_correct": True},
+                    {"label": "C", "content": "C", "is_correct": False},
+                ],
+                "explanation": "A and B",
+            },
+        ).json()
+        session = client.post("/api/v2/practice/sessions", headers=headers, json={"bank_id": bank["id"], "mode": "practice"}).json()
+        draft = client.put(
+            f"/api/v2/practice/sessions/{session['id']}/answers/{question['id']}/draft",
+            headers=headers,
+            json={"question_id": question["id"], "selected_option_ids": [question["options"][0]["id"]]},
+        )
+        assert draft.status_code == 200, draft.text
+        state = client.get(f"/api/v2/practice/sessions/{session['id']}/questions", headers=headers).json()[0]["answer_state"]
+        assert state["selected_option_ids"] == [question["options"][0]["id"]]
+        assert state["is_answered"] is False
+        assert state["reveal"] is False
+        progress = client.get(f"/api/v2/practice/sessions/{session['id']}", headers=headers).json()
+        assert progress["answered_count"] == 0
+
+        submitted = client.post(
+            f"/api/v2/practice/sessions/{session['id']}/answers",
+            headers=headers,
+            json={"question_id": question["id"], "selected_option_ids": [question["options"][0]["id"], question["options"][1]["id"]]},
+        )
+        assert submitted.status_code == 200, submitted.text
+        assert submitted.json()["reveal"] is True
+        duplicate_draft = client.put(
+            f"/api/v2/practice/sessions/{session['id']}/answers/{question['id']}/draft",
+            headers=headers,
+            json={"question_id": question["id"], "selected_option_ids": [question["options"][2]["id"]]},
+        )
+        assert duplicate_draft.status_code == 200
+        state_after = client.get(f"/api/v2/practice/sessions/{session['id']}/questions", headers=headers).json()[0]["answer_state"]
+        assert set(state_after["selected_option_ids"]) == {question["options"][0]["id"], question["options"][1]["id"]}
+        assert state_after["is_answered"] is True
+        progress_after = client.get(f"/api/v2/practice/sessions/{session['id']}", headers=headers).json()
+        assert progress_after["answered_count"] == 1
+
+
 def test_ai_config_api_key_cannot_be_updated_and_list_has_only_real_configs():
     with TestClient(app) as client:
         headers = _register(client, "config@example.com", "configuser")
@@ -799,7 +853,9 @@ def test_delete_bank_cleans_generation_and_practice_records(monkeypatch):
         deleted = client.delete(f"/api/v2/banks/{bank_id}", headers=headers)
         assert deleted.status_code == 200, deleted.text
         assert client.get(f"/api/v2/banks/{bank_id}", headers=headers).status_code == 404
-        assert client.get(f"/api/v2/ai/workflows/{workflow_id}", headers=headers).status_code == 404
+        workflow_after_delete = client.get(f"/api/v2/ai/workflows/{workflow_id}", headers=headers)
+        assert workflow_after_delete.status_code == 200
+        assert workflow_after_delete.json()["bank_id"] is None
 
 
 def test_v2_banks_returns_domain_shaped_bank_permissions_and_stats():
@@ -941,6 +997,105 @@ def test_v2_ai_workflow_create_draft_confirm_is_workflow_centred(monkeypatch):
         assert bank["generation_status"] == "succeeded"
 
 
+def test_v2_ai_workflow_cancel_create_bank_preserves_audit_and_deletes_shell(monkeypatch):
+    with TestClient(app) as client:
+        headers = _register(client, "cancel-workflow@example.com", "cancelworkflow")
+        client.post(
+            "/api/v2/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+
+        from app.services import ai_generation
+
+        def good_ai(*args, **kwargs):
+            return {
+                "questions": [
+                    {
+                        "type": "single",
+                        "stem": "Draft before cancel",
+                        "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
+                    }
+                ]
+            }
+
+        monkeypatch.setattr(ai_generation, "_call_openai_compatible", good_ai)
+        created = client.post(
+            "/api/v2/ai/workflows",
+            headers=headers,
+            data={"title": "Cancel Shell", "desired_visibility": "public", "question_count": "1"},
+            files={"file": ("material.txt", b"content", "text/plain")},
+        )
+        assert created.status_code == 200, created.text
+        payload = created.json()
+        assert client.get(f"/api/v2/banks/{payload['bank_id']}", headers=headers).status_code == 200
+
+        cancelled = client.post(
+            f"/api/v2/ai/workflows/{payload['workflow_id']}/cancel",
+            headers=headers,
+            data={"cancel_reason": "不需要了"},
+        )
+        assert cancelled.status_code == 200, cancelled.text
+        workflow = client.get(f"/api/v2/ai/workflows/{payload['workflow_id']}", headers=headers).json()
+        assert workflow["status"] == "cancelled"
+        assert workflow["bank_id"] is None
+        assert workflow["bank_title_snapshot"] == "Cancel Shell"
+        assert workflow["cancel_reason"] == "不需要了"
+        assert client.get(f"/api/v2/banks/{payload['bank_id']}", headers=headers).status_code == 404
+
+
+def test_v2_ai_workflow_retry_failed_creates_new_workflow(monkeypatch):
+    with TestClient(app) as client:
+        headers = _register(client, "retry-workflow@example.com", "retryworkflow")
+        client.post(
+            "/api/v2/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+
+        from app.services import ai_generation
+
+        mode = {"ok": False}
+
+        def ai(*args, **kwargs):
+            if not mode["ok"]:
+                return {"questions": []}
+            return {
+                "questions": [
+                    {
+                        "type": "single",
+                        "stem": "Retry success",
+                        "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
+                    }
+                ]
+            }
+
+        monkeypatch.setattr(ai_generation, "_call_openai_compatible", ai)
+        failed = client.post(
+            "/api/v2/ai/workflows",
+            headers=headers,
+            data={"title": "Retry Bank", "question_count": "1"},
+            files={"file": ("bad.txt", b"bad source", "text/plain")},
+        )
+        assert failed.status_code == 200, failed.text
+        failed_workflow = client.get(f"/api/v2/ai/workflows/{failed.json()['workflow_id']}", headers=headers).json()
+        assert failed_workflow["status"] == "failed"
+
+        mode["ok"] = True
+        retried = client.post(
+            f"/api/v2/ai/workflows/{failed_workflow['id']}/retry",
+            headers=headers,
+            data={"source_text": "edited source", "question_count_mode": "fixed", "question_count": "1", "title": "Retry Bank 2"},
+        )
+        assert retried.status_code == 200, retried.text
+        new_workflow = client.get(f"/api/v2/ai/workflows/{retried.json()['workflow_id']}", headers=headers).json()
+        assert new_workflow["status"] == "draft_ready"
+        assert new_workflow["retry_of_workflow_id"] == failed_workflow["id"]
+        assert new_workflow["source_text_snapshot"] == "edited source"
+        assert new_workflow["bank_title_snapshot"] == "Retry Bank 2"
+        assert new_workflow["draft_question_count"] == 1
+
+
 def test_v2_ai_workflow_extends_existing_bank(monkeypatch):
     with TestClient(app) as client:
         headers = _register(client, "v2-extend@example.com", "v2extend")
@@ -997,6 +1152,64 @@ def test_v2_ai_workflow_extends_existing_bank(monkeypatch):
         after = client.get(f"/api/v2/banks/{bank['id']}", headers=headers).json()
         assert after["stats"]["question_count"] == 2
         assert after["visibility"] == "public"
+
+
+def test_v2_extend_workflow_inherit_context_toggle(monkeypatch):
+    with TestClient(app) as client:
+        headers = _register(client, "context-toggle@example.com", "contexttoggle")
+        client.post(
+            "/api/v2/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Context Bank", "visibility": "private"}).json()
+        assert client.patch(f"/api/v2/banks/{bank['id']}/ai-context", headers=headers, json={"ai_context": "题库上下文：偏工程应用"}).status_code == 200
+        client.post(
+            f"/api/v2/banks/{bank['id']}/questions",
+            headers=headers,
+            json={
+                "type": "single",
+                "stem": "已有题目摘要",
+                "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
+            },
+        )
+
+        from app.services import ai_generation
+
+        seen_texts = []
+
+        def good_ai(*args, **kwargs):
+            seen_texts.append(args[1])
+            return {
+                "questions": [
+                    {
+                        "type": "single",
+                        "stem": "Context generated",
+                        "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
+                    }
+                ]
+            }
+
+        monkeypatch.setattr(ai_generation, "_call_openai_compatible", good_ai)
+        no_context = client.post(
+            f"/api/v2/banks/{bank['id']}/ai-workflows",
+            headers=headers,
+            data={"question_count": "1", "inherit_context": "false"},
+            files={"file": ("more.txt", b"fresh source", "text/plain")},
+        )
+        assert no_context.status_code == 200, no_context.text
+        assert "题库上下文：偏工程应用" not in seen_texts[-1]
+        assert "已有题目摘要" not in seen_texts[-1]
+
+        with_context = client.post(
+            f"/api/v2/banks/{bank['id']}/ai-workflows",
+            headers=headers,
+            data={"question_count": "1", "inherit_context": "true"},
+            files={"file": ("more.txt", b"fresh source", "text/plain")},
+        )
+        assert with_context.status_code == 200, with_context.text
+        assert "题库上下文：偏工程应用" in seen_texts[-1]
+        assert "已有题目摘要" in seen_texts[-1]
 
 
 def test_bank_parse_mode_without_question_count_and_detailed_errors(monkeypatch):

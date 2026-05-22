@@ -15,6 +15,7 @@ function findNextDelimiter(text: string, start: number) {
   const candidates = [
     { open: '\\(', close: '\\)', display: false },
     { open: '\\[', close: '\\]', display: true },
+    { open: '$', close: '$', display: false },
     { open: '$$', close: '$$', display: true },
   ]
     .map((delimiter) => ({ ...delimiter, index: text.indexOf(delimiter.open, start) }))

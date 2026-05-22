@@ -13,7 +13,7 @@ const sessionId = Number(route.params.sessionId)
 const {
   session, questions, currentIndex, selected, answerStatus, answerResults,
   loading, currentQuestion, totalQuestions,
-  load, toggle, setSelection, submitAnswer, submitAll, previousQuestion, nextQuestion, goToQuestion,
+  load, toggle, setSelection, submitAnswer, submitAll, saveDraftIfChanged, previousQuestion, nextQuestion, goToQuestion,
   isLocked, shouldReveal, questionStatus,
 } = usePracticeSession(sessionId)
 
@@ -38,32 +38,32 @@ async function handleSubmit() {
   }
 }
 
-function onKeydown(e: KeyboardEvent) {
+async function onKeydown(e: KeyboardEvent) {
   const target = e.target as HTMLElement | null
   if (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target?.isContentEditable || target?.closest('[contenteditable="true"]')) return
   if (!totalQuestions.value) return
   const key = e.key.toLowerCase()
   if (e.key === 'ArrowLeft' || key === 'a') {
     e.preventDefault()
-    previousQuestion()
+    await previousQuestion()
   }
   else if (e.key === 'ArrowRight' || key === 'd') {
     e.preventDefault()
-    nextQuestion()
+    await nextQuestion()
   }
   else if (e.key === 'ArrowUp' || key === 'w') {
     e.preventDefault()
     const target = currentIndex.value - 5
-    if (target >= 0) goToQuestion(target)
+    if (target >= 0) await goToQuestion(target)
   }
   else if (e.key === 'ArrowDown' || key === 's') {
     e.preventDefault()
     const target = currentIndex.value + 5
-    if (target < totalQuestions.value) goToQuestion(target)
+    if (target < totalQuestions.value) await goToQuestion(target)
   }
   else if (e.key === 'Enter' && showSubmitButton.value) {
     e.preventDefault()
-    submitAnswer()
+    await submitAnswer()
   }
   else {
     const num = parseInt(e.key)
@@ -76,7 +76,10 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 onMounted(() => { load(); document.addEventListener('keydown', onKeydown) })
-onBeforeUnmount(() => document.removeEventListener('keydown', onKeydown))
+onBeforeUnmount(() => {
+  void saveDraftIfChanged()
+  document.removeEventListener('keydown', onKeydown)
+})
 </script>
 
 <template>

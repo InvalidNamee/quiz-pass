@@ -39,6 +39,7 @@ class PracticeAnswer(Base):
     question_id: Mapped[int] = mapped_column(ForeignKey("questions.id", ondelete="CASCADE"), index=True)
     selected_option_ids: Mapped[list[int]] = mapped_column(JSON)
     is_correct: Mapped[bool] = mapped_column(Boolean, default=False)
+    is_submitted: Mapped[bool] = mapped_column(Boolean, default=True)
     answered_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 

@@ -37,6 +37,7 @@ export type QuestionBank = {
   owner_avatar_url: string | null
   title: string
   description: string | null
+  ai_context: string | null
   visibility: string
   desired_visibility: string
   generation_status: string
@@ -174,6 +175,7 @@ export type QuestionBankV2 = {
   id: number
   title: string
   description: string | null
+  ai_context: string | null
   visibility: string
   desired_visibility: string
   generation_status: string

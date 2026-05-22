@@ -4,6 +4,7 @@ import { ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import type { AIGenerationDraft, AIGenerationDraftQuestion } from '../api/types'
 import {
+  cancelWorkflow,
   confirmDraft as confirmWorkflowDraft,
   getDraft as getWorkflowDraft,
   updateDraft as updateWorkflowDraft,
@@ -18,6 +19,7 @@ const draft = ref<AIGenerationDraft | null>(null)
 const loading = ref(true)
 const saving = ref(false)
 const confirming = ref(false)
+const cancelling = ref(false)
 const drawerOpen = ref(false)
 const editingIndex = ref<number | null>(null)
 const questionDraft = ref<AIGenerationDraftQuestion | null>(null)
@@ -162,6 +164,25 @@ async function confirm() {
   }
 }
 
+async function cancelDraft() {
+  cancelling.value = true
+  try {
+    await ElMessageBox.confirm(
+      '撤销后该草稿会变为已取消；如果这是未入库的新建题库，空题库壳也会被删除。确定撤销吗？',
+      '撤销草稿',
+      { type: 'warning', confirmButtonText: '撤销草稿', cancelButtonText: '取消' },
+    )
+    await cancelWorkflow(workflowId.value, '用户在草稿页撤销')
+    toast.show('草稿已撤销', 'success')
+    router.push('/banks/generation-jobs')
+  } catch (err) {
+    if (err === 'cancel' || err === 'close') return
+    toast.show(err instanceof Error ? err.message : '撤销失败', 'error')
+  } finally {
+    cancelling.value = false
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -175,6 +196,7 @@ onMounted(load)
             <p class="qp-subtitle">{{ draft.validation_summary || '请检查题目后确认入库。' }}</p>
           </div>
           <div class="flex flex-wrap gap-2">
+            <el-button type="danger" plain :loading="cancelling" @click="cancelDraft">撤销草稿</el-button>
             <el-button :loading="saving" @click="save">保存草稿</el-button>
             <el-button type="primary" :loading="confirming" @click="confirm">确认入库</el-button>
           </div>
@@ -227,6 +249,7 @@ onMounted(load)
       </div>
 
       <div class="qp-section flex flex-wrap justify-end gap-2">
+        <el-button type="danger" plain :loading="cancelling" @click="cancelDraft">撤销草稿</el-button>
         <el-button @click="addQuestion">添加题目</el-button>
         <el-button :loading="saving" @click="save">保存草稿</el-button>
         <el-button type="primary" :loading="confirming" @click="confirm">确认入库</el-button>

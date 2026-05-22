@@ -73,7 +73,7 @@ function chooseOption(optionId: number) {
       </button>
     </div>
 
-    <div v-if="showSubmitButton" class="flex gap-2">
+    <div v-if="showSubmitButton" class="mt-5 flex gap-2 pt-1">
       <el-button type="primary" :disabled="isLocked || !selectedOptionIds.length" @click="emit('answer')">提交本题</el-button>
     </div>
 

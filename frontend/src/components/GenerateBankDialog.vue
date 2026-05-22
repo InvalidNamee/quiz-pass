@@ -29,6 +29,7 @@ const useQuestionCount = ref(true)
 const questionCount = ref(10)
 const generateDescription = ref(false)
 const extraInstruction = ref('')
+const inheritContext = ref(true)
 const selectedTags = ref<TagInputValue[]>([])
 const file = ref<File | null>(null)
 const configs = ref<AIProviderConfig[]>([])
@@ -55,6 +56,7 @@ function reset() {
   title.value = ''
   description.value = ''
   extraInstruction.value = ''
+  inheritContext.value = true
   selectedTags.value = []
   file.value = null
 }
@@ -159,6 +161,7 @@ async function submit() {
         if (useQuestionCount.value) form.set('question_count', String(questionCount.value))
       }
       if (extraInstruction.value.trim()) form.set('extra_instruction', extraInstruction.value.trim())
+      form.set('inherit_context', String(isExtend.value ? inheritContext.value : false))
       form.set('generate_description', String(generateDescription.value))
       const data = isExtend.value && props.extendBankId
         ? await extendWorkflow(props.extendBankId, form)
@@ -226,6 +229,9 @@ watch(() => props.modelValue, (open) => { if (open) load() }, { immediate: true 
           <el-input v-model="extraInstruction" type="textarea" :rows="3" maxlength="2000" show-word-limit placeholder="例如：题目偏实战场景；解析更详细" />
         </el-form-item>
         <el-form-item v-if="createMode === 'ai_knowledge'"><el-checkbox v-model="generateDescription">让 AI 生成题库描述</el-checkbox></el-form-item>
+        <el-form-item v-if="isExtend">
+          <el-checkbox v-model="inheritContext">继承题库 AI 上下文和历史生成摘要</el-checkbox>
+        </el-form-item>
       </template>
 
       <el-form-item label="上传文件">

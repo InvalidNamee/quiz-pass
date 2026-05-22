@@ -6,7 +6,7 @@ from app.db.session import get_db
 from app.domains.question_banks.import_export import QuestionBankImportExportService
 from app.domains.question_banks.queries import QuestionBankQueryService, list_tags_stmt
 from app.domains.question_banks.questions import QuestionService
-from app.domains.question_banks.schemas import QuestionBankV2Create, QuestionBankV2Out, QuestionBankV2Update
+from app.domains.question_banks.schemas import QuestionBankAIContextUpdate, QuestionBankV2Create, QuestionBankV2Out, QuestionBankV2Update
 from app.domains.question_banks.services import QuestionBankService
 from app.models.user import User
 from app.schemas.common import Page, page_response
@@ -116,6 +116,11 @@ def delete_question(question_id: int, current_user: User = Depends(get_current_u
 @router.patch("/banks/{bank_id}", response_model=QuestionBankV2Out)
 def update_bank(bank_id: int, payload: QuestionBankV2Update, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return QuestionBankService(db).update(bank_id, payload, current_user)
+
+
+@router.patch("/banks/{bank_id}/ai-context", response_model=QuestionBankV2Out)
+def update_bank_ai_context(bank_id: int, payload: QuestionBankAIContextUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return QuestionBankService(db).update_ai_context(bank_id, payload, current_user)
 
 
 @router.delete("/banks/{bank_id}")

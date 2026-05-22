@@ -22,6 +22,10 @@ export function updateBank(bankId: number, data: Record<string, unknown>) {
   return api<QuestionBankV2>(`/api/v2/banks/${bankId}`, { method: 'PATCH', body: JSON.stringify(data) })
 }
 
+export function updateBankAIContext(bankId: number, aiContext: string | null) {
+  return api<QuestionBankV2>(`/api/v2/banks/${bankId}/ai-context`, { method: 'PATCH', body: JSON.stringify({ ai_context: aiContext }) })
+}
+
 export function deleteBank(bankId: number) {
   return api(`/api/v2/banks/${bankId}`, { method: 'DELETE' })
 }
