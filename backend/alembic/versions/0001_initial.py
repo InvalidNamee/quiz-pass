@@ -241,6 +241,7 @@ def upgrade() -> None:
         sa.Column("generate_description", sa.String(length=8), nullable=False),
         sa.Column("extra_instruction", sa.Text(), nullable=True),
         sa.Column("inherit_context", sa.Boolean(), nullable=False, server_default=sa.text("0")),
+        sa.Column("include_existing_questions", sa.Boolean(), nullable=False, server_default=sa.text("0")),
         sa.Column("retry_of_workflow_id", sa.Integer(), nullable=True),
         sa.Column("ai_provider_config_id", sa.Integer(), nullable=True),
         sa.Column("ai_model_snapshot", sa.String(length=128), nullable=True),

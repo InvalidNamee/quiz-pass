@@ -785,10 +785,15 @@ def test_ai_generation_repair_draft_confirm_and_extend(monkeypatch):
         extend = client.post(
             f"/api/v2/banks/{bank['id']}/ai-workflows",
             headers=headers,
-            data={"generation_mode": "knowledge_generate", "question_count": "1", "extra_instruction": "避免重复"},
+            data={"generation_mode": "knowledge_generate", "question_count": "1", "extra_instruction": "避免重复", "include_existing_questions": "true"},
             files={"file": ("more.txt", b"more content", "text/plain")},
         )
         assert extend.status_code == 200
+        bank_during_extend = client.get(f"/api/v2/banks/{bank['id']}", headers=other_headers)
+        assert bank_during_extend.status_code == 200, bank_during_extend.text
+        assert bank_during_extend.json()["generation_status"] == "succeeded"
+        logs_during_extend = client.get(f"/api/v2/banks/{bank['id']}/ai-workflows", headers=other_headers)
+        assert logs_during_extend.status_code == 200, logs_during_extend.text
         extend_job = client.get(f"/api/v2/ai/workflows/{extend.json()['workflow_id']}", headers=headers).json()
         assert extend_job["status"] == "draft_ready"
         assert extend_job["draft_question_count"] == 1
@@ -797,6 +802,14 @@ def test_ai_generation_repair_draft_confirm_and_extend(monkeypatch):
         bank_after_extend = client.get(f"/api/v2/banks/{bank['id']}", headers=headers).json()
         assert bank_after_extend["question_count"] == 2
         assert bank_after_extend["visibility"] == "public"
+        public_logs = client.get(f"/api/v2/banks/{bank['id']}/ai-workflows", headers=other_headers)
+        assert public_logs.status_code == 200, public_logs.text
+        imported_log = next(item for item in public_logs.json()["items"] if item["id"] == extend_job["id"])
+        assert imported_log["question_delta"] == 1
+        assert imported_log["imported_question_count"] == 1
+        assert imported_log["source_text_snapshot"] is None
+        assert imported_log["extra_instruction"] is None
+        assert imported_log["error_message"] is None
 
         forbidden = client.post(
             f"/api/v2/banks/{bank['id']}/ai-workflows",
@@ -805,6 +818,48 @@ def test_ai_generation_repair_draft_confirm_and_extend(monkeypatch):
             files={"file": ("more.txt", b"more content", "text/plain")},
         )
         assert forbidden.status_code == 404
+
+
+def test_bank_workflow_logs_redact_failed_error_for_readers(monkeypatch):
+    with TestClient(app) as client:
+        headers = _register(client, "workflow-log-owner@example.com", "workflowlogowner")
+        reader_headers = _register(client, "workflow-log-reader@example.com", "workflowlogreader")
+        client.post(
+            "/api/v2/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Workflow Log", "visibility": "public"}).json()
+
+        from app.services import ai_generation
+
+        def bad_ai(*args, **kwargs):
+            return {"questions": []}
+
+        monkeypatch.setattr(ai_generation, "_call_openai_compatible", bad_ai)
+        created = client.post(
+            f"/api/v2/banks/{bank['id']}/ai-workflows",
+            headers=headers,
+            data={"question_count": "1", "extra_instruction": "sensitive extra instruction"},
+            files={"file": ("bad.txt", b"sensitive source text", "text/plain")},
+        )
+        assert created.status_code == 200, created.text
+        owner_workflow = client.get(f"/api/v2/ai/workflows/{created.json()['workflow_id']}", headers=headers).json()
+        assert owner_workflow["status"] == "failed"
+        assert owner_workflow["error_message"]
+
+        logs = client.get(f"/api/v2/banks/{bank['id']}/ai-workflows", headers=reader_headers)
+        assert logs.status_code == 200, logs.text
+        item = logs.json()["items"][0]
+        assert item["status"] == "failed"
+        assert item["error_summary"]
+        assert item["error_message"] is None
+        assert item["source_file_name"] is None
+        assert item["source_text_snapshot"] is None
+        assert item["extra_instruction"] is None
+        assert item["ai_provider_config_id"] is None
+        assert "sensitive source text" not in str(item)
+        assert "sensitive extra instruction" not in str(item)
 
 
 def test_delete_bank_cleans_generation_and_practice_records(monkeypatch):
@@ -1094,6 +1149,21 @@ def test_v2_ai_workflow_retry_failed_creates_new_workflow(monkeypatch):
         assert new_workflow["source_text_snapshot"] == "edited source"
         assert new_workflow["bank_title_snapshot"] == "Retry Bank 2"
         assert new_workflow["draft_question_count"] == 1
+        old_after_retry = client.get(f"/api/v2/ai/workflows/{failed_workflow['id']}", headers=headers).json()
+        assert old_after_retry["retried_by_workflow_id"] == new_workflow["id"]
+
+        second_retry = client.post(
+            f"/api/v2/ai/workflows/{failed_workflow['id']}/retry",
+            headers=headers,
+            data={"source_text": "another source", "question_count_mode": "fixed", "question_count": "1", "title": "Retry Bank 3"},
+        )
+        assert second_retry.status_code == 400
+        cancelled_old = client.post(
+            f"/api/v2/ai/workflows/{failed_workflow['id']}/cancel",
+            headers=headers,
+            data={"cancel_reason": "too late"},
+        )
+        assert cancelled_old.status_code == 400
 
 
 def test_v2_ai_workflow_extends_existing_bank(monkeypatch):
@@ -1170,7 +1240,7 @@ def test_v2_extend_workflow_inherit_context_toggle(monkeypatch):
             json={
                 "type": "single",
                 "stem": "已有题目摘要",
-                "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
+                "options": [{"label": "A", "content": "SECRET_OPTION", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
             },
         )
 
@@ -1209,7 +1279,69 @@ def test_v2_extend_workflow_inherit_context_toggle(monkeypatch):
         )
         assert with_context.status_code == 200, with_context.text
         assert "题库上下文：偏工程应用" in seen_texts[-1]
+        assert "已有题目摘要" not in seen_texts[-1]
+
+        with_questions = client.post(
+            f"/api/v2/banks/{bank['id']}/ai-workflows",
+            headers=headers,
+            data={"question_count": "1", "inherit_context": "false", "include_existing_questions": "true"},
+            files={"file": ("more.txt", b"fresh source", "text/plain")},
+        )
+        assert with_questions.status_code == 200, with_questions.text
+        assert "题库上下文：偏工程应用" not in seen_texts[-1]
         assert "已有题目摘要" in seen_texts[-1]
+        assert "[单选] 已有题目摘要" in seen_texts[-1]
+        assert "SECRET_OPTION" not in seen_texts[-1]
+        assert "最近成功 workflow" not in seen_texts[-1]
+
+
+def test_v2_extend_workflow_existing_question_context_truncates(monkeypatch):
+    with TestClient(app) as client:
+        headers = _register(client, "context-truncate@example.com", "contexttruncate")
+        client.post(
+            "/api/v2/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Large Context", "visibility": "private"}).json()
+        for index in range(4):
+            client.post(
+                f"/api/v2/banks/{bank['id']}/questions",
+                headers=headers,
+                json={
+                    "type": "single",
+                    "stem": f"长题干 {index} " + ("上下文" * 30),
+                    "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
+                },
+            )
+
+        from app.services import ai_generation
+        from app.domains.ai_generation import context as context_module
+
+        seen_texts = []
+
+        def good_ai(*args, **kwargs):
+            seen_texts.append(args[1])
+            return {
+                "questions": [
+                    {
+                        "type": "single",
+                        "stem": "Context truncated generated",
+                        "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
+                    }
+                ]
+            }
+
+        monkeypatch.setattr(context_module, "EXISTING_QUESTION_CONTEXT_CHAR_BUDGET", 90)
+        monkeypatch.setattr(ai_generation, "_call_openai_compatible", good_ai)
+        created = client.post(
+            f"/api/v2/banks/{bank['id']}/ai-workflows",
+            headers=headers,
+            data={"question_count": "1", "include_existing_questions": "true"},
+            files={"file": ("more.txt", b"fresh source", "text/plain")},
+        )
+        assert created.status_code == 200, created.text
+        assert "已有题目摘要因长度限制已截断" in seen_texts[-1]
 
 
 def test_bank_parse_mode_without_question_count_and_detailed_errors(monkeypatch):

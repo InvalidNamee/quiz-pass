@@ -19,11 +19,11 @@ class WorkflowStateService:
     def set_status(self, workflow: AIGenerationWorkflow, job: ImportJob, bank: QuestionBank, status: str) -> None:
         workflow.status = status
         job.status = status
-        if status in {"pending", "extracting_document", "calling_model", "validating", "repairing", "draft_ready"}:
+        if workflow.purpose == "create_bank" and status in {"pending", "extracting_document", "calling_model", "validating", "repairing", "draft_ready"}:
             bank.generation_status = "processing"
         elif status == "imported":
             bank.generation_status = "succeeded"
-        elif status in {"failed", "cancelled"}:
+        elif workflow.purpose == "create_bank" and status in {"failed", "cancelled"}:
             bank.generation_status = "failed"
         self.db.flush()
 
@@ -35,9 +35,11 @@ class WorkflowStateService:
         job.status = "failed"
         job.error_message = message
         job.finished_at = now_utc()
-        bank.generation_status = "failed"
         if workflow.purpose == "create_bank":
+            bank.generation_status = "failed"
             bank.visibility = "private"
+        else:
+            bank.generation_status = "succeeded" if bank.question_count > 0 else "none"
         self.record_step(workflow.id, "fail", "failed", error_message=message)
 
     def record_step(self, workflow_id: int, step_name: str, status: str, input_data=None, output_data=None, error_message: str | None = None) -> None:

@@ -156,6 +156,7 @@ class AIGenerationWorkflowService:
         generation_mode: str,
         extra_instruction: str | None,
         inherit_context: bool,
+        include_existing_questions: bool,
         file: UploadFile,
     ) -> AIGenerationWorkflowCreatedOut:
         bank = self.db.get(QuestionBank, bank_id)
@@ -183,6 +184,7 @@ class AIGenerationWorkflowService:
             generate_description="true" if generate_description else "false",
             extra_instruction=normalized_extra_instruction,
             inherit_context=inherit_context,
+            include_existing_questions=include_existing_questions,
             ai_provider_config_id=config.id,
             ai_base_url_snapshot=host,
             ai_model_snapshot=config.model,
@@ -203,7 +205,6 @@ class AIGenerationWorkflowService:
         )
         self.db.add(job)
         self.db.flush()
-        bank.generation_status = "processing"
         self.db.commit()
         background_tasks.add_task(run_generation_task, workflow.id, text, effective_count, generate_description, generation_mode, normalized_extra_instruction)
         return AIGenerationWorkflowCreatedOut(workflow_id=workflow.id, bank_id=bank.id, job_id=job.id)
@@ -220,6 +221,7 @@ class AIGenerationWorkflowService:
         generation_mode: str | None,
         extra_instruction: str | None,
         inherit_context: bool | None,
+        include_existing_questions: bool | None,
         source_text: str | None,
         title: str | None,
         description: str | None,
@@ -229,6 +231,8 @@ class AIGenerationWorkflowService:
         original = self.get_owned_workflow(workflow_id, user)
         if original.status != "failed":
             raise HTTPException(status_code=400, detail="只有失败的 workflow 可以重新生成")
+        if self.retried_by_workflow_id(original.id):
+            raise HTTPException(status_code=400, detail="该 workflow 已经重新生成，不能再次操作")
 
         old_bank = self.db.get(QuestionBank, original.bank_id) if original.bank_id else None
         if original.purpose == "extend_bank" and not QuestionBankPermissionService.can_extend_with_ai(old_bank, user):
@@ -240,6 +244,7 @@ class AIGenerationWorkflowService:
         next_generate_description = bool(generate_description) if generate_description is not None else original.generate_description == "true"
         next_extra_instruction = extra_instruction if extra_instruction is not None else original.extra_instruction
         next_inherit_context = bool(inherit_context) if inherit_context is not None else bool(original.inherit_context)
+        next_include_existing_questions = bool(include_existing_questions) if include_existing_questions is not None else bool(original.include_existing_questions)
         effective_count, normalized_extra_instruction = self._normalize_generation_inputs(next_count_mode, next_count, next_mode, next_extra_instruction)
         config = self.pick_ai_config(user.id, ai_provider_config_id or original.ai_provider_config_id)
 
@@ -294,6 +299,7 @@ class AIGenerationWorkflowService:
             generate_description="true" if next_generate_description else "false",
             extra_instruction=normalized_extra_instruction,
             inherit_context=next_inherit_context,
+            include_existing_questions=next_include_existing_questions,
             retry_of_workflow_id=original.id,
             ai_provider_config_id=config.id,
             ai_base_url_snapshot=host,
@@ -327,16 +333,26 @@ class AIGenerationWorkflowService:
             stmt = stmt.where(AIGenerationWorkflow.bank_id == bank_id)
         return stmt.order_by(AIGenerationWorkflow.created_at.desc())
 
+    def workflows_for_readable_bank_stmt(self, bank_id: int, user: User, status: str | None = None):
+        bank = self.db.get(QuestionBank, bank_id)
+        if not QuestionBankPermissionService.can_read(bank, user):
+            raise HTTPException(status_code=404, detail="Question bank not found")
+        stmt = select(AIGenerationWorkflow).where(AIGenerationWorkflow.bank_id == bank_id)
+        if status:
+            stmt = stmt.where(AIGenerationWorkflow.status == status)
+        return stmt.order_by(AIGenerationWorkflow.created_at.desc(), AIGenerationWorkflow.id.desc())
+
     def get_owned_workflow(self, workflow_id: int, user: User) -> AIGenerationWorkflow:
         workflow = self.db.get(AIGenerationWorkflow, workflow_id)
         if not workflow or workflow.user_id != user.id:
             raise HTTPException(status_code=404, detail="Workflow not found")
         return workflow
 
-    def workflow_out(self, workflow: AIGenerationWorkflow) -> AIGenerationWorkflowOut:
+    def workflow_out(self, workflow: AIGenerationWorkflow, *, redact_sensitive: bool = False) -> AIGenerationWorkflowOut:
         out = AIGenerationWorkflowOut.model_validate(workflow, from_attributes=True)
         out.workflow_id = workflow.id
         out.workflow_status = workflow.status
+        out.retried_by_workflow_id = self.retried_by_workflow_id(workflow.id)
         job = self.db.scalar(select(ImportJob).where(ImportJob.workflow_id == workflow.id))
         if job:
             out.job_id = job.id
@@ -345,7 +361,39 @@ class AIGenerationWorkflowService:
         if draft:
             out.draft_question_count = self.db.scalar(select(func.count()).select_from(AIGenerationDraftQuestion).where(AIGenerationDraftQuestion.draft_id == draft.id)) or 0
             out.can_confirm = workflow.status == "draft_ready"
+        out.imported_question_count = self.imported_question_count(workflow.id)
+        out.question_delta = out.imported_question_count
+        out.error_summary = self.error_summary(workflow.error_message)
+        if redact_sensitive:
+            out.source_file_name = None
+            out.source_text_snapshot = None
+            out.extra_instruction = None
+            out.error_message = None
+            out.ai_provider_config_id = None
+            out.can_confirm = False
         return out
+
+    def imported_question_count(self, workflow_id: int) -> int:
+        step = self.db.scalar(
+            select(AIGenerationWorkflowStep)
+            .where(AIGenerationWorkflowStep.workflow_id == workflow_id, AIGenerationWorkflowStep.step_name == "confirm_draft", AIGenerationWorkflowStep.status == "succeeded")
+            .order_by(AIGenerationWorkflowStep.id.desc())
+        )
+        if not step or not step.output_json:
+            return 0
+        try:
+            data = json.loads(step.output_json)
+        except json.JSONDecodeError:
+            return 0
+        value = data.get("question_count")
+        return value if isinstance(value, int) and value > 0 else 0
+
+    @staticmethod
+    def error_summary(message: str | None) -> str | None:
+        if not message:
+            return None
+        compact = " ".join(line.strip() for line in message.splitlines() if line.strip())
+        return compact[:160] + ("..." if len(compact) > 160 else "")
 
     def workflow_steps(self, workflow_id: int, user: User) -> list[AIGenerationWorkflowStepOut]:
         workflow = self.get_owned_workflow(workflow_id, user)
@@ -401,6 +449,8 @@ class AIGenerationWorkflowService:
         workflow = self.get_owned_workflow(workflow_id, user)
         if workflow.status not in {"draft_ready", "failed"}:
             raise HTTPException(status_code=400, detail="当前 workflow 状态不允许撤销")
+        if self.retried_by_workflow_id(workflow.id):
+            raise HTTPException(status_code=400, detail="该 workflow 已经重新生成，不能再次操作")
         draft = self.db.scalar(select(AIGenerationDraft).where(AIGenerationDraft.workflow_id == workflow.id, AIGenerationDraft.status == "ready"))
         if draft:
             draft.status = "discarded"
@@ -425,6 +475,14 @@ class AIGenerationWorkflowService:
             bank.generation_status = "none" if bank.question_count == 0 else "succeeded"
         self.db.commit()
         return {"ok": True}
+
+    def retried_by_workflow_id(self, workflow_id: int) -> int | None:
+        return self.db.scalar(
+            select(AIGenerationWorkflow.id)
+            .where(AIGenerationWorkflow.retry_of_workflow_id == workflow_id)
+            .order_by(AIGenerationWorkflow.id.asc())
+            .limit(1)
+        )
 
     @staticmethod
     def _normalize_generation_inputs(question_count_mode: str, question_count: int | None, generation_mode: str, extra_instruction: str | None) -> tuple[int | None, str | None]:

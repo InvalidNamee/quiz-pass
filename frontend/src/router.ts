@@ -9,6 +9,7 @@ import DashboardPage from './pages/DashboardPage.vue'
 import BanksPage from './pages/BanksPage.vue'
 import PublicBanksPage from './pages/PublicBanksPage.vue'
 import BankDetailPage from './pages/BankDetailPage.vue'
+import BankWorkflowsPage from './pages/BankWorkflowsPage.vue'
 import GeneratePage from './pages/GeneratePage.vue'
 import GenerationJobsPage from './pages/GenerationJobsPage.vue'
 import GenerationDraftPage from './pages/GenerationDraftPage.vue'
@@ -44,6 +45,7 @@ export const router = createRouter({
     { path: '/banks/generation-jobs', component: GenerationJobsPage, meta: { auth: true } },
     { path: '/ai-generation/workflows/:workflowId/draft', component: GenerationDraftPage, meta: { auth: true } },
     { path: '/banks/:bankId', component: BankDetailPage, meta: { auth: true } },
+    { path: '/banks/:bankId/workflows', component: BankWorkflowsPage, meta: { auth: true } },
     { path: '/banks/:bankId/questions', component: QuestionsPage, meta: { auth: true } },
     { path: '/banks/:bankId/mistakes', component: MistakesPage, meta: { auth: true } },
     { path: '/banks/:bankId/practice/setup', component: PracticeSetupPage, meta: { auth: true } },

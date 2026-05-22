@@ -60,6 +60,7 @@ async def create_extend_workflow(
     generation_mode: str = Form("knowledge_generate"),
     extra_instruction: str | None = Form(None),
     inherit_context: bool = Form(True),
+    include_existing_questions: bool = Form(False),
     file: UploadFile = File(...),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -75,6 +76,7 @@ async def create_extend_workflow(
         generation_mode,
         extra_instruction,
         inherit_context,
+        include_existing_questions,
         file,
     )
 
@@ -84,6 +86,13 @@ def list_workflows(page: int = 1, page_size: int = 20, status: str | None = None
     service = AIGenerationWorkflowService(db)
     items, total, page, page_size = paginate(db, service.workflows_for_user_stmt(current_user, status, bank_id), page, page_size)
     return page_response([service.workflow_out(item) for item in items], total, page, page_size)
+
+
+@router.get("/banks/{bank_id}/ai-workflows", response_model=Page[AIGenerationWorkflowOut])
+def list_bank_workflows(bank_id: int, page: int = 1, page_size: int = 20, status: str | None = None, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    service = AIGenerationWorkflowService(db)
+    items, total, page, page_size = paginate(db, service.workflows_for_readable_bank_stmt(bank_id, current_user, status), page, page_size)
+    return page_response([service.workflow_out(item, redact_sensitive=True) for item in items], total, page, page_size)
 
 
 @router.get("/ai/workflows/{workflow_id}", response_model=AIGenerationWorkflowOut)
@@ -133,6 +142,7 @@ async def retry_workflow(
     generation_mode: str | None = Form(None),
     extra_instruction: str | None = Form(None),
     inherit_context: bool | None = Form(None),
+    include_existing_questions: bool | None = Form(None),
     source_text: str | None = Form(None),
     title: str | None = Form(None),
     description: str | None = Form(None),
@@ -152,6 +162,7 @@ async def retry_workflow(
         generation_mode,
         extra_instruction,
         inherit_context,
+        include_existing_questions,
         source_text,
         title,
         description,

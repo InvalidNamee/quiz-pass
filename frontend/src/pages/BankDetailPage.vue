@@ -199,6 +199,7 @@ onBeforeUnmount(stopPolling)
           <el-button v-if="bank.permissions.can_practice" type="primary" @click="practiceDialogVisible = true">开始练习</el-button>
           <RouterLink v-if="bank.permissions.can_view_mistakes" :to="`/banks/${bank.id}/mistakes`"><el-button>我的错题</el-button></RouterLink>
           <el-button v-if="bank.permissions.can_export" :loading="exporting" @click="exportJson">导出题库</el-button>
+          <RouterLink :to="`/banks/${bank.id}/workflows`"><el-button>工作流日志</el-button></RouterLink>
           <RouterLink v-if="canManage" :to="`/banks/${bank.id}/questions`"><el-button>题目管理</el-button></RouterLink>
           <el-button v-if="canManage" @click="generateDialogVisible = true">扩展题库</el-button>
           <RouterLink

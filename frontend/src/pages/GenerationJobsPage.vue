@@ -5,6 +5,7 @@ import { useRoute, useRouter } from 'vue-router'
 import type { AIProviderConfig, Page } from '../api/types'
 import { cancelWorkflow, listWorkflows, retryWorkflow, type WorkflowListItem } from '../api/v2/aiGeneration'
 import { listAIConfigs } from '../api/v2/users'
+import WorkflowTable from '../components/WorkflowTable.vue'
 import { useToast } from '../composables/useToast'
 import { isUnstableWorkflowStatus } from '../utils/generationStatus'
 
@@ -28,6 +29,7 @@ const retryForm = ref({
   generateDescription: false,
   extraInstruction: '',
   inheritContext: true,
+  includeExistingQuestions: false,
   sourceText: '',
   title: '',
   desiredVisibility: 'private',
@@ -77,46 +79,6 @@ function applyFilters(page = 1) {
   router.push({ query })
 }
 
-function statusBadge(value: string): 'default' | 'success' | 'warning' | 'danger' | 'info' {
-  const map: Record<string, 'default' | 'success' | 'warning' | 'danger' | 'info'> = {
-    pending: 'default',
-    processing: 'info',
-    extracting_document: 'info',
-    calling_model: 'info',
-    validating: 'info',
-    repairing: 'warning',
-    draft_ready: 'warning',
-    imported: 'success',
-    succeeded: 'success',
-    failed: 'danger',
-    cancelled: 'default',
-  }
-  return map[value] || 'default'
-}
-
-function statusText(value: string) {
-  const map: Record<string, string> = {
-    pending: '等待生成',
-    processing: '生成中',
-    extracting_document: '提取文档',
-    calling_model: '调用模型',
-    validating: '校验中',
-    repairing: '自动修复',
-    draft_ready: '草稿待确认',
-    imported: '已入库',
-    succeeded: '生成成功',
-    failed: '生成失败',
-    cancelled: '已取消',
-  }
-  return map[value] || value
-}
-
-function typeText(item: WorkflowListItem) {
-  const mode = item.generation_mode === 'bank_parse' ? '题库解析' : '知识库生成'
-  const purpose = item.purpose === 'extend_bank' ? '扩展题库' : '新建题库'
-  return `${purpose} · ${mode}`
-}
-
 function configLabel(config: AIProviderConfig) {
   return config.name ? `${config.name} · ${config.model}` : config.model
 }
@@ -132,6 +94,7 @@ async function openRetry(row: WorkflowListItem) {
     generateDescription: row.generate_description === 'true',
     extraInstruction: row.extra_instruction || '',
     inheritContext: row.inherit_context,
+    includeExistingQuestions: row.include_existing_questions,
     sourceText: row.source_text_snapshot || '',
     title: row.bank_title_snapshot || '重新生成题库',
     desiredVisibility: 'private',
@@ -164,6 +127,7 @@ async function submitRetry() {
     form.set('generate_description', String(retryForm.value.generateDescription))
     form.set('extra_instruction', retryForm.value.extraInstruction)
     form.set('inherit_context', String(retryTarget.value.purpose === 'extend_bank' ? retryForm.value.inheritContext : false))
+    form.set('include_existing_questions', String(retryTarget.value.purpose === 'extend_bank' ? retryForm.value.includeExistingQuestions : false))
     if (retryTarget.value.purpose === 'create_bank') {
       form.set('title', retryForm.value.title || '重新生成题库')
       form.set('desired_visibility', retryForm.value.desiredVisibility)
@@ -221,62 +185,21 @@ onBeforeUnmount(stopPolling)
       </div>
     </div>
 
-    <el-table v-loading="loading" :data="jobs" size="small" empty-text="暂无生成任务">
-      <el-table-column label="#" width="70">
-        <template #default="{ row }">
-          <span class="font-medium">#{{ row.id }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="类型" min-width="140">
-        <template #default="{ row }">
-          <el-tag>{{ typeText(row) }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="状态" width="120">
-        <template #default="{ row }">
-          <el-tag v-if="statusBadge(row.status) === 'default'">{{ statusText(row.status) }}</el-tag>
-          <el-tag v-else :type="statusBadge(row.status)">{{ statusText(row.status) }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="源文件" min-width="140">
-        <template #default="{ row }">
-          <span class="text-xs">{{ row.source_file_name || '未记录' }}</span>
-        </template>
-      </el-table-column>
-      <el-table-column label="详情" width="180">
-        <template #default="{ row }">
-          <div class="flex flex-wrap gap-x-2 gap-y-0.5">
-            <span v-if="row.draft_question_count" class="text-xs text-slate-400">{{ row.draft_question_count }} 题</span>
-            <span v-if="row.repair_attempts" class="text-xs text-slate-400">修复{{ row.repair_attempts }}次</span>
-            <span v-if="row.ai_model_snapshot" class="text-xs text-slate-400">{{ row.ai_model_snapshot }}</span>
-          </div>
-        </template>
-      </el-table-column>
-      <el-table-column label="错误信息" min-width="180" show-overflow-tooltip>
-        <template #default="{ row }">
-          <el-popover v-if="row.error_message" placement="top" width="520" trigger="click">
-            <pre class="max-h-72 overflow-auto whitespace-pre-wrap text-xs text-red-700">{{ row.error_message }}</pre>
-            <template #reference>
-              <el-button link type="danger" size="small">查看错误</el-button>
-            </template>
-          </el-popover>
-        </template>
-      </el-table-column>
-      <el-table-column label="操作" width="260" fixed="right">
-        <template #default="{ row }">
+    <WorkflowTable :workflows="jobs" :loading="loading" show-actions show-sensitive-error>
+      <template #actions="{ row }">
           <div class="flex flex-wrap gap-1">
             <RouterLink v-if="row.can_confirm" :to="`/ai-generation/workflows/${row.id}/draft`">
               <el-button size="small" type="primary">确认草稿</el-button>
             </RouterLink>
-            <el-button v-if="row.status === 'failed'" size="small" @click="openRetry(row)">重新生成</el-button>
-            <el-button v-if="row.status === 'failed' || row.status === 'draft_ready'" size="small" type="danger" plain @click="cancelRow(row)">撤销</el-button>
+            <el-tag v-if="row.status === 'failed' && row.retried_by_workflow_id" type="info">已重新生成 #{{ row.retried_by_workflow_id }}</el-tag>
+            <el-button v-if="row.status === 'failed' && !row.retried_by_workflow_id" size="small" @click="openRetry(row)">重新生成</el-button>
+            <el-button v-if="(row.status === 'failed' || row.status === 'draft_ready') && !row.retried_by_workflow_id" size="small" type="danger" plain @click="cancelRow(row)">撤销</el-button>
             <RouterLink v-if="row.bank_id" :to="`/banks/${row.bank_id}`">
               <el-button size="small">查看题库</el-button>
             </RouterLink>
           </div>
-        </template>
-      </el-table-column>
-    </el-table>
+      </template>
+    </WorkflowTable>
 
     <el-pagination
       v-if="pageInfo"
@@ -322,7 +245,10 @@ onBeforeUnmount(stopPolling)
           </el-form-item>
         </div>
         <el-form-item v-if="retryTarget?.purpose === 'extend_bank'">
-          <el-checkbox v-model="retryForm.inheritContext">继承题库 AI 上下文和历史生成摘要</el-checkbox>
+          <el-checkbox v-model="retryForm.inheritContext">使用题库 AI 描述</el-checkbox>
+        </el-form-item>
+        <el-form-item v-if="retryTarget?.purpose === 'extend_bank'">
+          <el-checkbox v-model="retryForm.includeExistingQuestions">附带已有题目题干给 AI</el-checkbox>
         </el-form-item>
         <el-form-item v-if="retryForm.generationMode === 'knowledge_generate'">
           <el-checkbox v-model="retryForm.generateDescription">让 AI 生成题库描述</el-checkbox>

@@ -22,6 +22,7 @@ class AIGenerationWorkflow(Base):
     generate_description: Mapped[str] = mapped_column(String(8), default="false")
     extra_instruction: Mapped[str | None] = mapped_column(Text, nullable=True)
     inherit_context: Mapped[bool] = mapped_column(default=False)
+    include_existing_questions: Mapped[bool] = mapped_column(default=False)
     retry_of_workflow_id: Mapped[int | None] = mapped_column(ForeignKey("ai_generation_workflows.id", ondelete="SET NULL"), nullable=True, index=True)
     ai_provider_config_id: Mapped[int | None] = mapped_column(ForeignKey("user_ai_provider_configs.id", ondelete="SET NULL"), nullable=True)
     ai_model_snapshot: Mapped[str | None] = mapped_column(String(128), nullable=True)

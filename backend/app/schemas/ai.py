@@ -98,13 +98,18 @@ class AIGenerationWorkflowOut(BaseModel):
     extra_instruction: str | None
     ai_provider_config_id: int | None = None
     inherit_context: bool = False
+    include_existing_questions: bool = False
     retry_of_workflow_id: int | None = None
+    retried_by_workflow_id: int | None = None
     ai_model_snapshot: str | None
     ai_base_url_snapshot: str | None
     repair_attempts: int
     error_message: str | None
+    error_summary: str | None = None
     cancel_reason: str | None = None
     draft_question_count: int = 0
+    imported_question_count: int = 0
+    question_delta: int = 0
     can_confirm: bool = False
     finished_at: datetime | None
     created_at: datetime

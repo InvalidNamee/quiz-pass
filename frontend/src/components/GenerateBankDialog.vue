@@ -30,6 +30,7 @@ const questionCount = ref(10)
 const generateDescription = ref(false)
 const extraInstruction = ref('')
 const inheritContext = ref(true)
+const includeExistingQuestions = ref(false)
 const selectedTags = ref<TagInputValue[]>([])
 const file = ref<File | null>(null)
 const configs = ref<AIProviderConfig[]>([])
@@ -57,6 +58,7 @@ function reset() {
   description.value = ''
   extraInstruction.value = ''
   inheritContext.value = true
+  includeExistingQuestions.value = false
   selectedTags.value = []
   file.value = null
 }
@@ -162,6 +164,7 @@ async function submit() {
       }
       if (extraInstruction.value.trim()) form.set('extra_instruction', extraInstruction.value.trim())
       form.set('inherit_context', String(isExtend.value ? inheritContext.value : false))
+      form.set('include_existing_questions', String(isExtend.value ? includeExistingQuestions.value : false))
       form.set('generate_description', String(generateDescription.value))
       const data = isExtend.value && props.extendBankId
         ? await extendWorkflow(props.extendBankId, form)
@@ -230,7 +233,10 @@ watch(() => props.modelValue, (open) => { if (open) load() }, { immediate: true 
         </el-form-item>
         <el-form-item v-if="createMode === 'ai_knowledge'"><el-checkbox v-model="generateDescription">让 AI 生成题库描述</el-checkbox></el-form-item>
         <el-form-item v-if="isExtend">
-          <el-checkbox v-model="inheritContext">继承题库 AI 上下文和历史生成摘要</el-checkbox>
+          <el-checkbox v-model="inheritContext">使用题库 AI 描述</el-checkbox>
+        </el-form-item>
+        <el-form-item v-if="isExtend">
+          <el-checkbox v-model="includeExistingQuestions">附带已有题目题干给 AI</el-checkbox>
         </el-form-item>
       </template>
 
