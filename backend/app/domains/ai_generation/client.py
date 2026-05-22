@@ -9,6 +9,56 @@ from app.models.ai_provider_config import UserAIProviderConfig
 from app.utils.crypto import decrypt_secret
 
 
+AI_RESPONSE_JSON_SCHEMA = {
+    "type": "object",
+    "additionalProperties": False,
+    "properties": {
+        "bank_description": {"type": ["string", "null"]},
+        "questions": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "type": {"type": "string", "enum": ["single", "multiple"]},
+                    "stem": {"type": "string"},
+                    "explanation": {"type": ["string", "null"]},
+                    "difficulty": {"type": ["string", "null"]},
+                    "options": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "label": {"type": "string"},
+                                "content": {"type": "string"},
+                                "is_correct": {"type": "boolean"},
+                            },
+                            "required": ["label", "content", "is_correct"],
+                        },
+                    },
+                },
+                "required": ["type", "stem", "explanation", "difficulty", "options"],
+            },
+        },
+    },
+    "required": ["bank_description", "questions"],
+}
+
+
+def build_response_format(config: UserAIProviderConfig) -> dict:
+    if config.response_format_type == "json_schema":
+        return {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "quiz_pass_question_bank",
+                "strict": True,
+                "schema": AI_RESPONSE_JSON_SCHEMA,
+            },
+        }
+    return {"type": "json_object"}
+
+
 class OpenAICompatibleClient:
     def generate_json(
         self,
@@ -35,7 +85,7 @@ class OpenAICompatibleClient:
                 },
             ],
             temperature=0.2,
-            response_format={"type": "json_object"},
+            response_format=build_response_format(config),
         )
         content = response.choices[0].message.content or ""
         return extract_json(content)

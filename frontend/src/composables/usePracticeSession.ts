@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 import { getSession, getSessionQuestions, answerQuestion, submitSession } from '../api/v2/practice'
 import type { PracticeSession } from '../api/types'
+import { useToast } from './useToast'
 
 type PracticeQuestion = {
   id: number
@@ -27,6 +28,7 @@ type AnswerResult = {
 }
 
 export function usePracticeSession(sessionId: number) {
+  const toast = useToast()
   const session = ref<PracticeSession | null>(null)
   const questions = ref<PracticeQuestion[]>([])
   const currentIndex = ref(0)
@@ -40,7 +42,7 @@ export function usePracticeSession(sessionId: number) {
   const totalQuestions = computed(() => questions.value.length)
 
   function isLocked(questionId: number) {
-    return Boolean(answered.value[questionId])
+    return session.value?.mode !== 'exam' && Boolean(answered.value[questionId])
   }
 
   function shouldReveal(questionId: number) {
@@ -117,10 +119,16 @@ export function usePracticeSession(sessionId: number) {
   async function submitAnswer() {
     const q = currentQuestion.value
     if (!q || isLocked(q.id)) return
-    const result = await answerQuestion(sessionId, q.id, selected.value[q.id] ?? [])
-    answered.value[q.id] = true
-    if (result.reveal && result.is_correct !== null) answerStatus.value[q.id] = result.is_correct ? 'correct' : 'wrong'
-    answerResults.value[q.id] = result
+    try {
+      const result = await answerQuestion(sessionId, q.id, selected.value[q.id] ?? [])
+      answered.value[q.id] = true
+      if (result.reveal && result.is_correct !== null) answerStatus.value[q.id] = result.is_correct ? 'correct' : 'wrong'
+      answerResults.value[q.id] = result
+      toast.show(session.value?.mode === 'exam' ? '答案已保存' : '答案已同步', 'success')
+    } catch (error) {
+      toast.show(error instanceof Error ? error.message : '答案同步失败', 'error')
+      throw error
+    }
   }
 
   async function submitAll() {

@@ -188,7 +188,8 @@ class PracticeSessionService:
 
         existing = self.db.scalar(select(PracticeAnswer).where(PracticeAnswer.session_id == session.id, PracticeAnswer.question_id == payload.question_id))
         if existing:
-            raise HTTPException(status_code=400, detail="这道题已经作答，不能重复修改")
+            if session.mode != "exam" or session.status == "submitted":
+                raise HTTPException(status_code=400, detail="这道题已经作答，不能重复修改")
 
         options = self.db.scalars(select(QuestionOption).where(QuestionOption.question_id == payload.question_id).order_by(QuestionOption.sort_order)).all()
         option_ids = {option.id for option in options}
@@ -196,7 +197,12 @@ class PracticeSessionService:
             raise HTTPException(status_code=400, detail="选项不属于当前题目")
         correct_ids = [option.id for option in options if option.is_correct]
         is_correct = set(payload.selected_option_ids) == set(correct_ids)
-        self.db.add(PracticeAnswer(session_id=session.id, question_id=payload.question_id, selected_option_ids=payload.selected_option_ids, is_correct=is_correct))
+        if existing:
+            existing.selected_option_ids = payload.selected_option_ids
+            existing.is_correct = is_correct
+            existing.answered_at = datetime.now(UTC)
+        else:
+            self.db.add(PracticeAnswer(session_id=session.id, question_id=payload.question_id, selected_option_ids=payload.selected_option_ids, is_correct=is_correct))
         if not is_correct and session.mode != "exam":
             self.mistakes.record_wrong_answer(user.id, session.bank_id, payload.question_id)
         self.db.commit()

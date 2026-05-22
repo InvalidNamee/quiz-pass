@@ -23,7 +23,7 @@ export function listAIConfigs() {
   return api<AIProviderConfig[]>('/api/v2/users/me/ai-provider-configs')
 }
 
-export function createAIConfig(data: { name: string; api_base_url: string; api_key: string; model: string; is_default: boolean }) {
+export function createAIConfig(data: { name: string; api_base_url: string; api_key: string; model: string; response_format_type: 'json_object' | 'json_schema'; is_default: boolean }) {
   return api<AIProviderConfig>('/api/v2/users/me/ai-provider-configs', { method: 'POST', body: JSON.stringify(data) })
 }
 

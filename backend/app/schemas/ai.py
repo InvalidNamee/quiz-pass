@@ -8,6 +8,7 @@ class AIProviderConfigCreate(BaseModel):
     api_base_url: str = Field(min_length=1, max_length=512)
     api_key: str = Field(min_length=1, max_length=2048)
     model: str = Field(min_length=1, max_length=128)
+    response_format_type: str = Field(default="json_object", pattern="^(json_object|json_schema)$")
     is_default: bool = False
 
 
@@ -16,6 +17,7 @@ class AIProviderConfigUpdate(BaseModel):
     api_base_url: str | None = Field(default=None, min_length=1, max_length=512)
     api_key: str | None = Field(default=None, min_length=1, max_length=2048)
     model: str | None = Field(default=None, min_length=1, max_length=128)
+    response_format_type: str | None = Field(default=None, pattern="^(json_object|json_schema)$")
     is_default: bool | None = None
     is_active: bool | None = None
 
@@ -27,6 +29,7 @@ class AIProviderConfigOut(BaseModel):
     name: str
     api_base_url: str
     model: str
+    response_format_type: str
     is_default: bool
     is_active: bool
     has_api_key: bool = True

@@ -454,12 +454,23 @@ def test_register_validation_and_exam_hides_answer_until_submit():
         state = client.get(f"/api/v2/practice/sessions/{session['id']}/questions", headers=headers).json()[0]["answer_state"]
         assert state["is_answered"] is True
         assert state["reveal"] is False
+        changed = client.post(
+            f"/api/v2/practice/sessions/{session['id']}/answers",
+            headers=headers,
+            json={"question_id": question["id"], "selected_option_ids": [question["options"][1]["id"]]},
+        )
+        assert changed.status_code == 200
+        assert changed.json()["reveal"] is False
+        state = client.get(f"/api/v2/practice/sessions/{session['id']}/questions", headers=headers).json()[0]["answer_state"]
+        assert state["selected_option_ids"] == [question["options"][1]["id"]]
         client.post(f"/api/v2/practice/sessions/{session['id']}/submit", headers=headers)
         revealed = client.get(f"/api/v2/practice/sessions/{session['id']}/questions", headers=headers).json()[0]["answer_state"]
         assert revealed["reveal"] is True
+        assert revealed["is_correct"] is True
         assert revealed["correct_labels"] == ["B"]
         result = client.get(f"/api/v2/practice/sessions/{session['id']}/result", headers=headers).json()[0]
         assert result["correct_labels"] == ["B"]
+        assert result["selected_labels"] == ["B"]
         assert result["explanation"] == "basic arithmetic"
 
 
@@ -469,13 +480,22 @@ def test_ai_config_api_key_cannot_be_updated_and_list_has_only_real_configs():
         created = client.post(
             "/api/v2/users/me/ai-provider-configs",
             headers=headers,
-            json={"name": "", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+            json={"name": "", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True, "response_format_type": "json_schema"},
         )
         assert created.status_code == 200
+        assert created.json()["response_format_type"] == "json_schema"
         configs = client.get("/api/v2/users/me/ai-provider-configs", headers=headers).json()
         assert len(configs) == 1
         assert configs[0]["name"] == ""
+        assert configs[0]["response_format_type"] == "json_schema"
         assert configs[0]["has_api_key"] is True
+        updated = client.patch(
+            f"/api/v2/users/me/ai-provider-configs/{created.json()['id']}",
+            headers=headers,
+            json={"response_format_type": "json_object"},
+        )
+        assert updated.status_code == 200
+        assert updated.json()["response_format_type"] == "json_object"
         blocked = client.patch(
             f"/api/v2/users/me/ai-provider-configs/{created.json()['id']}",
             headers=headers,

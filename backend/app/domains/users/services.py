@@ -276,6 +276,7 @@ class AIProviderService:
             api_base_url=payload.api_base_url,
             api_key_encrypted=encrypt_secret(payload.api_key),
             model=payload.model,
+            response_format_type=payload.response_format_type,
             is_default=payload.is_default,
         )
         self.db.add(config)
@@ -290,7 +291,7 @@ class AIProviderService:
             raise HTTPException(status_code=400, detail="API Key 保存后不可修改，请删除配置后重新创建")
         if updates.get("is_default"):
             self.clear_default(user.id)
-        for field in ("name", "api_base_url", "model", "is_default", "is_active"):
+        for field in ("name", "api_base_url", "model", "response_format_type", "is_default", "is_active"):
             if field in updates:
                 setattr(config, field, updates[field])
         self.db.commit()

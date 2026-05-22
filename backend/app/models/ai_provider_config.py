@@ -15,6 +15,7 @@ class UserAIProviderConfig(Base):
     api_base_url: Mapped[str] = mapped_column(String(512))
     api_key_encrypted: Mapped[str] = mapped_column(String(2048))
     model: Mapped[str] = mapped_column(String(128))
+    response_format_type: Mapped[str] = mapped_column(String(32), default="json_object")
     is_default: Mapped[bool] = mapped_column(Boolean, default=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

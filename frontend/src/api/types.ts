@@ -58,6 +58,7 @@ export type AIProviderConfig = {
   name: string
   api_base_url: string
   model: string
+  response_format_type: 'json_object' | 'json_schema'
   is_default: boolean
   is_active: boolean
   has_api_key: boolean

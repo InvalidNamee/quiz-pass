@@ -14,7 +14,14 @@ import { useToast } from '../composables/useToast'
 const configs = ref<AIProviderConfig[]>([])
 const formVisible = ref(false)
 const editingId = ref<number | null>(null)
-const form = ref({ name: '', api_base_url: '', api_key: '', model: '', is_default: false })
+const form = ref<{ name: string; api_base_url: string; api_key: string; model: string; response_format_type: 'json_object' | 'json_schema'; is_default: boolean }>({
+  name: '',
+  api_base_url: '',
+  api_key: '',
+  model: '',
+  response_format_type: 'json_object',
+  is_default: false,
+})
 const testingId = ref<number | null>(null)
 const deleteTarget = ref<AIProviderConfig | null>(null)
 const toast = useToast()
@@ -22,14 +29,14 @@ const toast = useToast()
 async function load() { configs.value = await listAIConfigs() }
 
 function openAdd() {
-  editingId.value = null; form.value = { name: '', api_base_url: '', api_key: '', model: '', is_default: false }; formVisible.value = true
+  editingId.value = null; form.value = { name: '', api_base_url: '', api_key: '', model: '', response_format_type: 'json_object', is_default: false }; formVisible.value = true
 }
 function openEdit(item: AIProviderConfig) {
-  editingId.value = item.id; form.value = { name: item.name, api_base_url: item.api_base_url, api_key: '', model: item.model, is_default: item.is_default }; formVisible.value = true
+  editingId.value = item.id; form.value = { name: item.name, api_base_url: item.api_base_url, api_key: '', model: item.model, response_format_type: item.response_format_type, is_default: item.is_default }; formVisible.value = true
 }
 async function handleSave() {
   try {
-    if (editingId.value) { await updateAIConfig(editingId.value, { name: form.value.name, api_base_url: form.value.api_base_url, model: form.value.model, is_default: form.value.is_default }); toast.show('已更新', 'success') }
+    if (editingId.value) { await updateAIConfig(editingId.value, { name: form.value.name, api_base_url: form.value.api_base_url, model: form.value.model, response_format_type: form.value.response_format_type, is_default: form.value.is_default }); toast.show('已更新', 'success') }
     else { await createAIConfig({ ...form.value }); toast.show('已添加', 'success') }
     formVisible.value = false; await load()
   } catch (err) { toast.show(err instanceof Error ? err.message : '保存失败', 'error') }
@@ -80,6 +87,13 @@ onMounted(load)
         </template>
       </el-table-column>
       <el-table-column label="模型" prop="model" min-width="160" />
+      <el-table-column label="JSON 限制" min-width="120">
+        <template #default="{ row }">
+          <el-tag size="small" :type="row.response_format_type === 'json_schema' ? 'success' : 'info'">
+            {{ row.response_format_type === 'json_schema' ? '强约束' : '弱约束' }}
+          </el-tag>
+        </template>
+      </el-table-column>
       <el-table-column label="API 地址" prop="api_base_url" min-width="200" show-overflow-tooltip />
       <el-table-column label="操作" width="280">
         <template #default="{ row }">
@@ -96,6 +110,13 @@ onMounted(load)
         <el-form-item label="配置名称"><el-input v-model="form.name" placeholder="起个名字" /></el-form-item>
         <el-form-item label="接口地址"><el-input v-model="form.api_base_url" placeholder="https://api.openai.com/v1" /></el-form-item>
         <el-form-item label="模型"><el-input v-model="form.model" placeholder="gpt-4o" /></el-form-item>
+        <el-form-item label="JSON 输出限制">
+          <el-radio-group v-model="form.response_format_type">
+            <el-radio-button label="json_object">弱约束 json_object</el-radio-button>
+            <el-radio-button label="json_schema">强约束 json_schema</el-radio-button>
+          </el-radio-group>
+          <div class="mt-1 text-xs text-slate-400">模型不支持 json_schema 时请选择 json_object。</div>
+        </el-form-item>
         <el-form-item v-if="!editingId" label="API Key"><el-input v-model="form.api_key" autocomplete="off" placeholder="sk-..." /><span class="text-xs text-slate-400">保存后不可查看、不可编辑，只能删除重建</span></el-form-item>
         <el-form-item><el-checkbox v-model="form.is_default">设为默认</el-checkbox></el-form-item>
       </el-form>
