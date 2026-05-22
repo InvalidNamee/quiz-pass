@@ -2,8 +2,10 @@ backend/.venv/
 backend/.env
 backend/quiz_pass.db
 backend/test_quiz_pass.db
+test_quiz_pass.db
 frontend/node_modules/
 frontend/dist/
+frontend/tsconfig.tsbuildinfo
 __pycache__/
 *.pyc
 .DS_Store
