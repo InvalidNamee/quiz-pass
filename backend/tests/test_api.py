@@ -116,6 +116,30 @@ def test_login_identifier_and_change_password():
         assert _login(client, "loginuser", "newpass123")
 
 
+def test_v2_bank_author_filter_supports_owner_keyword_and_owner_id_priority():
+    with TestClient(app) as client:
+        alpha_headers = _register(client, "owner-alpha@example.com", "owneralpha")
+        beta_headers = _register(client, "owner-beta@example.com", "ownerbeta")
+        reader_headers = _register(client, "owner-reader@example.com", "ownerreader")
+        alpha_me = client.get("/api/v2/users/me", headers=alpha_headers).json()
+        beta_me = client.get("/api/v2/users/me", headers=beta_headers).json()
+        client.patch("/api/v2/users/me", headers=alpha_headers, json={"display_name": "Alpha Display"})
+        alpha_bank = client.post("/api/v2/banks", headers=alpha_headers, json={"title": "Alpha Public", "visibility": "public"}).json()
+        beta_bank = client.post("/api/v2/banks", headers=beta_headers, json={"title": "Beta Public", "visibility": "public"}).json()
+
+        by_numeric_owner = client.get(f"/api/v2/banks?scope=public&owner={alpha_me['id']}", headers=reader_headers).json()["items"]
+        assert [item["id"] for item in by_numeric_owner] == [alpha_bank["id"]]
+
+        by_username = client.get("/api/v2/banks?scope=public&owner=ownerbeta", headers=reader_headers).json()["items"]
+        assert [item["id"] for item in by_username] == [beta_bank["id"]]
+
+        by_display_name = client.get("/api/v2/banks?scope=public&owner=Alpha", headers=reader_headers).json()["items"]
+        assert [item["id"] for item in by_display_name] == [alpha_bank["id"]]
+
+        owner_id_priority = client.get(f"/api/v2/banks?scope=public&owner_id={beta_me['id']}&owner=owneralpha", headers=reader_headers).json()["items"]
+        assert [item["id"] for item in owner_id_priority] == [beta_bank["id"]]
+
+
 def test_refresh_token_can_refresh_access_but_not_access_api():
     with TestClient(app) as client:
         response = client.post(
@@ -853,6 +877,15 @@ def test_bank_workflow_logs_redact_failed_error_for_readers(monkeypatch):
         assert owner_workflow["status"] == "failed"
         assert owner_workflow["error_message"]
 
+        owner_logs = client.get(f"/api/v2/banks/{bank['id']}/ai-workflows", headers=headers)
+        assert owner_logs.status_code == 200, owner_logs.text
+        owner_item = owner_logs.json()["items"][0]
+        assert owner_item["error_message"] == owner_workflow["error_message"]
+        assert owner_item["source_file_name"] == "bad.txt"
+        assert owner_item["source_text_snapshot"] == "sensitive source text"
+        assert owner_item["extra_instruction"] == "sensitive extra instruction"
+        assert owner_item["can_retry"] is True
+
         logs = client.get(f"/api/v2/banks/{bank['id']}/ai-workflows", headers=reader_headers)
         assert logs.status_code == 200, logs.text
         item = logs.json()["items"][0]
@@ -1240,20 +1273,36 @@ def test_v2_ai_workflow_retry_failed_creates_new_workflow(monkeypatch):
         assert failed.status_code == 200, failed.text
         failed_workflow = client.get(f"/api/v2/ai/workflows/{failed.json()['workflow_id']}", headers=headers).json()
         assert failed_workflow["status"] == "failed"
+        original_bank_id = failed_workflow["bank_id"]
 
         mode["ok"] = True
         retried = client.post(
             f"/api/v2/ai/workflows/{failed_workflow['id']}/retry",
             headers=headers,
-            data={"source_text": "edited source", "question_count_mode": "fixed", "question_count": "1", "title": "Retry Bank 2"},
+            data={
+                "source_text": "edited source",
+                "question_count_mode": "fixed",
+                "question_count": "1",
+                "title": "Retry Bank 2",
+                "description": "retry description",
+                "desired_visibility": "public",
+            },
         )
         assert retried.status_code == 200, retried.text
         new_workflow = client.get(f"/api/v2/ai/workflows/{retried.json()['workflow_id']}", headers=headers).json()
         assert new_workflow["status"] == "draft_ready"
         assert new_workflow["retry_of_workflow_id"] == failed_workflow["id"]
+        assert new_workflow["bank_id"] == original_bank_id
         assert new_workflow["source_text_snapshot"] == "edited source"
         assert new_workflow["bank_title_snapshot"] == "Retry Bank 2"
         assert new_workflow["draft_question_count"] == 1
+        reused_bank = client.get(f"/api/v2/banks/{original_bank_id}", headers=headers).json()
+        assert reused_bank["title"] == "Retry Bank 2"
+        assert reused_bank["description"] == "retry description"
+        assert reused_bank["desired_visibility"] == "public"
+        mine = client.get("/api/v2/banks?scope=mine&page_size=50", headers=headers).json()["items"]
+        matching_ids = [item["id"] for item in mine if item["title"] in {"Retry Bank", "Retry Bank 2"}]
+        assert matching_ids == [original_bank_id]
         old_after_retry = client.get(f"/api/v2/ai/workflows/{failed_workflow['id']}", headers=headers).json()
         assert old_after_retry["retried_by_workflow_id"] == new_workflow["id"]
 
@@ -1274,6 +1323,53 @@ def test_v2_ai_workflow_retry_failed_creates_new_workflow(monkeypatch):
             assert db.scalar(select(AuditEvent).where(AuditEvent.action == "workflow.retry", AuditEvent.target_id == failed_workflow["id"])) is not None
         finally:
             db.close()
+
+
+def test_v2_ai_workflow_retry_cancelled_create_bank_creates_new_shell(monkeypatch):
+    with TestClient(app) as client:
+        headers = _register(client, "retry-cancelled-shell@example.com", "retrycancelledshell")
+        client.post(
+            "/api/v2/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+
+        from app.domains.ai_generation import facade as ai_generation
+
+        def good_ai(*args, **kwargs):
+            return {
+                "questions": [
+                    {
+                        "type": "single",
+                        "stem": "Retry cancelled shell",
+                        "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
+                    }
+                ]
+            }
+
+        monkeypatch.setattr(ai_generation, "_call_openai_compatible", good_ai)
+        created = client.post(
+            "/api/v2/ai/workflows",
+            headers=headers,
+            data={"title": "Cancelled Shell", "question_count": "1"},
+            files={"file": ("material.txt", b"source", "text/plain")},
+        )
+        payload = created.json()
+        assert client.post(f"/api/v2/ai/workflows/{payload['workflow_id']}/cancel", headers=headers).status_code == 200
+        cancelled = client.get(f"/api/v2/ai/workflows/{payload['workflow_id']}", headers=headers).json()
+        assert cancelled["bank_id"] is None
+
+        retried = client.post(
+            f"/api/v2/ai/workflows/{payload['workflow_id']}/retry",
+            headers=headers,
+            data={"source_text": "retry source", "question_count_mode": "fixed", "question_count": "1", "title": "New Shell"},
+        )
+        assert retried.status_code == 200, retried.text
+        new_payload = retried.json()
+        assert new_payload["bank_id"] is not None
+        new_workflow = client.get(f"/api/v2/ai/workflows/{new_payload['workflow_id']}", headers=headers).json()
+        assert new_workflow["retry_of_workflow_id"] == payload["workflow_id"]
+        assert new_workflow["bank_title_snapshot"] == "New Shell"
 
 
 def test_v2_ai_workflow_detail_owner_only_and_rq_enqueue(monkeypatch):

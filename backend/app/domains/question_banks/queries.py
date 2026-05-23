@@ -50,6 +50,7 @@ class QuestionBankQueryService:
         scope: str = "mine",
         keyword: str | None = None,
         owner_id: int | None = None,
+        owner: str | None = None,
         tag_ids: str | None = None,
         visibility: str | None = None,
         generation_status: str | None = None,
@@ -76,8 +77,16 @@ class QuestionBankQueryService:
 
         if keyword:
             stmt = stmt.where(or_(QuestionBank.title.contains(keyword), QuestionBank.description.contains(keyword)))
-        if owner_id and scope != "mine":
-            stmt = stmt.where(QuestionBank.owner_id == owner_id)
+        if scope != "mine":
+            if owner_id:
+                stmt = stmt.where(QuestionBank.owner_id == owner_id)
+            elif owner and owner.strip():
+                normalized_owner = owner.strip()
+                if normalized_owner.isdigit():
+                    stmt = stmt.where(QuestionBank.owner_id == int(normalized_owner))
+                else:
+                    owner_ids = select(User.id).where(or_(User.username.contains(normalized_owner), User.display_name.contains(normalized_owner)))
+                    stmt = stmt.where(QuestionBank.owner_id.in_(owner_ids))
         if visibility:
             stmt = stmt.where(QuestionBank.visibility == visibility)
         if generation_status:

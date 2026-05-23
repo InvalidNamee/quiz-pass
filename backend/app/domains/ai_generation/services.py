@@ -315,21 +315,30 @@ class AIGenerationWorkflowService:
             desired = desired_visibility or (old_bank.desired_visibility if old_bank else "private")
             if desired not in ("private", "public"):
                 raise HTTPException(status_code=422, detail="Invalid desired_visibility")
-            bank = QuestionBank(
-                owner_id=user.id,
-                title=(title or (old_bank.title if old_bank else original.bank_title_snapshot) or "重新生成题库").strip(),
-                description=description if description is not None else (old_bank.description if old_bank else None),
-                visibility="private",
-                desired_visibility=desired,
-                generation_status="pending",
-                ai_provider_config_id=config.id,
-                ai_model_name=config.model,
-                ai_base_url_host=host,
-            )
-            self.db.add(bank)
-            self.db.flush()
-            if old_bank and old_bank.tags:
-                set_bank_tags(self.db, bank, [tag.name for tag in old_bank.tags])
+            if old_bank:
+                bank = old_bank
+                bank.title = (title or old_bank.title or original.bank_title_snapshot or "重新生成题库").strip()
+                bank.description = description if description is not None else old_bank.description
+                bank.visibility = "private"
+                bank.desired_visibility = desired
+                bank.generation_status = "processing"
+                bank.ai_provider_config_id = config.id
+                bank.ai_model_name = config.model
+                bank.ai_base_url_host = host
+            else:
+                bank = QuestionBank(
+                    owner_id=user.id,
+                    title=(title or original.bank_title_snapshot or "重新生成题库").strip(),
+                    description=description,
+                    visibility="private",
+                    desired_visibility=desired,
+                    generation_status="pending",
+                    ai_provider_config_id=config.id,
+                    ai_model_name=config.model,
+                    ai_base_url_host=host,
+                )
+                self.db.add(bank)
+                self.db.flush()
         else:
             if not old_bank:
                 raise HTTPException(status_code=404, detail="Question bank not found")
@@ -463,6 +472,16 @@ class AIGenerationWorkflowService:
                 redact_sensitive=redact_sensitive,
             )
             for workflow in workflows
+        ]
+
+    def workflow_out_many_for_bank_logs(self, workflows: list[AIGenerationWorkflow], user: User) -> list[AIGenerationWorkflowOut]:
+        if not workflows:
+            return []
+        full_items = self.workflow_out_many(workflows, redact_sensitive=False)
+        redacted_items = self.workflow_out_many(workflows, redact_sensitive=True)
+        return [
+            full_item if workflow.user_id == user.id else redacted_item
+            for workflow, full_item, redacted_item in zip(workflows, full_items, redacted_items, strict=True)
         ]
 
     def _workflow_out_from_maps(

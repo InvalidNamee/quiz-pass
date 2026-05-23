@@ -24,6 +24,7 @@ def list_banks(
     page_size: int = 20,
     keyword: str | None = None,
     owner_id: int | None = None,
+    owner: str | None = None,
     tag_ids: str | None = None,
     visibility: str | None = None,
     generation_status: str | None = None,
@@ -32,7 +33,7 @@ def list_banks(
 ):
     service = QuestionBankQueryService(db)
     try:
-        stmt = service.list_stmt(current_user, scope, keyword, owner_id, tag_ids, visibility, generation_status)
+        stmt = service.list_stmt(current_user, scope, keyword, owner_id, owner, tag_ids, visibility, generation_status)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     items, total, page, page_size = paginate(db, stmt, page, page_size)
