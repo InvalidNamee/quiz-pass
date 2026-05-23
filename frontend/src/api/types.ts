@@ -162,6 +162,7 @@ export type BankPermissions = {
   can_practice: boolean
   can_view_mistakes: boolean
   can_extend_ai: boolean
+  can_share: boolean
 }
 
 export type ActiveWorkflowInfo = {
@@ -173,6 +174,8 @@ export type ActiveWorkflowInfo = {
 
 export type QuestionBankV2 = {
   id: number
+  source_bank_id: number | null
+  is_shared_copy: boolean
   title: string
   description: string | null
   ai_context: string | null

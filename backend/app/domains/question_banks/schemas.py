@@ -24,6 +24,7 @@ class QuestionBankPermissionsOut(BaseModel):
     can_practice: bool = False
     can_view_mistakes: bool = False
     can_extend_ai: bool = False
+    can_share: bool = False
 
 
 class ActiveWorkflowOut(BaseModel):
@@ -36,6 +37,8 @@ class ActiveWorkflowOut(BaseModel):
 class QuestionBankV2Out(BaseModel):
     id: int
     owner_id: int
+    source_bank_id: int | None = None
+    is_shared_copy: bool = False
     owner_username: str | None = None
     owner_display_name: str | None = None
     owner_avatar_url: str | None = None

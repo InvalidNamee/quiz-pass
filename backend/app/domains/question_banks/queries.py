@@ -113,6 +113,8 @@ class QuestionBankQueryService:
         return QuestionBankV2Out(
             id=bank.id,
             owner_id=bank.owner_id,
+            source_bank_id=bank.source_bank_id,
+            is_shared_copy=bank.is_shared_copy,
             owner_username=owner.username if owner else None,
             owner_display_name=owner.display_name if owner else None,
             owner_avatar_url=owner.avatar_url if owner else None,

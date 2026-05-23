@@ -66,6 +66,8 @@ class QuestionBankImportExportService:
         form_tag_names: list[object] | None = None,
         file_stem: str | None = None,
     ):
+        if visibility == "public" and user.role != "admin":
+            raise HTTPException(status_code=403, detail="普通用户只能通过分享生成公开题库")
         try:
             raw_bank_info = payload.get("bank") or {}
             bank_info = raw_bank_info if isinstance(raw_bank_info, dict) else {}

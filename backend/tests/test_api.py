@@ -58,6 +58,32 @@ def _make_admin(username: str) -> None:
         db.close()
 
 
+def _sample_question_payload(stem: str = "示例题") -> dict:
+    return {
+        "type": "single",
+        "stem": stem,
+        "explanation": "解析",
+        "options": [
+            {"label": "A", "content": "正确", "is_correct": True},
+            {"label": "B", "content": "错误", "is_correct": False},
+        ],
+    }
+
+
+def _create_shareable_bank(client: TestClient, headers: dict[str, str], title: str = "Share Source", tag_names: list[str] | None = None) -> dict:
+    bank = client.post("/api/v2/banks", headers=headers, json={"title": title, "visibility": "private", "tag_names": tag_names or []})
+    assert bank.status_code == 200, bank.text
+    created = client.post(f"/api/v2/banks/{bank.json()['id']}/questions", headers=headers, json=_sample_question_payload(f"{title} Q"))
+    assert created.status_code == 200, created.text
+    return bank.json()
+
+
+def _share_bank(client: TestClient, headers: dict[str, str], bank_id: int) -> dict:
+    shared = client.post(f"/api/v2/banks/{bank_id}/share", headers=headers)
+    assert shared.status_code == 200, shared.text
+    return shared.json()
+
+
 def _fk_ondelete(model, column_name: str) -> str | None:
     column = model.__table__.c[column_name]
     foreign_key = next(iter(column.foreign_keys))
@@ -89,6 +115,9 @@ def test_database_model_removes_workflow_job_cycle_and_uses_cascades():
     assert _fk_ondelete(ImportJob, "ai_provider_config_id") == "SET NULL"
     assert "queue_job_id" in ImportJob.__table__.c
     assert "enqueued_at" in ImportJob.__table__.c
+    assert "source_bank_id" in QuestionBank.__table__.c
+    assert "is_shared_copy" in QuestionBank.__table__.c
+    assert _fk_ondelete(QuestionBank, "source_bank_id") == "SET NULL"
 
 
 def test_login_identifier_and_change_password():
@@ -124,8 +153,10 @@ def test_v2_bank_author_filter_supports_owner_keyword_and_owner_id_priority():
         alpha_me = client.get("/api/v2/users/me", headers=alpha_headers).json()
         beta_me = client.get("/api/v2/users/me", headers=beta_headers).json()
         client.patch("/api/v2/users/me", headers=alpha_headers, json={"display_name": "Alpha Display"})
-        alpha_bank = client.post("/api/v2/banks", headers=alpha_headers, json={"title": "Alpha Public", "visibility": "public"}).json()
-        beta_bank = client.post("/api/v2/banks", headers=beta_headers, json={"title": "Beta Public", "visibility": "public"}).json()
+        alpha_source = _create_shareable_bank(client, alpha_headers, "Alpha Public")
+        beta_source = _create_shareable_bank(client, beta_headers, "Beta Public")
+        alpha_bank = _share_bank(client, alpha_headers, alpha_source["id"])
+        beta_bank = _share_bank(client, beta_headers, beta_source["id"])
 
         by_numeric_owner = client.get(f"/api/v2/banks?scope=public&owner={alpha_me['id']}", headers=reader_headers).json()["items"]
         assert [item["id"] for item in by_numeric_owner] == [alpha_bank["id"]]
@@ -138,6 +169,71 @@ def test_v2_bank_author_filter_supports_owner_keyword_and_owner_id_priority():
 
         owner_id_priority = client.get(f"/api/v2/banks?scope=public&owner_id={beta_me['id']}&owner=owneralpha", headers=reader_headers).json()["items"]
         assert [item["id"] for item in owner_id_priority] == [beta_bank["id"]]
+
+
+def test_normal_users_cannot_directly_publish_banks_or_ai_jobs():
+    with TestClient(app) as client:
+        headers = _register(client, "publish-block@example.com", "publishblock")
+
+        direct = client.post("/api/v2/banks", headers=headers, json={"title": "No Public", "visibility": "public"})
+        assert direct.status_code == 403
+        assert "分享" in direct.json()["error"]["message"]
+
+        payload = {
+            "bank": {"title": "Import Public"},
+            "questions": [_sample_question_payload("导入题")],
+        }
+        imported = client.post(
+            "/api/v2/banks/import-json",
+            headers=headers,
+            data={"visibility": "public"},
+            files={"file": ("bank.json", json.dumps(payload).encode("utf-8"), "application/json")},
+        )
+        assert imported.status_code == 403
+
+
+def test_sharing_bank_creates_static_public_copy_and_locks_normal_management():
+    with TestClient(app) as client:
+        owner_headers = _register(client, "share-owner@example.com", "shareowner")
+        reader_headers = _register(client, "share-reader@example.com", "sharereader")
+        source = _create_shareable_bank(client, owner_headers, "Private Source", ["共享标签"])
+
+        source_detail = client.get(f"/api/v2/banks/{source['id']}", headers=owner_headers).json()
+        assert source_detail["visibility"] == "private"
+        assert source_detail["permissions"]["can_share"] is True
+
+        shared = _share_bank(client, owner_headers, source["id"])
+        assert shared["id"] != source["id"]
+        assert shared["source_bank_id"] == source["id"]
+        assert shared["is_shared_copy"] is True
+        assert shared["visibility"] == "public"
+        assert shared["permissions"]["can_manage"] is False
+        assert shared["permissions"]["can_share"] is False
+        assert shared["stats"]["question_count"] == 1
+        assert shared["tags"][0]["name"] == "共享标签"
+
+        reader_shared = client.get(f"/api/v2/banks/{shared['id']}", headers=reader_headers)
+        assert reader_shared.status_code == 200, reader_shared.text
+        assert reader_shared.json()["permissions"]["can_export"] is True
+        assert reader_shared.json()["permissions"]["can_manage"] is False
+
+        shared_questions = client.get(f"/api/v2/banks/{shared['id']}/questions", headers=reader_headers).json()["items"]
+        assert shared_questions[0]["stem"] == "Private Source Q"
+        assert shared_questions[0]["options"][0]["content"] == "正确"
+        assert client.post(f"/api/v2/banks/{shared['id']}/questions", headers=owner_headers, json=_sample_question_payload("不允许")).status_code == 404
+
+        source_question = client.get(f"/api/v2/banks/{source['id']}/questions", headers=owner_headers).json()["items"][0]
+        source_update_payload = _sample_question_payload("源题已改")
+        updated = client.patch(f"/api/v2/questions/{source_question['id']}", headers=owner_headers, json=source_update_payload)
+        assert updated.status_code == 200, updated.text
+        unchanged_shared = client.get(f"/api/v2/banks/{shared['id']}/questions", headers=reader_headers).json()["items"]
+        assert unchanged_shared[0]["stem"] == "Private Source Q"
+
+        deleted_source = client.delete(f"/api/v2/banks/{source['id']}", headers=owner_headers)
+        assert deleted_source.status_code == 200, deleted_source.text
+        after_delete = client.get(f"/api/v2/banks/{shared['id']}", headers=reader_headers)
+        assert after_delete.status_code == 200, after_delete.text
+        assert after_delete.json()["source_bank_id"] is None
 
 
 def test_refresh_token_can_refresh_access_but_not_access_api():
@@ -620,9 +716,9 @@ def test_admin_user_management_and_bank_permissions():
         assert client.patch(f"/api/v2/admin/users/{visitor_id}", headers=other_headers, json={"is_active": False}).status_code == 403
 
         private_bank = client.post("/api/v2/banks", headers=owner_headers, json={"title": "Private", "visibility": "private"}).json()
-        public_bank = client.post("/api/v2/banks", headers=owner_headers, json={"title": "Public", "visibility": "public"}).json()
-        question = client.post(
-            f"/api/v2/banks/{public_bank['id']}/questions",
+        public_source = client.post("/api/v2/banks", headers=owner_headers, json={"title": "Public", "visibility": "private"}).json()
+        source_question = client.post(
+            f"/api/v2/banks/{public_source['id']}/questions",
             headers=owner_headers,
             json={
                 "type": "single",
@@ -630,6 +726,8 @@ def test_admin_user_management_and_bank_permissions():
                 "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
             },
         ).json()
+        public_bank = client.post(f"/api/v2/banks/{public_source['id']}/share", headers=owner_headers).json()
+        question = client.get(f"/api/v2/banks/{public_bank['id']}/questions", headers=owner_headers).json()["items"][0]
 
         assert client.get(f"/api/v2/banks/{private_bank['id']}", headers=other_headers).status_code == 404
         assert client.get(f"/api/v2/banks/{public_bank['id']}/export-json", headers=other_headers).status_code == 200
@@ -646,7 +744,7 @@ def test_admin_user_management_and_bank_permissions():
                 "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
             },
         ).status_code == 404
-        assert client.delete(f"/api/v2/questions/{question['id']}", headers=other_headers).status_code == 404
+        assert client.delete(f"/api/v2/questions/{source_question['id']}", headers=other_headers).status_code == 404
 
         other_session = client.post("/api/v2/practice/sessions", headers=other_headers, json={"bank_id": public_bank["id"], "mode": "practice"}).json()
         other_answer = client.post(
@@ -702,7 +800,7 @@ def test_ai_generation_validation_failure(monkeypatch):
         response = client.post(
             "/api/v2/ai/workflows",
             headers=headers,
-            data={"title": "AI Bank", "desired_visibility": "public", "question_count": "1", "tag_names": '["AI标签"]'},
+            data={"title": "AI Bank", "desired_visibility": "private", "question_count": "1", "tag_names": '["AI标签"]'},
             files={"file": ("material.txt", b"content", "text/plain")},
         )
         assert response.status_code == 200
@@ -727,6 +825,8 @@ def test_ai_generation_validation_failure(monkeypatch):
 def test_ai_generation_repair_draft_confirm_and_extend(monkeypatch):
     with TestClient(app) as client:
         headers = _register(client, "workflow@example.com", "workflowuser")
+        _make_admin("workflowuser")
+        headers = _login(client, "workflowuser")
         other_headers = _register(client, "workflow-other@example.com", "workflowother")
         client.post(
             "/api/v2/users/me/ai-provider-configs",
@@ -852,6 +952,8 @@ def test_ai_generation_repair_draft_confirm_and_extend(monkeypatch):
 def test_bank_workflow_logs_redact_failed_error_for_readers(monkeypatch):
     with TestClient(app) as client:
         headers = _register(client, "workflow-log-owner@example.com", "workflowlogowner")
+        _make_admin("workflowlogowner")
+        headers = _login(client, "workflowlogowner")
         reader_headers = _register(client, "workflow-log-reader@example.com", "workflowlogreader")
         client.post(
             "/api/v2/users/me/ai-provider-configs",
@@ -905,6 +1007,8 @@ def test_bank_workflow_logs_redact_failed_error_for_readers(monkeypatch):
 def test_public_bank_workflow_logs_cover_extension_states_and_redaction():
     with TestClient(app) as client:
         headers = _register(client, "workflow-state-owner@example.com", "workflowstateowner")
+        _make_admin("workflowstateowner")
+        headers = _login(client, "workflowstateowner")
         reader_headers = _register(client, "workflow-state-reader@example.com", "workflowstatereader")
         bank = client.post("/api/v2/banks", headers=headers, json={"title": "Workflow States", "visibility": "public"}).json()
 
@@ -1049,6 +1153,8 @@ def test_delete_bank_cleans_generation_and_practice_records(monkeypatch):
 def test_v2_banks_returns_domain_shaped_bank_permissions_and_stats():
     with TestClient(app) as client:
         owner_headers = _register(client, "v2-owner@example.com", "v2owner")
+        _make_admin("v2owner")
+        owner_headers = _login(client, "v2owner")
         visitor_headers = _register(client, "v2-visitor@example.com", "v2visitor")
         admin_headers = _register(client, "v2-admin@example.com", "v2admin")
         _make_admin("v2admin")
@@ -1211,7 +1317,7 @@ def test_v2_ai_workflow_cancel_create_bank_preserves_audit_and_deletes_shell(mon
         created = client.post(
             "/api/v2/ai/workflows",
             headers=headers,
-            data={"title": "Cancel Shell", "desired_visibility": "public", "question_count": "1"},
+            data={"title": "Cancel Shell", "desired_visibility": "private", "question_count": "1"},
             files={"file": ("material.txt", b"content", "text/plain")},
         )
         assert created.status_code == 200, created.text
@@ -1285,7 +1391,7 @@ def test_v2_ai_workflow_retry_failed_creates_new_workflow(monkeypatch):
                 "question_count": "1",
                 "title": "Retry Bank 2",
                 "description": "retry description",
-                "desired_visibility": "public",
+                    "desired_visibility": "private",
             },
         )
         assert retried.status_code == 200, retried.text
@@ -1299,7 +1405,7 @@ def test_v2_ai_workflow_retry_failed_creates_new_workflow(monkeypatch):
         reused_bank = client.get(f"/api/v2/banks/{original_bank_id}", headers=headers).json()
         assert reused_bank["title"] == "Retry Bank 2"
         assert reused_bank["description"] == "retry description"
-        assert reused_bank["desired_visibility"] == "public"
+        assert reused_bank["desired_visibility"] == "private"
         mine = client.get("/api/v2/banks?scope=mine&page_size=50", headers=headers).json()["items"]
         matching_ids = [item["id"] for item in mine if item["title"] in {"Retry Bank", "Retry Bank 2"}]
         assert matching_ids == [original_bank_id]
@@ -1442,7 +1548,7 @@ def test_v2_rq_enqueue_failure_marks_create_workflow_failed(monkeypatch):
         created = client.post(
             "/api/v2/ai/workflows",
             headers=headers,
-            data={"title": "RQ Failure Bank", "desired_visibility": "public", "question_count": "1"},
+            data={"title": "RQ Failure Bank", "desired_visibility": "private", "question_count": "1"},
             files={"file": ("rq-fail.txt", b"source", "text/plain")},
         )
         assert created.status_code == 200, created.text
@@ -1469,6 +1575,8 @@ def test_v2_rq_enqueue_failure_does_not_pollute_extend_bank(monkeypatch):
 
     with TestClient(app) as client:
         headers = _register(client, "rq-fail-extend@example.com", "rqfailextend")
+        _make_admin("rqfailextend")
+        headers = _login(client, "rqfailextend")
         reader_headers = _register(client, "rq-fail-reader@example.com", "rqfailreader")
         client.post(
             "/api/v2/users/me/ai-provider-configs",
@@ -1593,6 +1701,8 @@ def test_v2_ai_workflow_retry_draft_ready_head_only(monkeypatch):
 def test_v2_ai_workflow_extends_existing_bank(monkeypatch):
     with TestClient(app) as client:
         headers = _register(client, "v2-extend@example.com", "v2extend")
+        _make_admin("v2extend")
+        headers = _login(client, "v2extend")
         visitor_headers = _register(client, "v2-extend-visitor@example.com", "v2extendvisitor")
         client.post(
             "/api/v2/users/me/ai-provider-configs",
@@ -1846,6 +1956,8 @@ def test_bank_parse_mode_without_question_count_and_detailed_errors(monkeypatch)
 def test_ai_generation_success_public_after_write(monkeypatch):
     with TestClient(app) as client:
         headers = _register(client, "ok@example.com", "okuser")
+        _make_admin("okuser")
+        headers = _login(client, "okuser")
         client.post(
             "/api/v2/users/me/ai-provider-configs",
             headers=headers,
@@ -2012,6 +2124,8 @@ def test_deleting_ai_provider_preserves_workflow_history_and_snapshots(monkeypat
 def test_v2_question_crud_permissions_and_json_import_export():
     with TestClient(app) as client:
         owner_headers = _register(client, "v2-q-owner@example.com", "v2qowner")
+        _make_admin("v2qowner")
+        owner_headers = _login(client, "v2qowner")
         visitor_headers = _register(client, "v2-q-visitor@example.com", "v2qvisitor")
         admin_headers = _register(client, "v2-q-admin@example.com", "v2qadmin")
         _make_admin("v2qadmin")

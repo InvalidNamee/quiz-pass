@@ -76,6 +76,11 @@ def get_bank(bank_id: int, current_user: User = Depends(get_current_user), db: S
     return QuestionBankQueryService(db).to_out(bank, current_user)
 
 
+@router.post("/banks/{bank_id}/share", response_model=QuestionBankV2Out)
+def share_bank(bank_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return QuestionBankService(db).share(bank_id, current_user)
+
+
 @router.get("/banks/{bank_id}/export-json")
 def export_bank_json(bank_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return QuestionBankImportExportService(db).export_response(bank_id, current_user)

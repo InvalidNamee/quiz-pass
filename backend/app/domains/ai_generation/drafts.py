@@ -10,6 +10,7 @@ from app.domains.question_banks.stats import QuestionBankStatsService
 from app.models.ai_workflow import AIGenerationDraft, AIGenerationDraftQuestion, AIGenerationWorkflow
 from app.models.import_job import ImportJob
 from app.models.question_bank import QuestionBank
+from app.models.user import User
 from app.utils.json_io import create_question_from_payload, normalize_question_payload
 
 
@@ -136,7 +137,11 @@ class DraftService:
             bank.description = draft.bank_description
         bank.generation_status = "succeeded"
         if workflow.purpose == "create_bank":
-            bank.visibility = bank.desired_visibility if bank.question_count > 0 else "private"
+            workflow_user = self.db.get(User, workflow.user_id)
+            can_publish_directly = bool(workflow_user and workflow_user.role == "admin")
+            bank.visibility = bank.desired_visibility if bank.question_count > 0 and can_publish_directly else "private"
+            if not can_publish_directly:
+                bank.desired_visibility = "private"
         bank.ai_model_name = job.ai_model_snapshot
         workflow.status = "imported"
         workflow.finished_at = now_utc()

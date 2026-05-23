@@ -1,7 +1,7 @@
 import { api } from '../http'
 import type { Page, Question, QuestionBankV2, QuestionBankTag } from '../types'
 
-type BankListParams = { page?: number; page_size?: number; keyword?: string; owner_id?: number; tag_ids?: string; visibility?: string; generation_status?: string }
+type BankListParams = { page?: number; page_size?: number; keyword?: string; owner_id?: number; owner?: string; tag_ids?: string; visibility?: string; generation_status?: string }
 
 export function listBanks(scope: 'mine' | 'public' | 'favorites', params: BankListParams = {}) {
   const q = new URLSearchParams()
@@ -24,6 +24,10 @@ export function updateBank(bankId: number, data: Record<string, unknown>) {
 
 export function updateBankAIContext(bankId: number, aiContext: string | null) {
   return api<QuestionBankV2>(`/api/v2/banks/${bankId}/ai-context`, { method: 'PATCH', body: JSON.stringify({ ai_context: aiContext }) })
+}
+
+export function shareBank(bankId: number) {
+  return api<QuestionBankV2>(`/api/v2/banks/${bankId}/share`, { method: 'POST' })
 }
 
 export function deleteBank(bankId: number) {

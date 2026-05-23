@@ -245,6 +245,117 @@ Important tables:
   workflow confirmation, and bank deletion.
 - Add deployment docs for MySQL, SMTP, CORS, encryption key, and reverse proxy.
 
+### P1: Public Sharing and Bank Ownership Rules
+
+New product rule: ordinary users must not directly turn a managed bank into a
+mutable public bank. Public exposure should happen through a separate static
+shared copy.
+
+- Remove the "public after generation" checkbox from new bank / AI generation
+  flow.
+- Non-admin users cannot change a bank to public through edit/update APIs.
+- Add a "share bank" action for owner/admin:
+  - It creates a static public copy of the current bank.
+  - The copy includes current bank metadata, tags, questions, options, answers,
+    and explanations at share time.
+  - The copy is public and readable/practiceable/exportable by others.
+  - The copy is not managed like the source bank by ordinary users; source bank
+    edits do not mutate already shared copies.
+- Admin can still manage all banks and may retain direct visibility controls for
+  moderation/ops.
+- Add clear source/copy metadata so the UI can show "shared copy of ..." and so
+  deletion rules are explicit.
+
+Implementation notes:
+
+- Prefer adding fields such as `source_bank_id`, `shared_from_bank_id` or a
+  `bank_kind`/`is_shared_copy` marker rather than overloading `visibility`.
+- `share bank` should be an explicit backend endpoint, not a frontend-only copy
+  flow.
+- Existing public mutable banks need a migration/default policy before release:
+  either keep admin-created public banks as-is or convert user-created public
+  banks into shared copies in a one-time cleanup.
+
+### P1: Continue Practice from Bank
+
+Users should be able to resume the latest unfinished practice session for a
+bank directly from bank lists and bank detail.
+
+- Add backend support to fetch the current user's latest resumable session for a
+  bank.
+- "Continue practice" should resume only `in_progress` sessions for the same
+  `user_id + bank_id`.
+- If no resumable session exists, the action should be hidden or disabled and
+  normal "start practice" remains available.
+- Exam sessions can be resumed if still `in_progress`; submitted sessions always
+  go to result, not continue.
+- Bank list DTO should expose enough state for the UI to show "continue
+  practice" without per-row N+1 calls.
+
+### P1: Bank List Views and External Actions
+
+The bank list component needs two dense views, and key actions should be visible
+outside nested detail pages.
+
+- Keep the current table/list view.
+- Add a dense grid view with multi-column compact cards.
+- Both views must show the same primary actions outside the card/table internals:
+  - start practice
+  - continue practice
+  - share bank
+  - delete
+- Keep the established UI direction: Element Plus, compact spacing, no large
+  SaaS cards, no big shadows/gradients.
+- Persist selected view mode in URL query or local storage; URL query is
+  preferred if it affects navigation state.
+
+### P1: Import and Question Management Fixes
+
+- Multi-file import:
+  - New bank creation and bank extension/import should allow multiple uploaded
+    files.
+  - Backend extracts each file and concatenates source text with file-name
+    section markers.
+  - AI workflow source snapshot should preserve file names and combined text.
+  - JSON import can accept multiple JSON files and merge their questions into
+    one target bank when the user chooses that mode.
+- Bank question management currently shows only the first 20 questions; this is
+  a potential data-loss/visibility bug for management flows.
+  - For question management, load all questions for the bank or use an internal
+    page-size large enough to cover the current bank.
+  - This page does not need visible pagination unless performance becomes a
+    problem.
+- Question editor must enforce at most 26 options.
+  - Disable "add option" after label `Z`.
+  - Backend validation should also reject more than 26 options to prevent API
+    bypass.
+- Draft editing bug:
+  - Editing a draft currently appears ineffective: final imported question count
+    and imported questions can still match the original draft.
+  - Confirm flow must save the latest edited draft before import.
+  - Backend confirm must read from persisted `ai_generation_draft_questions`,
+    not stale raw/repaired payload.
+  - Add tests where a draft question is deleted/edited before confirm and the
+    formal imported questions exactly match the edited draft.
+
+### P2: Frontend Polish Follow-Up
+
+These are frontend-only follow-ups and should be planned separately after the
+backend rules above are stable.
+
+- Author filter should use a separate picker dialog, like tags:
+  - search users by keyword
+  - show avatar, display name, username, and user ID
+  - write selected author as `owner_id=<id>` in the URL
+  - show selected author as a removable chip under the filter row
+- Workflow table operation column is crowded:
+  - keep "details" and "confirm draft" as primary visible actions
+  - move retry/cancel/view bank into a compact dropdown
+- Toast messages are incomplete:
+  - successful operations should say exactly what happened
+  - failed operations should use parsed backend error messages
+  - state rollback after optimistic UI failures should be explicit
+
 ## Verification Commands
 
 Use these before reporting work as complete:

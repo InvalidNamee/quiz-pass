@@ -122,6 +122,8 @@ class AIGenerationWorkflowService:
     ) -> AIGenerationWorkflowCreatedOut:
         if desired_visibility not in ("private", "public"):
             raise HTTPException(status_code=422, detail="Invalid desired_visibility")
+        if desired_visibility == "public" and user.role != "admin":
+            raise HTTPException(status_code=403, detail="普通用户只能通过分享生成公开题库")
         effective_count, normalized_extra_instruction = self._normalize_generation_inputs(question_count_mode, question_count, generation_mode, extra_instruction)
         try:
             parsed_tag_names = json.loads(tag_names) if tag_names else []
@@ -315,6 +317,8 @@ class AIGenerationWorkflowService:
             desired = desired_visibility or (old_bank.desired_visibility if old_bank else "private")
             if desired not in ("private", "public"):
                 raise HTTPException(status_code=422, detail="Invalid desired_visibility")
+            if desired == "public" and user.role != "admin":
+                raise HTTPException(status_code=403, detail="普通用户只能通过分享生成公开题库")
             if old_bank:
                 bank = old_bank
                 bank.title = (title or old_bank.title or original.bank_title_snapshot or "重新生成题库").strip()
