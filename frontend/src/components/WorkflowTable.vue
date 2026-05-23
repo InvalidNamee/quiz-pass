@@ -35,7 +35,7 @@ function statusText(value: string) {
     validating: '校验中',
     repairing: '自动修复',
     draft_ready: '草稿待确认',
-    imported: '已入库',
+    imported: '已导入',
     succeeded: '生成成功',
     failed: '生成失败',
     cancelled: '已取消',
@@ -51,8 +51,8 @@ function typeText(item: WorkflowListItem) {
 
 function questionChangeText(row: WorkflowListItem) {
   if (row.status === 'draft_ready' && row.draft_question_count) return `草稿 ${row.draft_question_count} 题`
-  if (row.question_delta > 0) return `入库 +${row.question_delta} 题`
-  if (row.status === 'failed' || row.status === 'cancelled') return '未入库'
+  if (row.question_delta > 0) return `新增 ${row.question_delta} 题`
+  if (row.status === 'failed' || row.status === 'cancelled') return '未导入'
   return '暂无变更'
 }
 
@@ -96,9 +96,9 @@ function visibleError(row: WorkflowListItem, showSensitiveError?: boolean) {
     <el-table-column label="详情" width="190">
       <template #default="{ row }">
         <div class="flex flex-wrap gap-x-2 gap-y-0.5">
-          <span v-if="row.repair_attempts" class="text-xs text-slate-400">修复{{ row.repair_attempts }}次</span>
+          <span v-if="row.repair_attempts" class="text-xs text-slate-400">自动修复 {{ row.repair_attempts }} 次</span>
           <span v-if="row.ai_model_snapshot" class="text-xs text-slate-400">{{ row.ai_model_snapshot }}</span>
-          <span v-if="row.retried_by_workflow_id" class="text-xs text-slate-400">已重做 #{{ row.retried_by_workflow_id }}</span>
+          <span v-if="row.retried_by_workflow_id" class="text-xs text-slate-400">已被 #{{ row.retried_by_workflow_id }} 取代</span>
         </div>
       </template>
     </el-table-column>

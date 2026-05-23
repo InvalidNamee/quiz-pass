@@ -1,7 +1,8 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import * as v2 from '../api/v2/banks'
-import type { Page, QuestionBankV2, QuestionBankTag } from '../api/types'
+import { getUserPublic } from '../api/v2/users'
+import type { Page, QuestionBankV2, QuestionBankTag, UserPublic } from '../api/types'
 
 export function useBankList(scope: 'mine' | 'public' | 'favorites') {
   const route = useRoute()
@@ -11,6 +12,7 @@ export function useBankList(scope: 'mine' | 'public' | 'favorites') {
   const pageInfo = ref<Page<QuestionBankV2> | null>(null)
   const keyword = ref('')
   const ownerId = ref<number | null>(null)
+  const selectedAuthor = ref<UserPublic | null>(null)
   const selectedTags = ref<QuestionBankTag[]>([])
   const visibility = ref('')
   const generationStatus = ref('')
@@ -19,6 +21,14 @@ export function useBankList(scope: 'mine' | 'public' | 'favorites') {
   const hasActiveFilters = computed(() =>
     keyword.value || ownerId.value || selectedTags.value.length || visibility.value || generationStatus.value
   )
+
+  async function syncAuthorFromQuery() {
+    const id = Number(route.query.owner_id) || 0
+    if (!id) { selectedAuthor.value = null; return }
+    if (selectedAuthor.value?.id === id) return
+    try { selectedAuthor.value = await getUserPublic(id) }
+    catch { selectedAuthor.value = null }
+  }
 
   function readQuery() {
     keyword.value = String(route.query.keyword || '')
@@ -50,6 +60,7 @@ export function useBankList(scope: 'mine' | 'public' | 'favorites') {
   async function load(silent = false) {
     readQuery()
     await syncTagsFromQuery()
+    await syncAuthorFromQuery()
     const params = buildQuery(Number(route.query.page || 1))
     params.page = params.page || '1'
     if (!silent) loading.value = true
@@ -60,15 +71,16 @@ export function useBankList(scope: 'mine' | 'public' | 'favorites') {
     } finally { if (!silent) loading.value = false }
   }
 
-  function applyFilters(filters: { keyword: string; ownerId: number | null; selectedTags: QuestionBankTag[]; visibility: string; generationStatus: string }) {
+  function applyFilters(filters: { keyword: string; ownerId: number | null; selectedAuthor: UserPublic | null; selectedTags: QuestionBankTag[]; visibility: string; generationStatus: string }) {
     keyword.value = filters.keyword; ownerId.value = filters.ownerId
+    selectedAuthor.value = filters.selectedAuthor
     selectedTags.value = filters.selectedTags; visibility.value = filters.visibility
     generationStatus.value = filters.generationStatus
     router.push({ query: buildQuery(1) })
   }
 
   function clearAll() {
-    keyword.value = ''; ownerId.value = null; selectedTags.value = []
+    keyword.value = ''; ownerId.value = null; selectedAuthor.value = null; selectedTags.value = []
     visibility.value = ''; generationStatus.value = ''
     router.push({ query: {} })
   }
@@ -76,7 +88,7 @@ export function useBankList(scope: 'mine' | 'public' | 'favorites') {
   function goPage(page: number) { router.push({ query: buildQuery(page) }) }
 
   return {
-    banks, pageInfo, keyword, ownerId, selectedTags, visibility, generationStatus,
+    banks, pageInfo, keyword, ownerId, selectedAuthor, selectedTags, visibility, generationStatus,
     loading, hasActiveFilters, load, applyFilters, clearAll, goPage,
   }
 }

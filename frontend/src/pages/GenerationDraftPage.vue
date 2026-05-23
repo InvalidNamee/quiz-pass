@@ -43,6 +43,7 @@ async function load() {
 function removeQuestion(index: number) {
   draft.value?.questions.splice(index, 1)
   if (editingIndex.value === index) closeEditor()
+  toast.show('已移除题目', 'info')
 }
 
 function addQuestion() {
@@ -101,12 +102,12 @@ async function confirm() {
   try {
     await persistDraft()
     await ElMessageBox.confirm(
-      '入库后会写入正式题库，草稿状态会变更，题目将可用于刷题。确认继续吗？',
-      '确认入库',
-      { type: 'warning', confirmButtonText: '确认入库', cancelButtonText: '取消' },
+      '导入题库后，题目将可用于刷题，草稿将不能再编辑。确认继续吗？',
+      '导入题库',
+      { type: 'warning', confirmButtonText: '导入题库', cancelButtonText: '取消' },
     )
     const data = await confirmWorkflowDraft(workflowId.value)
-    toast.show('草稿已入库', 'success')
+    toast.show('已导入题库', 'success')
     router.push(`/banks/${data.bank_id}`)
   } catch (err) {
     if (err === 'cancel' || err === 'close') return
@@ -145,16 +146,16 @@ onMounted(load)
         <div class="flex flex-wrap items-start justify-between gap-3">
           <div>
             <h1 class="qp-title">确认 AI 草稿</h1>
-            <p class="qp-subtitle">{{ draft.validation_summary || '请检查题目后确认入库。' }}</p>
+            <p class="qp-subtitle">{{ draft.validation_summary || '请检查题目后确认导入。' }}</p>
           </div>
           <div class="flex flex-wrap gap-2">
             <el-button type="danger" plain :loading="cancelling" @click="cancelDraft">撤销草稿</el-button>
             <el-button :loading="saving" @click="save">保存草稿</el-button>
-            <el-button type="primary" :loading="confirming" @click="confirm">确认入库</el-button>
+            <el-button type="primary" :loading="confirming" @click="confirm">导入题库</el-button>
           </div>
         </div>
         <el-descriptions class="mt-3" :column="4" size="small" border>
-          <el-descriptions-item label="Workflow">#{{ draft.workflow_id }}</el-descriptions-item>
+          <el-descriptions-item label="任务">#{{ draft.workflow_id }}</el-descriptions-item>
           <el-descriptions-item label="状态">{{ draft.status }}</el-descriptions-item>
           <el-descriptions-item label="题目">{{ draft.questions.length }}</el-descriptions-item>
           <el-descriptions-item label="有效">{{ validCount }}</el-descriptions-item>
@@ -183,7 +184,7 @@ onMounted(load)
         <el-button type="danger" plain :loading="cancelling" @click="cancelDraft">撤销草稿</el-button>
         <el-button @click="addQuestion">添加题目</el-button>
         <el-button :loading="saving" @click="save">保存草稿</el-button>
-        <el-button type="primary" :loading="confirming" @click="confirm">确认入库</el-button>
+        <el-button type="primary" :loading="confirming" @click="confirm">导入题库</el-button>
       </div>
 
       <QuestionEditorDrawer

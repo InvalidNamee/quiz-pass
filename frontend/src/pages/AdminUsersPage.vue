@@ -103,6 +103,7 @@ async function resetPassword(user: UserMe) {
   try {
     const data = await resetAdminPassword(user.id)
     temporaryPassword.value = data.temporary_password
+    toast.show('密码已重置', 'success')
   } catch (err) {
     toast.show(err instanceof Error ? err.message : '重置失败', 'error')
   } finally {
@@ -208,7 +209,7 @@ watch(() => route.fullPath, load)
 
     <el-dialog :model-value="!!temporaryPassword" title="临时密码" @update:model-value="closePasswordModal">
       <div class="grid gap-3">
-        <p class="text-sm text-slate-600">请立即把这个临时密码交给用户。关闭后前端不会再显示。</p>
+        <p class="text-sm text-slate-600">临时密码仅显示一次，请立即交给用户。关闭此窗口后将无法再次查看。</p>
         <code class="border border-slate-200 bg-slate-50 px-3 py-2 text-base font-semibold text-slate-900">{{ temporaryPassword }}</code>
       </div>
       <template #footer>

@@ -76,9 +76,13 @@ async function load(silent = false) {
 
 async function favorite() {
   if (!bank.value) return
-  if (bank.value.is_favorited) await unfavoriteBank(bank.value.id)
-  else await favoriteBank(bank.value.id)
-  await load()
+  try {
+    if (bank.value.is_favorited) { await unfavoriteBank(bank.value.id); toast.show('已取消收藏', 'success') }
+    else { await favoriteBank(bank.value.id); toast.show('已收藏', 'success') }
+    await load()
+  } catch (err) {
+    toast.show(err instanceof Error ? err.message : '操作失败', 'error')
+  }
 }
 
 async function saveEdit() {
@@ -100,6 +104,7 @@ async function removeBank() {
   try {
     await deleteBank(bank.value.id)
     deleteModal.value = false
+    toast.show('题库已删除', 'success')
     router.push('/banks')
   } catch (err) {
     toast.show(err instanceof Error ? err.message : '删除失败', 'error')
@@ -116,6 +121,7 @@ async function exportJson() {
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a'); a.href = url; a.download = `bank-${bank.value.id}.json`; a.click()
     URL.revokeObjectURL(url)
+    toast.show('导出成功', 'success')
   } catch (err) {
     toast.show(err instanceof Error ? err.message : '导出失败', 'error')
   } finally { exporting.value = false }
@@ -176,7 +182,7 @@ onBeforeUnmount(stopPolling)
           <el-button v-if="bank.permissions.can_practice" type="primary" @click="practiceDialogVisible = true">开始练习</el-button>
           <RouterLink v-if="bank.permissions.can_view_mistakes" :to="`/banks/${bank.id}/mistakes`"><el-button>我的错题</el-button></RouterLink>
           <el-button v-if="bank.permissions.can_export" :loading="exporting" @click="exportJson">导出题库</el-button>
-          <RouterLink :to="`/banks/${bank.id}/workflows`"><el-button>工作流日志</el-button></RouterLink>
+          <RouterLink :to="`/banks/${bank.id}/workflows`"><el-button>生成日志</el-button></RouterLink>
           <RouterLink v-if="canManage" :to="`/banks/${bank.id}/questions`"><el-button>题目管理</el-button></RouterLink>
           <el-button v-if="canManage" @click="generateDialogVisible = true">扩展题库</el-button>
           <RouterLink
@@ -196,8 +202,8 @@ onBeforeUnmount(stopPolling)
 
       <div v-if="canManage" class="qp-section">
         <div class="mb-2 flex items-center justify-between gap-2">
-          <h2 class="qp-section-title m-0">AI 上下文</h2>
-          <el-button size="small" type="primary" :loading="savingAIContext" @click="saveAIContext">保存上下文</el-button>
+          <h2 class="qp-section-title m-0">AI 背景</h2>
+          <el-button size="small" type="primary" :loading="savingAIContext" @click="saveAIContext">保存</el-button>
         </div>
         <el-input
           v-model="aiContext"

@@ -3,12 +3,14 @@ import { onMounted, onBeforeUnmount, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { usePracticeSession } from '../composables/usePracticeSession'
+import { useToast } from '../composables/useToast'
 import SessionHeader from '../components/practice/SessionHeader.vue'
 import QuestionCard from '../components/practice/QuestionCard.vue'
 import QuestionNavigator from '../components/practice/QuestionNavigator.vue'
 
 const route = useRoute()
 const router = useRouter()
+const toast = useToast()
 const sessionId = Number(route.params.sessionId)
 const {
   session, questions, currentIndex, selected, answerStatus, answerResults,
@@ -33,8 +35,9 @@ async function handleSubmit() {
     })
     await submitAll()
     router.push(`/practice/result/${sessionId}`)
-  } catch {
-    // 用户取消提交
+  } catch (err) {
+    if (err === 'cancel' || err === 'close') return
+    toast.show(err instanceof Error ? err.message : '提交失败', 'error')
   }
 }
 

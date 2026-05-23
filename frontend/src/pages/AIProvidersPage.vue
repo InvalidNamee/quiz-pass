@@ -43,8 +43,13 @@ async function handleSave() {
 }
 
 async function setDefault(id: number) {
-  await setDefaultAIConfig(id)
-  await load()
+  try {
+    await setDefaultAIConfig(id)
+    toast.show('已设为默认', 'success')
+    await load()
+  } catch (err) {
+    toast.show(err instanceof Error ? err.message : '操作失败', 'error')
+  }
 }
 
 async function testConfig(id: number) {
@@ -60,10 +65,14 @@ async function testConfig(id: number) {
 }
 
 async function remove(id: number) {
-  await deleteAIConfig(id)
-  deleteTarget.value = null
-  toast.show('已删除', 'info')
-  await load()
+  try {
+    await deleteAIConfig(id)
+    deleteTarget.value = null
+    toast.show('已删除', 'info')
+    await load()
+  } catch (err) {
+    toast.show(err instanceof Error ? err.message : '删除失败', 'error')
+  }
 }
 
 onMounted(load)
@@ -87,10 +96,10 @@ onMounted(load)
         </template>
       </el-table-column>
       <el-table-column label="模型" prop="model" min-width="160" />
-      <el-table-column label="JSON 限制" min-width="120">
+      <el-table-column label="JSON 模式" min-width="120">
         <template #default="{ row }">
           <el-tag size="small" :type="row.response_format_type === 'json_schema' ? 'success' : 'info'">
-            {{ row.response_format_type === 'json_schema' ? '强约束' : '弱约束' }}
+            {{ row.response_format_type === 'json_schema' ? 'json_schema (严格)' : 'json_object (宽松)' }}
           </el-tag>
         </template>
       </el-table-column>
@@ -107,13 +116,13 @@ onMounted(load)
 
     <el-dialog v-model="formVisible" :title="editingId ? '编辑配置' : '添加配置'" width="460px">
       <el-form label-position="top" size="default">
-        <el-form-item label="配置名称"><el-input v-model="form.name" placeholder="起个名字" /></el-form-item>
+        <el-form-item label="配置名称"><el-input v-model="form.name" placeholder="输入配置名称" /></el-form-item>
         <el-form-item label="接口地址"><el-input v-model="form.api_base_url" placeholder="https://api.openai.com/v1" /></el-form-item>
         <el-form-item label="模型"><el-input v-model="form.model" placeholder="gpt-4o" /></el-form-item>
-        <el-form-item label="JSON 输出限制">
+        <el-form-item label="JSON 模式">
           <el-radio-group v-model="form.response_format_type">
-            <el-radio-button label="json_object">弱约束 json_object</el-radio-button>
-            <el-radio-button label="json_schema">强约束 json_schema</el-radio-button>
+            <el-radio-button label="json_object">json_object (宽松)</el-radio-button>
+            <el-radio-button label="json_schema">json_schema (严格)</el-radio-button>
           </el-radio-group>
           <div class="mt-1 text-xs text-slate-400">模型不支持 json_schema 时请选择 json_object。</div>
         </el-form-item>

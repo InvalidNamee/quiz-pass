@@ -53,7 +53,7 @@ function validationStatus(row: Row) {
     <el-table-column v-if="showSource" label="来源" width="90">
       <template #default="{ row }: { row: Row }">{{ isFormalQuestion(row) ? sourceLabel(row.source) : '' }}</template>
     </el-table-column>
-    <el-table-column v-if="showValidation" label="校验" width="120">
+    <el-table-column v-if="showValidation" label="校验状态" width="120">
       <template #default="{ row }: { row: Row }">
         <el-tag size="small" :type="validationStatus(row) === 'valid' ? 'success' : 'danger'">{{ validationStatus(row) }}</el-tag>
       </template>

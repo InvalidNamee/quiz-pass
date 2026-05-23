@@ -52,7 +52,7 @@ async function load() {
   try {
     detail.value = await getWorkflowDetail(props.workflow.id)
   } catch (err) {
-    toast.show(err instanceof Error ? err.message : '加载 workflow 详情失败', 'error')
+    toast.show(err instanceof Error ? err.message : '加载详情失败', 'error')
   } finally {
     loading.value = false
   }
@@ -62,11 +62,11 @@ watch(() => [props.modelValue, props.workflow?.id], load, { immediate: true })
 </script>
 
 <template>
-  <el-drawer :model-value="modelValue" title="Workflow 详情" size="760px" @update:model-value="emit('update:modelValue', $event)">
+  <el-drawer :model-value="modelValue" title="生成详情" size="760px" @update:model-value="emit('update:modelValue', $event)">
     <div v-loading="loading" class="grid gap-3">
       <template v-if="detail">
         <el-descriptions :column="2" size="small" border>
-          <el-descriptions-item label="Workflow">#{{ detail.id }}</el-descriptions-item>
+          <el-descriptions-item label="任务 ID">#{{ detail.id }}</el-descriptions-item>
           <el-descriptions-item label="状态">{{ statusText(detail.status) }}</el-descriptions-item>
           <el-descriptions-item label="模型">{{ detail.ai_model_snapshot || '-' }}</el-descriptions-item>
           <el-descriptions-item label="修复次数">{{ detail.repair_attempts }}</el-descriptions-item>

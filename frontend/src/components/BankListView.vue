@@ -2,9 +2,11 @@
 import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useBankList } from '../composables/useBankList'
-import { favoriteBank, unfavoriteBank, listTags } from '../api/v2/banks'
-import type { QuestionBankV2, QuestionBankTag } from '../api/types'
+import { favoriteBank, unfavoriteBank } from '../api/v2/banks'
+import type { QuestionBankV2 } from '../api/types'
 import GenerateBankDialog from './GenerateBankDialog.vue'
+import TagFilterDialog from './TagFilterDialog.vue'
+import AuthorFilterDialog from './AuthorFilterDialog.vue'
 import { isUnstableBankStatus, isUnstableWorkflowStatus } from '../utils/generationStatus'
 
 const props = defineProps<{
@@ -16,13 +18,9 @@ const props = defineProps<{
 
 const route = useRoute()
 const router = useRouter()
-const { banks, pageInfo, keyword, ownerId, selectedTags, visibility, generationStatus, loading, hasActiveFilters, load, clearAll, goPage } = useBankList(props.scope)
+const { banks, pageInfo, keyword, selectedAuthor, selectedTags, visibility, generationStatus, loading, hasActiveFilters, load, clearAll, goPage } = useBankList(props.scope)
 
-const tagDialogVisible = ref(false)
 const createDialogVisible = ref(false)
-const allTags = ref<QuestionBankTag[]>([])
-const selectedTagIds = ref<number[]>([])
-const tagKeyword = ref('')
 let pollingTimer: number | null = null
 
 function hasUnstableBanks() {
@@ -60,43 +58,12 @@ async function toggleFavorite(bank: QuestionBankV2) {
 function applySearch() {
   const q: Record<string, string> = {}
   if (keyword.value.trim()) q.keyword = keyword.value.trim()
-  if (props.showAuthorFilter && ownerId.value) q.owner_id = String(ownerId.value)
+  if (props.showAuthorFilter && selectedAuthor.value?.id) q.owner_id = String(selectedAuthor.value.id)
   const tids = selectedTags.value.map(t => t.id).filter(Boolean).join(',')
   if (tids) q.tag_ids = tids
   if (visibility.value) q.visibility = visibility.value
   if (generationStatus.value) q.generation_status = generationStatus.value
   router.push({ query: q })
-}
-
-async function loadTagOptions() {
-  allTags.value = (await listTags({ keyword: tagKeyword.value.trim() || undefined, page_size: 200 })).items
-}
-
-async function openTagDialog() {
-  tagKeyword.value = ''
-  await loadTagOptions()
-  selectedTagIds.value = selectedTags.value.map(t => t.id)
-  tagDialogVisible.value = true
-}
-
-function toggleTag(tag: QuestionBankTag) {
-  const idx = selectedTagIds.value.indexOf(tag.id)
-  if (idx >= 0) selectedTagIds.value.splice(idx, 1)
-  else selectedTagIds.value.push(tag.id)
-}
-
-function confirmTags() {
-  const merged = [...selectedTags.value, ...allTags.value]
-  selectedTags.value = selectedTagIds.value
-    .map(id => merged.find(t => t.id === id))
-    .filter((tag): tag is QuestionBankTag => Boolean(tag))
-  tagDialogVisible.value = false
-  applySearch()
-}
-
-function removeSelectedTag(tagId: number) {
-  selectedTags.value = selectedTags.value.filter(t => t.id !== tagId)
-  applySearch()
 }
 
 onMounted(load)
@@ -120,25 +87,35 @@ onBeforeUnmount(stopPolling)
     <!-- Inline filters -->
     <div class="qp-toolbar">
       <el-input v-model="keyword" size="small" placeholder="搜索…" clearable class="!w-40" @change="applySearch" />
-      <el-input v-if="showAuthorFilter" v-model.number="ownerId" size="small" placeholder="作者ID" clearable class="!w-24" @change="applySearch" />
-      <el-button size="small" @click="openTagDialog">{{ selectedTags.length ? `标签(${selectedTags.length})` : '标签' }}</el-button>
+      <AuthorFilterDialog v-if="showAuthorFilter" v-model="selectedAuthor" @update:model-value="applySearch" />
+      <TagFilterDialog v-model="selectedTags" @update:model-value="applySearch" />
       <el-select v-if="showVisibilityFilter" v-model="visibility" size="small" placeholder="可见性" clearable class="!w-24" @change="applySearch">
         <el-option label="私有" value="private" />
         <el-option label="公开" value="public" />
       </el-select>
       <el-select v-if="showGenerationFilter" v-model="generationStatus" size="small" placeholder="状态" clearable class="!w-24" @change="applySearch">
-        <el-option label="普通" value="none" />
+        <el-option label="手动创建" value="none" />
         <el-option label="生成中" value="processing" />
         <el-option label="成功" value="succeeded" />
         <el-option label="失败" value="failed" />
       </el-select>
       <el-button v-if="hasActiveFilters" size="small" text @click="clearAll">清除</el-button>
     </div>
-    <div v-if="selectedTags.length" class="flex flex-wrap items-center gap-2 border-b border-slate-100 pb-2">
-      <span class="text-sm text-slate-500">已选标签</span>
-      <el-tag v-for="tag in selectedTags" :key="tag.id" closable size="small" type="primary" effect="plain" @close="removeSelectedTag(tag.id)">
-        {{ tag.name }}
-      </el-tag>
+    <div v-if="selectedTags.length || (showAuthorFilter && selectedAuthor)" class="flex flex-wrap items-center gap-2 border-b border-slate-100 pb-2">
+      <template v-if="showAuthorFilter && selectedAuthor">
+        <span class="text-sm text-slate-500">已选作者</span>
+        <el-tag closable size="small" type="primary" effect="plain" @close="selectedAuthor = null; applySearch()">
+          <div class="flex items-center gap-1.5">
+            <span>{{ selectedAuthor.display_name || selectedAuthor.username }}</span>
+          </div>
+        </el-tag>
+      </template>
+      <template v-if="selectedTags.length">
+        <span v-if="!(showAuthorFilter && selectedAuthor)" class="text-sm text-slate-500">已选标签</span>
+        <el-tag v-for="tag in selectedTags" :key="tag.id" closable size="small" type="primary" effect="plain" @close="selectedTags = selectedTags.filter(t => t.id !== tag.id); applySearch()">
+          {{ tag.name }}
+        </el-tag>
+      </template>
     </div>
 
     <el-table v-loading="loading" :data="banks" stripe size="small" highlight-current-row @row-click="(row: QuestionBankV2) => router.push(`/banks/${row.id}`)" class="cursor-pointer">
@@ -166,10 +143,10 @@ onBeforeUnmount(stopPolling)
           <RouterLink class="text-blue-700 hover:underline" :to="`/users/${row.owner.id}`" @click.stop>{{ row.owner.display_name || row.owner.username }}</RouterLink>
         </template>
       </el-table-column>
-      <el-table-column label="题" width="50" align="center">
+      <el-table-column label="题目数" width="50" align="center">
         <template #default="{ row }: { row: QuestionBankV2 }">{{ row.stats.question_count }}</template>
       </el-table-column>
-      <el-table-column label="收藏" width="50" align="center">
+      <el-table-column label="收藏数" width="50" align="center">
         <template #default="{ row }: { row: QuestionBankV2 }">{{ row.stats.favorite_count }}</template>
       </el-table-column>
       <el-table-column width="64" align="center">
@@ -195,21 +172,6 @@ onBeforeUnmount(stopPolling)
       @current-change="goPage"
     />
 
-    <!-- Tag dialog -->
-    <el-dialog v-model="tagDialogVisible" title="选择标签" width="420px">
-      <div class="mb-3 flex gap-2">
-        <el-input v-model="tagKeyword" placeholder="搜索标签" clearable @keyup.enter="loadTagOptions" @clear="loadTagOptions" />
-        <el-button @click="loadTagOptions">搜索</el-button>
-      </div>
-      <div class="flex max-h-80 flex-wrap gap-2 overflow-y-auto">
-        <el-tag v-for="tag in allTags" :key="tag.id" :type="selectedTagIds.includes(tag.id) ? 'primary' : 'info'" class="cursor-pointer" @click="toggleTag(tag)">{{ tag.name }}</el-tag>
-      </div>
-      <p v-if="!allTags.length" class="py-4 text-center text-sm text-slate-400">暂无标签</p>
-      <template #footer>
-        <el-button @click="tagDialogVisible = false">取消</el-button>
-        <el-button type="primary" @click="confirmTags">确定 ({{ selectedTagIds.length }})</el-button>
-      </template>
-    </el-dialog>
 
     <GenerateBankDialog v-model="createDialogVisible" @submitted="load" />
   </div>

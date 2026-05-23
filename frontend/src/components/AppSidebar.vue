@@ -33,8 +33,8 @@ function handleSelect(index: string) {
       <el-menu-item index="/banks">我的题库</el-menu-item>
       <el-menu-item index="/banks/public">公开题库</el-menu-item>
       <el-menu-item index="/favorites">我的收藏</el-menu-item>
-      <el-menu-item index="/history">刷题记录</el-menu-item>
-      <el-menu-item index="/banks/generation-jobs">生成队列</el-menu-item>
+      <el-menu-item index="/history">练习记录</el-menu-item>
+      <el-menu-item index="/banks/generation-jobs">生成任务</el-menu-item>
       <el-menu-item index="/settings/ai-providers">AI 配置</el-menu-item>
       <el-menu-item v-if="auth.user?.role === 'admin'" index="/admin/users">用户管理</el-menu-item>
     </el-menu>

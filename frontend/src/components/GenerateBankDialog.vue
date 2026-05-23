@@ -177,7 +177,7 @@ watch(() => props.modelValue, (open) => { if (open) load() }, { immediate: true 
 
       <template v-if="showNewBankFields">
         <div class="grid gap-3 sm:grid-cols-2">
-          <el-form-item label="题库名称"><el-input v-model="title" placeholder="起个名字" /></el-form-item>
+          <el-form-item label="题库名称"><el-input v-model="title" placeholder="输入题库名称" /></el-form-item>
           <el-form-item label="可见性">
             <el-checkbox v-model="isPublic">{{ createMode === 'json_import' ? '公开题库' : '生成成功后自动公开' }}</el-checkbox>
           </el-form-item>
@@ -209,12 +209,12 @@ watch(() => props.modelValue, (open) => { if (open) load() }, { immediate: true 
         <el-form-item label="额外指令（可选）">
           <el-input v-model="extraInstruction" type="textarea" :rows="3" maxlength="2000" show-word-limit placeholder="例如：题目偏实战场景；解析更详细" />
         </el-form-item>
-        <el-form-item v-if="createMode === 'ai_knowledge'"><el-checkbox v-model="generateDescription">让 AI 生成题库描述</el-checkbox></el-form-item>
+        <el-form-item v-if="createMode === 'ai_knowledge'"><el-checkbox v-model="generateDescription">AI 自动生成描述</el-checkbox></el-form-item>
         <el-form-item v-if="isExtend">
-          <el-checkbox v-model="inheritContext">使用题库 AI 描述</el-checkbox>
+          <el-checkbox v-model="inheritContext">使用已有 AI 描述</el-checkbox>
         </el-form-item>
         <el-form-item v-if="isExtend">
-          <el-checkbox v-model="includeExistingQuestions">附带已有题目题干给 AI</el-checkbox>
+          <el-checkbox v-model="includeExistingQuestions">发送已有题目给 AI 参考</el-checkbox>
         </el-form-item>
       </template>
 

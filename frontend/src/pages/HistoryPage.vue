@@ -67,7 +67,7 @@ onMounted(load); watch(() => route.fullPath, load)
       <el-table-column label="开始时间" width="190">
         <template #default="{ row }: { row: PracticeSession }">{{ formatTime(row.started_at) }}</template>
       </el-table-column>
-      <el-table-column label="最后进入" width="190">
+      <el-table-column label="最后作答" width="190">
         <template #default="{ row }: { row: PracticeSession }">{{ formatTime(lastActivity(row)) }}</template>
       </el-table-column>
     </el-table>

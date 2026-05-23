@@ -29,8 +29,8 @@ const visible = computed({
 })
 
 const modeDescriptions: Record<string, string> = {
-  practice: '每题作答后立即显示对错和解析，适合日常练习。',
-  exam: '模拟考试环境，提交前不显示答案，交卷后统一出分。',
+  practice: '答完即出结果和解析，适合日常练习。',
+  exam: '模拟真实考试，交卷后统一阅卷出分。',
   mistake_review: '只练习当前题库中做错的题目，查漏补缺。',
 }
 
@@ -43,6 +43,8 @@ async function load() {
   loading.value = true
   try {
     bank.value = await getBank(props.bankId)
+  } catch (err) {
+    toast.show(err instanceof Error ? err.message : '加载题库失败', 'error')
   } finally {
     loading.value = false
   }

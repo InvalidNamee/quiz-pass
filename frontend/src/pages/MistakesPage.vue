@@ -53,7 +53,7 @@ onMounted(load)
     <div class="qp-titlebar">
       <div>
         <h1 class="qp-title">我的错题</h1>
-        <p class="qp-subtitle">{{ pageInfo?.total ?? mistakes.length }} 道未掌握</p>
+        <p class="qp-subtitle">{{ pageInfo?.total ?? mistakes.length }} 道错题</p>
       </div>
       <el-button size="small" :disabled="!mistakes.length" @click="practice">错题练习</el-button>
     </div>
@@ -63,9 +63,9 @@ onMounted(load)
         <template #default="{ row, $index }">
           <div class="border-l-2 border-l-red-400 pl-3">
             <div class="flex flex-wrap items-center gap-2">
-              <el-tag type="danger" size="small">错误 {{ row.wrong_count }} 次</el-tag>
+              <el-tag type="danger" size="small">答错 {{ row.wrong_count }} 次</el-tag>
               <el-tag type="warning" size="small">最后错误 {{ formatTime(row.last_wrong_at) }}</el-tag>
-              <el-button text size="small" :loading="resolving.has(row.question_id)" @click="resolve(row.question_id)">已掌握</el-button>
+              <el-button text size="small" :loading="resolving.has(row.question_id)" @click="resolve(row.question_id)">已订正</el-button>
             </div>
             <strong class="mt-3 block text-slate-900">
               {{ ((pageInfo?.page || 1) - 1) * (pageInfo?.page_size || mistakes.length) + $index + 1 }}.

@@ -42,7 +42,7 @@ onMounted(async () => {
       <div>
       <h1 class="qp-title">练习结果</h1>
       <p v-if="session" class="qp-subtitle">
-        得分 <strong class="text-slate-900">{{ session.score }}</strong>，正确 {{ session.correct_count }} / {{ session.total_questions }}
+        得分 <strong class="text-slate-900">{{ session.score }}</strong>，答对 {{ session.correct_count }} / {{ session.total_questions }}
       </p>
       </div>
     </div>

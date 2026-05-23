@@ -196,12 +196,12 @@ onBeforeUnmount(stopPolling)
 
     <WorkflowTable :workflows="jobs" :loading="loading" show-actions show-sensitive-error>
       <template #actions="{ row }">
-          <div class="flex flex-wrap gap-1">
+          <div class="flex flex-wrap gap-1.5 items-center">
             <el-button size="small" @click="openDetail(row)">详情</el-button>
             <RouterLink v-if="row.can_confirm" :to="`/ai-generation/workflows/${row.id}/draft`">
               <el-button size="small" type="primary">确认草稿</el-button>
             </RouterLink>
-            <el-tag v-if="row.retried_by_workflow_id" type="info">已重新生成 #{{ row.retried_by_workflow_id }}</el-tag>
+            <el-tag v-if="row.retried_by_workflow_id" size="small" type="info">已被 #{{ row.retried_by_workflow_id }} 取代</el-tag>
             <el-button v-if="row.can_retry" size="small" @click="openRetry(row)">重新生成</el-button>
             <el-button v-if="row.can_cancel" size="small" type="danger" plain @click="cancelRow(row)">撤销</el-button>
             <RouterLink v-if="row.bank_id" :to="`/banks/${row.bank_id}`">
