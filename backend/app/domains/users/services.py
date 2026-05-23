@@ -20,7 +20,7 @@ from app.schemas.user import AdminPasswordResetOut, AdminUserUpdate, AuthMessage
 from app.utils.avatar import build_qq_avatar_url
 from app.utils.crypto import decrypt_secret, encrypt_secret
 from app.utils.pagination import paginate
-from app.services.email_delivery import EmailDeliveryService
+from app.infrastructure.email import EmailDeliveryService
 
 
 class UserAuthService:

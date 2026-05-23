@@ -9,7 +9,7 @@ from app.domains.question_banks.schemas import QuestionBankAIContextUpdate, Ques
 from app.domains.question_banks.stats import QuestionBankStatsService
 from app.models.question_bank import QuestionBank, QuestionBankFavorite
 from app.models.user import User
-from app.services.question_bank_tags import set_bank_tags
+from app.domains.question_banks.tags import set_bank_tags
 
 
 class QuestionBankService:

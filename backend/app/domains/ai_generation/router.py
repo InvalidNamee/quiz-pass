@@ -85,14 +85,14 @@ async def create_extend_workflow(
 def list_workflows(page: int = 1, page_size: int = 20, status: str | None = None, bank_id: int | None = None, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     service = AIGenerationWorkflowService(db)
     items, total, page, page_size = paginate(db, service.workflows_for_user_stmt(current_user, status, bank_id), page, page_size)
-    return page_response([service.workflow_out(item) for item in items], total, page, page_size)
+    return page_response(service.workflow_out_many(items), total, page, page_size)
 
 
 @router.get("/banks/{bank_id}/ai-workflows", response_model=Page[AIGenerationWorkflowOut])
 def list_bank_workflows(bank_id: int, page: int = 1, page_size: int = 20, status: str | None = None, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     service = AIGenerationWorkflowService(db)
     items, total, page, page_size = paginate(db, service.workflows_for_readable_bank_stmt(bank_id, current_user, status), page, page_size)
-    return page_response([service.workflow_out(item, redact_sensitive=True) for item in items], total, page, page_size)
+    return page_response(service.workflow_out_many(items, redact_sensitive=True), total, page, page_size)
 
 
 @router.get("/ai/workflows/{workflow_id}", response_model=AIGenerationWorkflowOut)

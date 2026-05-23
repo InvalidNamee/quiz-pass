@@ -182,12 +182,17 @@ Important tables:
 
 ## Known Issues and Technical Debt
 
-- `frontend/src/utils/mathjax.ts` contains KaTeX implementation but still uses
-  the old MathJax name. Rename to `mathText.ts` and update imports.
-- Frontend still has page-level orchestration in several places. Existing
-  `components/` are useful, but feature folders are not fully established.
-- `AIGenerationWorkflowService.workflow_out()` performs several per-row queries.
-  Workflow list endpoints can become N+1 heavy as data grows.
+- KaTeX rendering has been renamed to `frontend/src/utils/mathText.ts`.
+- `features/questions` now owns the shared question table/editor/option editor
+  used by question management and AI draft confirmation.
+- `features/tags` now owns tag normalization so tag submission filters
+  `null`/empty/`none` before sending to the backend.
+- Workflow list DTOs now use batch aggregation for jobs, drafts, imported
+  counts, and retry child links; public bank logs remain redacted.
+- The old top-level `backend/app/services` package has been removed:
+  AI compatibility helpers live in `domains/ai_generation/facade.py`, tag
+  helpers live in `domains/question_banks/tags.py`, and SMTP delivery lives in
+  `infrastructure/email.py`.
 - Background work still uses FastAPI `BackgroundTasks`. For production-scale
   long-running jobs, introduce a queue such as RQ/Celery/Arq plus Redis.
 - Email delivery is configured through SMTP and logs links in development when
@@ -203,20 +208,27 @@ Important tables:
 - `.gitignore` now ignores the root test database and frontend TypeScript build
   info file.
 
-### P1: Workflow List Performance and DTO Hardening
+### Done: Workflow List Performance and DTO Hardening
 
-- Replace per-row workflow count lookups with batch aggregation for draft counts,
-  imported counts, jobs, and retry children.
-- Keep public bank workflow logs redacted by default.
-- Add tests for public readable bank logs while an extension workflow is pending,
-  draft-ready, failed, cancelled, and imported.
+- Workflow list endpoints use batch DTO assembly for draft counts, imported
+  counts, jobs, and retry children.
+- Public bank workflow logs stay redacted by default.
+- Tests cover public readable bank logs for extension workflows in pending,
+  draft-ready, failed, cancelled, and imported states.
 
-### P1: Frontend Feature Cleanup
+### Done: Frontend Feature Cleanup
 
-- Rename KaTeX utility from `mathjax.ts` to `mathText.ts`.
-- Move question editor/table logic into `features/questions`.
-- Move tag input normalization into `features/tags`.
+- KaTeX utility is now `mathText.ts`.
+- Question editor/table logic lives in `features/questions`.
+- Tag normalization lives in `features/tags`.
 - Keep Element Plus dense layout and remove remaining large-card patterns.
+
+### Done: Backend Service Boundary Cleanup
+
+- Removed the legacy top-level `backend/app/services` package.
+- Moved AI compatibility functions to `domains/ai_generation/facade.py`.
+- Moved question bank tag helpers to `domains/question_banks/tags.py`.
+- Moved SMTP delivery to `infrastructure/email.py`.
 
 ### P2: AI Workflow Operations
 

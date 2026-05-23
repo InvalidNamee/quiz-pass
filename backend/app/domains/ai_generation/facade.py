@@ -1,7 +1,8 @@
-"""Compatibility facade for AI generation.
+"""Compatibility facade for AI generation tests and runtime injection.
 
-New AI workflow logic lives under app.domains.ai_generation. This module keeps
-the historical import and monkeypatch surface used by v1 routes and tests.
+Core AI workflow logic lives in this package. This module keeps a narrow,
+patchable surface for tests and background task execution without preserving
+the old top-level services package.
 """
 
 from sqlalchemy.orm import Session

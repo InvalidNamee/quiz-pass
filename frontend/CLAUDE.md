@@ -36,7 +36,7 @@ Stack:
 - Vue Router
 - Pinia
 - Tailwind CSS v4 through `@tailwindcss/vite`
-- MathJax via `MathText.vue` and `utils/mathjax.ts`
+- KaTeX via `MathText.vue` and `utils/mathText.ts`
 
 Important files:
 

@@ -1,14 +1,14 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import type { AIProviderConfig, QuestionBankTag, QuestionBankV2 } from '../api/types'
+import type { AIProviderConfig, QuestionBankV2 } from '../api/types'
 import { createWorkflow, extendWorkflow } from '../api/v2/aiGeneration'
 import { getBank, importJsonNewBank, importJsonToBank } from '../api/v2/banks'
 import { listAIConfigs } from '../api/v2/users'
 import { useToast } from '../composables/useToast'
+import { normalizeTagNames, tagKey, tagLabel, type TagInputValue } from '../features/tags/tagUtils'
 
 type CreateMode = 'ai_knowledge' | 'ai_parse' | 'json_import'
-type TagInputValue = QuestionBankTag | string | null | undefined
 
 const props = defineProps<{
   modelValue: boolean
@@ -71,28 +71,6 @@ function fileStem(fileName: string) {
   return fileName.replace(/\.[^/.]+$/, '')
 }
 
-function normalizeTagNames(values: TagInputValue[] = selectedTags.value) {
-  const seen = new Set<string>()
-  const names: string[] = []
-  values.forEach((value) => {
-    const rawName = typeof value === 'string' ? value : value?.name
-    const name = (rawName || '').trim()
-    if (!name || name.toLowerCase() === 'none' || seen.has(name)) return
-    seen.add(name)
-    names.push(name)
-  })
-  return names
-}
-
-function tagKey(tag: TagInputValue, index: number) {
-  if (typeof tag === 'string') return tag
-  return tag?.id || tag?.name || index
-}
-
-function tagLabel(tag: TagInputValue) {
-  return typeof tag === 'string' ? tag : tag?.name || ''
-}
-
 async function prefillFromJson(uploadedFile: File) {
   if (isExtend.value || createMode.value !== 'json_import') return
   try {
@@ -141,7 +119,7 @@ async function submit() {
 
     if (createMode.value === 'json_import') {
       form.set('visibility', isPublic.value ? 'public' : 'private')
-      const tagNames = normalizeTagNames()
+      const tagNames = normalizeTagNames(selectedTags.value)
       if (tagNames.length) form.set('tag_names', JSON.stringify(tagNames))
       if (!isExtend.value) form.set('file_stem', fileStem(file.value.name))
       const importedBank = isExtend.value && props.extendBankId
@@ -153,7 +131,7 @@ async function submit() {
         form.set('title', title.value)
         if (description.value.trim()) form.set('description', description.value.trim())
         form.set('desired_visibility', isPublic.value ? 'public' : 'private')
-        const tagNames = normalizeTagNames()
+        const tagNames = normalizeTagNames(selectedTags.value)
         if (tagNames.length) form.set('tag_names', JSON.stringify(tagNames))
       }
       form.set('generation_mode', createMode.value === 'ai_parse' ? 'bank_parse' : 'knowledge_generate')

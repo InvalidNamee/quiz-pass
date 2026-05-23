@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { computed } from 'vue'
-import { renderMathTextToHtml } from '../utils/mathjax'
+import { renderMathTextToHtml } from '../utils/mathText'
 
 const props = withDefaults(defineProps<{
   text: string | null | undefined

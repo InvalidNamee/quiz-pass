@@ -24,7 +24,7 @@ from app.models.question import Question, QuestionOption  # noqa: E402
 from app.models.question_bank import QuestionBank, QuestionBankFavorite, question_bank_tag_links  # noqa: E402
 from app.models.user import EmailAuthToken, User  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
-import app.services.email_delivery as email_delivery  # noqa: E402
+import app.infrastructure.email as email_delivery  # noqa: E402
 
 
 def _register(client: TestClient, email: str, username: str) -> dict[str, str]:
@@ -664,7 +664,7 @@ def test_ai_generation_validation_failure(monkeypatch):
         )
         assert config.status_code == 200
 
-        from app.services import ai_generation
+        from app.domains.ai_generation import facade as ai_generation
 
         def bad_ai(*args, **kwargs):
             return {"questions": [{"type": "single", "stem": "bad", "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": True}]}]}
@@ -705,7 +705,7 @@ def test_ai_generation_repair_draft_confirm_and_extend(monkeypatch):
             json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
         )
 
-        from app.services import ai_generation
+        from app.domains.ai_generation import facade as ai_generation
 
         calls = []
         outputs = [
@@ -831,7 +831,7 @@ def test_bank_workflow_logs_redact_failed_error_for_readers(monkeypatch):
         )
         bank = client.post("/api/v2/banks", headers=headers, json={"title": "Workflow Log", "visibility": "public"}).json()
 
-        from app.services import ai_generation
+        from app.domains.ai_generation import facade as ai_generation
 
         def bad_ai(*args, **kwargs):
             return {"questions": []}
@@ -860,6 +860,97 @@ def test_bank_workflow_logs_redact_failed_error_for_readers(monkeypatch):
         assert item["ai_provider_config_id"] is None
         assert "sensitive source text" not in str(item)
         assert "sensitive extra instruction" not in str(item)
+
+
+def test_public_bank_workflow_logs_cover_extension_states_and_redaction():
+    with TestClient(app) as client:
+        headers = _register(client, "workflow-state-owner@example.com", "workflowstateowner")
+        reader_headers = _register(client, "workflow-state-reader@example.com", "workflowstatereader")
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Workflow States", "visibility": "public"}).json()
+
+        db = SessionLocal()
+        try:
+            owner = db.scalar(select(User).where(User.username == "workflowstateowner"))
+            assert owner is not None
+            workflows = []
+            for status in ["pending", "draft_ready", "failed", "cancelled", "imported"]:
+                workflow = AIGenerationWorkflow(
+                    bank_id=bank["id"],
+                    user_id=owner.id,
+                    purpose="extend_bank",
+                    generation_mode="knowledge_generate",
+                    status=status,
+                    source_file_name=f"{status}.txt",
+                    source_text_snapshot=f"{status} sensitive source",
+                    extra_instruction=f"{status} sensitive instruction",
+                    error_message=f"{status} sensitive error detail",
+                    ai_provider_config_id=None,
+                    ai_model_snapshot="mock",
+                    ai_base_url_snapshot="example.test",
+                )
+                db.add(workflow)
+                db.flush()
+                db.add(
+                    ImportJob(
+                        user_id=owner.id,
+                        bank_id=bank["id"],
+                        workflow_id=workflow.id,
+                        status=status,
+                        desired_visibility="public",
+                        type="document_ai",
+                    )
+                )
+                if status == "draft_ready":
+                    draft = AIGenerationDraft(workflow_id=workflow.id, bank_id=bank["id"], user_id=owner.id, status="ready")
+                    db.add(draft)
+                    db.flush()
+                    db.add(
+                        AIGenerationDraftQuestion(
+                            draft_id=draft.id,
+                            sort_order=0,
+                            type="single",
+                            stem="Draft pending question",
+                            options_json='[{"label":"A","content":"A","is_correct":true},{"label":"B","content":"B","is_correct":false}]',
+                            validation_status="valid",
+                        )
+                    )
+                if status == "imported":
+                    db.add(
+                        AIGenerationWorkflowStep(
+                            workflow_id=workflow.id,
+                            step_name="confirm_draft",
+                            status="succeeded",
+                            output_json='{"question_count": 3}',
+                        )
+                    )
+                workflows.append(workflow)
+            db.commit()
+            workflow_ids = {workflow.status: workflow.id for workflow in workflows}
+        finally:
+            db.close()
+
+        logs = client.get(f"/api/v2/banks/{bank['id']}/ai-workflows?page_size=20", headers=reader_headers)
+        assert logs.status_code == 200, logs.text
+        items = {item["id"]: item for item in logs.json()["items"]}
+        for status, workflow_id in workflow_ids.items():
+            item = items[workflow_id]
+            assert item["status"] == status
+            assert item["source_file_name"] is None
+            assert item["source_text_snapshot"] is None
+            assert item["extra_instruction"] is None
+            assert item["error_message"] is None
+            assert item["ai_provider_config_id"] is None
+            assert item["can_confirm"] is False
+        assert items[workflow_ids["draft_ready"]]["draft_question_count"] == 1
+        assert items[workflow_ids["imported"]]["imported_question_count"] == 3
+        assert items[workflow_ids["imported"]]["question_delta"] == 3
+
+        owner_queue = client.get("/api/v2/ai/workflows?page_size=20", headers=headers)
+        assert owner_queue.status_code == 200, owner_queue.text
+        owner_items = {item["id"]: item for item in owner_queue.json()["items"]}
+        failed_owner_item = owner_items[workflow_ids["failed"]]
+        assert failed_owner_item["error_message"] == "failed sensitive error detail"
+        assert failed_owner_item["source_file_name"] == "failed.txt"
 
 
 def test_delete_bank_cleans_generation_and_practice_records(monkeypatch):
@@ -1061,7 +1152,7 @@ def test_v2_ai_workflow_cancel_create_bank_preserves_audit_and_deletes_shell(mon
             json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
         )
 
-        from app.services import ai_generation
+        from app.domains.ai_generation import facade as ai_generation
 
         def good_ai(*args, **kwargs):
             return {
@@ -1108,7 +1199,7 @@ def test_v2_ai_workflow_retry_failed_creates_new_workflow(monkeypatch):
             json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
         )
 
-        from app.services import ai_generation
+        from app.domains.ai_generation import facade as ai_generation
 
         mode = {"ok": False}
 
@@ -1244,7 +1335,7 @@ def test_v2_extend_workflow_inherit_context_toggle(monkeypatch):
             },
         )
 
-        from app.services import ai_generation
+        from app.domains.ai_generation import facade as ai_generation
 
         seen_texts = []
 
@@ -1315,7 +1406,7 @@ def test_v2_extend_workflow_existing_question_context_truncates(monkeypatch):
                 },
             )
 
-        from app.services import ai_generation
+        from app.domains.ai_generation import facade as ai_generation
         from app.domains.ai_generation import context as context_module
 
         seen_texts = []
@@ -1353,7 +1444,7 @@ def test_bank_parse_mode_without_question_count_and_detailed_errors(monkeypatch)
             json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
         )
 
-        from app.services import ai_generation
+        from app.domains.ai_generation import facade as ai_generation
 
         seen_modes = []
         seen_extra = []
@@ -1428,7 +1519,7 @@ def test_ai_generation_success_public_after_write(monkeypatch):
             json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
         )
 
-        from app.services import ai_generation
+        from app.domains.ai_generation import facade as ai_generation
 
         def good_ai(*args, **kwargs):
             return {
@@ -1546,7 +1637,7 @@ def test_deleting_ai_provider_preserves_workflow_history_and_snapshots(monkeypat
             json={"name": "history", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "history-model", "is_default": True},
         ).json()
 
-        from app.services import ai_generation
+        from app.domains.ai_generation import facade as ai_generation
 
         def good_ai(*args, **kwargs):
             return {

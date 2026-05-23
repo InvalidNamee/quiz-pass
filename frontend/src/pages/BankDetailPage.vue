@@ -3,15 +3,14 @@ import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { authHeader, statusVariant } from '../api/http'
 import { getBank, updateBank, updateBankAIContext, deleteBank, favoriteBank, unfavoriteBank, exportBankUrl } from '../api/v2/banks'
-import type { QuestionBankV2, QuestionBankTag } from '../api/types'
+import type { QuestionBankV2 } from '../api/types'
 import { useAuthStore } from '../stores/auth'
 import { useToast } from '../composables/useToast'
 import UserAvatar from '../components/UserAvatar.vue'
 import PracticeSetupDialog from '../components/PracticeSetupDialog.vue'
 import GenerateBankDialog from '../components/GenerateBankDialog.vue'
 import { isUnstableBankStatus, isUnstableWorkflowStatus } from '../utils/generationStatus'
-
-type TagInputValue = QuestionBankTag | string | null | undefined
+import { normalizeTagNames, tagKey, tagLabel, type TagInputValue } from '../features/tags/tagUtils'
 
 const route = useRoute()
 const router = useRouter()
@@ -73,28 +72,6 @@ async function load(silent = false) {
     editTags.value = bank.value.tags || []
     aiContext.value = bank.value.ai_context || ''
   } finally { if (!silent) loading.value = false }
-}
-
-function normalizeTagNames(values: TagInputValue[]) {
-  const seen = new Set<string>()
-  const names: string[] = []
-  values.forEach((value) => {
-    const rawName = typeof value === 'string' ? value : value?.name
-    const name = (rawName || '').trim()
-    if (!name || name.toLowerCase() === 'none' || seen.has(name)) return
-    seen.add(name)
-    names.push(name)
-  })
-  return names
-}
-
-function tagKey(tag: TagInputValue, index: number) {
-  if (typeof tag === 'string') return tag
-  return tag?.id || tag?.name || index
-}
-
-function tagLabel(tag: TagInputValue) {
-  return typeof tag === 'string' ? tag : tag?.name || ''
 }
 
 async function favorite() {

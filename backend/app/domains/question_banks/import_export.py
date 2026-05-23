@@ -10,7 +10,7 @@ from app.domains.question_banks.queries import QuestionBankQueryService
 from app.domains.question_banks.stats import QuestionBankStatsService
 from app.models.question_bank import QuestionBank
 from app.models.user import User
-from app.services.question_bank_tags import merge_tag_names, normalize_tag_names, set_bank_tags
+from app.domains.question_banks.tags import merge_tag_names, normalize_tag_names, set_bank_tags
 from app.utils.json_io import create_question_from_payload, question_to_json
 
 

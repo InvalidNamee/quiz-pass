@@ -2,8 +2,8 @@ import asyncio
 import html
 import logging
 
-from fastapi_mail.errors import ConnectionErrors
 from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
+from fastapi_mail.errors import ConnectionErrors
 
 from app.core.config import get_settings
 

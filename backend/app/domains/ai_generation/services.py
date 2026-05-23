@@ -18,14 +18,14 @@ from app.models.import_job import ImportJob
 from app.models.question_bank import QuestionBank
 from app.models.user import User
 from app.schemas.ai import AIGenerationDraftOut, AIGenerationWorkflowOut, AIGenerationWorkflowStepOut
-from app.services.question_bank_tags import set_bank_tags
+from app.domains.question_banks.tags import set_bank_tags
 from app.utils.document_extractors import extract_text
 
 
 def run_generation_task(workflow_id: int, text: str, question_count: int | None, generate_description: bool, generation_mode: str, extra_instruction: str | None) -> None:
     db = SessionLocal()
     try:
-        from app.services import ai_generation
+        from app.domains.ai_generation import facade as ai_generation
 
         WorkflowRuntime(db, model_client=ai_generation._call_openai_compatible).run(
             workflow_id,
@@ -320,7 +320,8 @@ class AIGenerationWorkflowService:
             ai_model_snapshot=config.model,
         )
         self.db.add(job)
-        bank.generation_status = "processing"
+        if original.purpose == "create_bank":
+            bank.generation_status = "processing"
         self.db.commit()
         background_tasks.add_task(run_generation_task, workflow.id, text, effective_count, next_generate_description, next_mode, normalized_extra_instruction)
         return AIGenerationWorkflowCreatedOut(workflow_id=workflow.id, bank_id=bank.id, job_id=job.id)
@@ -349,19 +350,93 @@ class AIGenerationWorkflowService:
         return workflow
 
     def workflow_out(self, workflow: AIGenerationWorkflow, *, redact_sensitive: bool = False) -> AIGenerationWorkflowOut:
+        return self.workflow_out_many([workflow], redact_sensitive=redact_sensitive)[0]
+
+    def workflow_out_many(self, workflows: list[AIGenerationWorkflow], *, redact_sensitive: bool = False) -> list[AIGenerationWorkflowOut]:
+        if not workflows:
+            return []
+        workflow_ids = [workflow.id for workflow in workflows]
+        jobs = {
+            job.workflow_id: job
+            for job in self.db.scalars(select(ImportJob).where(ImportJob.workflow_id.in_(workflow_ids))).all()
+            if job.workflow_id is not None
+        }
+        ready_drafts = {
+            draft.workflow_id: draft
+            for draft in self.db.scalars(
+                select(AIGenerationDraft).where(AIGenerationDraft.workflow_id.in_(workflow_ids), AIGenerationDraft.status == "ready")
+            ).all()
+        }
+        draft_ids = [draft.id for draft in ready_drafts.values()]
+        draft_question_counts: dict[int, int] = {}
+        if draft_ids:
+            draft_question_counts = {
+                draft_id: count
+                for draft_id, count in self.db.execute(
+                    select(AIGenerationDraftQuestion.draft_id, func.count())
+                    .where(AIGenerationDraftQuestion.draft_id.in_(draft_ids))
+                    .group_by(AIGenerationDraftQuestion.draft_id)
+                ).all()
+            }
+        imported_counts: dict[int, int] = {}
+        confirm_steps = self.db.execute(
+            select(AIGenerationWorkflowStep.workflow_id, AIGenerationWorkflowStep.output_json)
+            .where(
+                AIGenerationWorkflowStep.workflow_id.in_(workflow_ids),
+                AIGenerationWorkflowStep.step_name == "confirm_draft",
+                AIGenerationWorkflowStep.status == "succeeded",
+            )
+            .order_by(AIGenerationWorkflowStep.id.desc())
+        ).all()
+        for workflow_id, output_json in confirm_steps:
+            if workflow_id in imported_counts:
+                continue
+            imported_counts[workflow_id] = self._question_count_from_step_output(output_json)
+        retried_by = {
+            parent_id: child_id
+            for parent_id, child_id in self.db.execute(
+                select(AIGenerationWorkflow.retry_of_workflow_id, func.min(AIGenerationWorkflow.id))
+                .where(AIGenerationWorkflow.retry_of_workflow_id.in_(workflow_ids))
+                .group_by(AIGenerationWorkflow.retry_of_workflow_id)
+            ).all()
+            if parent_id is not None
+        }
+
+        return [
+            self._workflow_out_from_maps(
+                workflow,
+                job=jobs.get(workflow.id),
+                draft=ready_drafts.get(workflow.id),
+                draft_question_counts=draft_question_counts,
+                imported_question_count=imported_counts.get(workflow.id, 0),
+                retried_by_workflow_id=retried_by.get(workflow.id),
+                redact_sensitive=redact_sensitive,
+            )
+            for workflow in workflows
+        ]
+
+    def _workflow_out_from_maps(
+        self,
+        workflow: AIGenerationWorkflow,
+        *,
+        job: ImportJob | None,
+        draft: AIGenerationDraft | None,
+        draft_question_counts: dict[int, int],
+        imported_question_count: int,
+        retried_by_workflow_id: int | None,
+        redact_sensitive: bool,
+    ) -> AIGenerationWorkflowOut:
         out = AIGenerationWorkflowOut.model_validate(workflow, from_attributes=True)
         out.workflow_id = workflow.id
         out.workflow_status = workflow.status
-        out.retried_by_workflow_id = self.retried_by_workflow_id(workflow.id)
-        job = self.db.scalar(select(ImportJob).where(ImportJob.workflow_id == workflow.id))
+        out.retried_by_workflow_id = retried_by_workflow_id
         if job:
             out.job_id = job.id
             out.type = job.type
-        draft = self.db.scalar(select(AIGenerationDraft).where(AIGenerationDraft.workflow_id == workflow.id, AIGenerationDraft.status == "ready"))
         if draft:
-            out.draft_question_count = self.db.scalar(select(func.count()).select_from(AIGenerationDraftQuestion).where(AIGenerationDraftQuestion.draft_id == draft.id)) or 0
+            out.draft_question_count = draft_question_counts.get(draft.id, 0)
             out.can_confirm = workflow.status == "draft_ready"
-        out.imported_question_count = self.imported_question_count(workflow.id)
+        out.imported_question_count = imported_question_count
         out.question_delta = out.imported_question_count
         out.error_summary = self.error_summary(workflow.error_message)
         if redact_sensitive:
@@ -381,8 +456,14 @@ class AIGenerationWorkflowService:
         )
         if not step or not step.output_json:
             return 0
+        return self._question_count_from_step_output(step.output_json)
+
+    @staticmethod
+    def _question_count_from_step_output(output_json: str | None) -> int:
+        if not output_json:
+            return 0
         try:
-            data = json.loads(step.output_json)
+            data = json.loads(output_json)
         except json.JSONDecodeError:
             return 0
         value = data.get("question_count")
