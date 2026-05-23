@@ -16,14 +16,20 @@ class QuestionService:
     def __init__(self, db: Session):
         self.db = db
 
-    def list_questions(self, bank_id: int, user: User, page: int = 1, page_size: int = 20, keyword: str | None = None):
+    def list_questions(self, bank_id: int, user: User, page: int = 1, page_size: int = 20, keyword: str | None = None, all: bool = False):
         bank = self.db.get(QuestionBank, bank_id)
         if not QuestionBankPermissionService.can_read(bank, user):
+            raise HTTPException(status_code=404, detail="Question bank not found")
+        if all and not QuestionBankPermissionService.can_manage(bank, user):
             raise HTTPException(status_code=404, detail="Question bank not found")
         stmt = select(Question).options(selectinload(Question.options)).where(Question.bank_id == bank_id)
         if keyword:
             stmt = stmt.where(or_(Question.stem.contains(keyword), Question.explanation.contains(keyword)))
         stmt = stmt.order_by(Question.created_at.desc())
+        if all:
+            items = self.db.scalars(stmt).all()
+            total = len(items)
+            return page_response(items, total, 1, total or 1)
         items, total, page, page_size = paginate(self.db, stmt, page, page_size)
         return page_response(items, total, page, page_size)
 

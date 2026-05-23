@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import type { CheckboxValueType } from 'element-plus'
 import type { QuestionForm } from './questionForm'
-import { relabelOptions } from './questionForm'
+import { MAX_OPTION_COUNT, relabelOptions } from './questionForm'
 
 const props = defineProps<{ form: QuestionForm }>()
 
 function addOption() {
+  if (props.form.options.length >= MAX_OPTION_COUNT) return
   props.form.options.push({ label: String.fromCharCode(65 + props.form.options.length), content: '', is_correct: false })
 }
 
@@ -29,7 +30,10 @@ function setCorrect(index: number, checked: CheckboxValueType = true) {
   <div class="grid gap-2">
     <div class="flex items-center justify-between">
       <span class="text-sm font-medium text-slate-700">选项</span>
-      <el-button size="small" @click="addOption">添加选项</el-button>
+      <div class="flex items-center gap-2">
+        <span v-if="form.options.length >= MAX_OPTION_COUNT" class="text-xs text-slate-500">最多 26 个选项</span>
+        <el-button size="small" :disabled="form.options.length >= MAX_OPTION_COUNT" @click="addOption">添加选项</el-button>
+      </div>
     </div>
     <div v-for="(option, index) in form.options" :key="index" class="grid grid-cols-[32px_48px_minmax(0,1fr)_48px] items-center gap-2">
       <el-radio

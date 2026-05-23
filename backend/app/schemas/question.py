@@ -21,7 +21,7 @@ class QuestionCreate(BaseModel):
     stem: str = Field(min_length=1)
     explanation: str | None = None
     difficulty: str | None = Field(default=None, pattern="^(easy|medium|hard)$")
-    options: list[QuestionOptionIn] = Field(min_length=2)
+    options: list[QuestionOptionIn] = Field(min_length=2, max_length=26)
 
     @model_validator(mode="after")
     def validate_correct_options(self):

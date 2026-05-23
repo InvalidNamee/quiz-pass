@@ -125,6 +125,15 @@ export type PracticeSession = {
   last_answered_at: string | null
 }
 
+export type ResumableSession = {
+  id: number
+  mode: string
+  total_questions: number
+  answered_count: number
+  started_at: string
+  last_answered_at: string | null
+}
+
 export type MistakeRecord = {
   id: number
   user_id: number
@@ -191,6 +200,7 @@ export type QuestionBankV2 = {
   stats: BankStats
   permissions: BankPermissions
   active_workflow: ActiveWorkflowInfo | null
+  resumable_session: ResumableSession | null
 }
 
 export type GenerationJob = {

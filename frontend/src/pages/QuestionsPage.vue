@@ -42,7 +42,7 @@ async function load() {
       router.replace(`/banks/${bankId}`)
       return
     }
-    const data = await listQuestions(bankId, { keyword: keyword.value.trim() || undefined })
+    const data = await listQuestions(bankId, { keyword: keyword.value.trim() || undefined, all: true })
     questions.value = data.items
   } catch (err) {
     toast.show(err instanceof Error ? err.message : '加载题目失败', 'error')

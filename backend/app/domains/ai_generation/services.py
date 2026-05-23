@@ -24,6 +24,30 @@ from app.domains.question_banks.tags import set_bank_tags
 from app.utils.document_extractors import extract_text
 
 
+async def extract_uploaded_sources(file: UploadFile | None = None, files: list[UploadFile] | None = None) -> tuple[str, str | None]:
+    uploads: list[UploadFile] = []
+    if files:
+        uploads.extend(upload for upload in files if upload is not None)
+    if file:
+        uploads.append(file)
+    if not uploads:
+        raise HTTPException(status_code=422, detail="请上传文件")
+
+    extracted: list[tuple[str, str]] = []
+    for upload in uploads:
+        filename = upload.filename or "upload.txt"
+        content = await upload.read()
+        try:
+            extracted.append((filename, extract_text(filename, content)))
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    if len(extracted) == 1:
+        return extracted[0][1], extracted[0][0]
+    combined_text = "\n\n".join(f"===== 文件: {filename} =====\n{text}" for filename, text in extracted)
+    return combined_text, ", ".join(filename for filename, _ in extracted)
+
+
 def run_generation_task(workflow_id: int, text: str, question_count: int | None, generate_description: bool, generation_mode: str, extra_instruction: str | None) -> None:
     db = SessionLocal()
     try:
@@ -118,7 +142,8 @@ class AIGenerationWorkflowService:
         extra_instruction: str | None,
         inherit_context: bool,
         tag_names: str | None,
-        file: UploadFile,
+        file: UploadFile | None = None,
+        files: list[UploadFile] | None = None,
     ) -> AIGenerationWorkflowCreatedOut:
         if desired_visibility not in ("private", "public"):
             raise HTTPException(status_code=422, detail="Invalid desired_visibility")
@@ -133,11 +158,7 @@ class AIGenerationWorkflowService:
             raise HTTPException(status_code=422, detail="tag_names 必须是字符串数组")
 
         config = self.pick_ai_config(user.id, ai_provider_config_id)
-        content = await file.read()
-        try:
-            text = extract_text(file.filename or "upload.txt", content)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        text, source_file_name = await extract_uploaded_sources(file, files)
 
         host = urlparse(config.api_base_url).netloc or config.api_base_url
         bank = QuestionBank(
@@ -164,7 +185,7 @@ class AIGenerationWorkflowService:
             purpose="create_bank",
             generation_mode=generation_mode,
             status="pending",
-            source_file_name=file.filename,
+            source_file_name=source_file_name,
             source_text_snapshot=text,
             bank_title_snapshot=title,
             requested_count=effective_count,
@@ -184,7 +205,7 @@ class AIGenerationWorkflowService:
             type="bank_parse_ai" if generation_mode == "bank_parse" else "document_ai",
             status="pending",
             desired_visibility=desired_visibility,
-            file_name=file.filename,
+            file_name=source_file_name,
             ai_provider_config_id=config.id,
             ai_base_url_snapshot=host,
             ai_model_snapshot=config.model,
@@ -208,18 +229,15 @@ class AIGenerationWorkflowService:
         extra_instruction: str | None,
         inherit_context: bool,
         include_existing_questions: bool,
-        file: UploadFile,
+        file: UploadFile | None = None,
+        files: list[UploadFile] | None = None,
     ) -> AIGenerationWorkflowCreatedOut:
         bank = self.db.get(QuestionBank, bank_id)
         if not QuestionBankPermissionService.can_extend_with_ai(bank, user):
             raise HTTPException(status_code=404, detail="Question bank not found")
         effective_count, normalized_extra_instruction = self._normalize_generation_inputs(question_count_mode, question_count, generation_mode, extra_instruction)
         config = self.pick_ai_config(user.id, ai_provider_config_id)
-        content = await file.read()
-        try:
-            text = extract_text(file.filename or "upload.txt", content)
-        except ValueError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        text, source_file_name = await extract_uploaded_sources(file, files)
 
         host = urlparse(config.api_base_url).netloc or config.api_base_url
         workflow = AIGenerationWorkflow(
@@ -228,7 +246,7 @@ class AIGenerationWorkflowService:
             purpose="extend_bank",
             generation_mode=generation_mode,
             status="pending",
-            source_file_name=file.filename,
+            source_file_name=source_file_name,
             source_text_snapshot=text,
             bank_title_snapshot=bank.title,
             requested_count=effective_count,
@@ -249,7 +267,7 @@ class AIGenerationWorkflowService:
             type="bank_parse_ai" if generation_mode == "bank_parse" else "document_ai",
             status="pending",
             desired_visibility=bank.desired_visibility,
-            file_name=file.filename,
+            file_name=source_file_name,
             ai_provider_config_id=config.id,
             ai_base_url_snapshot=host,
             ai_model_snapshot=config.model,
@@ -278,6 +296,7 @@ class AIGenerationWorkflowService:
         description: str | None,
         desired_visibility: str | None,
         file: UploadFile | None,
+        files: list[UploadFile] | None = None,
     ) -> AIGenerationWorkflowCreatedOut:
         original = self.get_owned_workflow(workflow_id, user)
         if original.status not in {"failed", "cancelled", "draft_ready"}:
@@ -300,13 +319,8 @@ class AIGenerationWorkflowService:
         config = self.pick_ai_config(user.id, ai_provider_config_id or original.ai_provider_config_id)
 
         source_file_name = original.source_file_name
-        if file:
-            content = await file.read()
-            try:
-                text = extract_text(file.filename or "upload.txt", content)
-            except ValueError as exc:
-                raise HTTPException(status_code=400, detail=str(exc)) from exc
-            source_file_name = file.filename
+        if file or files:
+            text, source_file_name = await extract_uploaded_sources(file, files)
         else:
             text = (source_text or "").strip() or (original.source_text_snapshot or "")
         if not text.strip():

@@ -60,7 +60,7 @@ export function listTags(params: { keyword?: string; ids?: string; page_size?: n
   return api<Page<QuestionBankTag>>(`/api/v2/banks/tags?${q}`)
 }
 
-export function listQuestions(bankId: number, params: { page?: number; page_size?: number; keyword?: string } = {}) {
+export function listQuestions(bankId: number, params: { page?: number; page_size?: number; keyword?: string; all?: boolean } = {}) {
   const q = new URLSearchParams()
   Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== '') q.set(k, String(v)) })
   return api<Page<Question>>(`/api/v2/banks/${bankId}/questions?${q}`)

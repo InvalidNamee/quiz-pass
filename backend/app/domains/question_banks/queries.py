@@ -1,7 +1,10 @@
+from datetime import datetime
+
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.models.ai_workflow import AIGenerationDraft, AIGenerationDraftQuestion, AIGenerationWorkflow
+from app.models.practice import PracticeAnswer, PracticeSession
 from app.models.question_bank import QuestionBank, QuestionBankFavorite, QuestionBankTag, question_bank_tag_links
 from app.models.user import User
 from app.schemas.question_bank import QuestionBankTagOut
@@ -12,10 +15,12 @@ from app.domains.question_banks.schemas import (
     QuestionBankPermissionsOut,
     QuestionBankStatsOut,
     QuestionBankV2Out,
+    ResumableSessionOut,
 )
 
 
 ACTIVE_WORKFLOW_STATUSES = {"pending", "extracting", "extracting_document", "calling_model", "validating", "repairing", "draft_ready"}
+RESUMABLE_SENTINEL = object()
 
 
 def parse_tag_ids(raw_tag_ids: str | None) -> list[int]:
@@ -96,7 +101,7 @@ class QuestionBankQueryService:
             return stmt.order_by(QuestionBank.favorite_count.desc(), QuestionBank.updated_at.desc())
         return stmt.order_by(QuestionBank.updated_at.desc())
 
-    def to_out(self, bank: QuestionBank, user: User | None) -> QuestionBankV2Out:
+    def to_out(self, bank: QuestionBank, user: User | None, resumable_session: ResumableSessionOut | None | object = RESUMABLE_SENTINEL) -> QuestionBankV2Out:
         favorite = False
         if user:
             favorite = bool(
@@ -108,6 +113,8 @@ class QuestionBankQueryService:
                 )
             )
         active_workflow = self._active_workflow(bank.id)
+        if resumable_session is RESUMABLE_SENTINEL:
+            resumable_session = self.resumable_session_for_bank(bank.id, user) if user else None
         owner = bank.owner
         permissions = QuestionBankPermissionService.permissions_for(bank, user)
         return QuestionBankV2Out(
@@ -136,11 +143,73 @@ class QuestionBankQueryService:
             favorite_count=bank.favorite_count,
             permissions=QuestionBankPermissionsOut(**permissions),
             active_workflow=active_workflow,
+            resumable_session=resumable_session,
             ai_model_name=bank.ai_model_name,
             is_favorited=favorite,
             created_at=bank.created_at,
             updated_at=bank.updated_at,
         )
+
+    def to_out_many(self, banks: list[QuestionBank], user: User | None) -> list[QuestionBankV2Out]:
+        resumable_by_bank = self.resumable_sessions_for_banks([bank.id for bank in banks], user) if user else {}
+        return [self.to_out(bank, user, resumable_by_bank.get(bank.id)) for bank in banks]
+
+    def resumable_session_for_bank(self, bank_id: int, user: User | None) -> ResumableSessionOut | None:
+        if not user:
+            return None
+        return self.resumable_sessions_for_banks([bank_id], user).get(bank_id)
+
+    def resumable_sessions_for_banks(self, bank_ids: list[int], user: User) -> dict[int, ResumableSessionOut]:
+        if not bank_ids:
+            return {}
+        sessions = self.db.scalars(
+            select(PracticeSession).where(
+                PracticeSession.user_id == user.id,
+                PracticeSession.bank_id.in_(bank_ids),
+                PracticeSession.status == "in_progress",
+            )
+        ).all()
+        if not sessions:
+            return {}
+        session_ids = [session.id for session in sessions]
+        last_answered = dict(
+            self.db.execute(
+                select(PracticeAnswer.session_id, func.max(PracticeAnswer.answered_at))
+                .where(PracticeAnswer.session_id.in_(session_ids))
+                .group_by(PracticeAnswer.session_id)
+            ).all()
+        )
+        answered_counts = dict(
+            self.db.execute(
+                select(PracticeAnswer.session_id, func.count())
+                .join(PracticeSession, PracticeSession.id == PracticeAnswer.session_id)
+                .where(
+                    PracticeAnswer.session_id.in_(session_ids),
+                    or_(PracticeSession.mode == "exam", PracticeAnswer.is_submitted.is_(True)),
+                )
+                .group_by(PracticeAnswer.session_id)
+            ).all()
+        )
+        latest_by_bank: dict[int, PracticeSession] = {}
+        for session in sessions:
+            current = latest_by_bank.get(session.bank_id)
+            if not current or self._resumable_sort_key(session, last_answered) > self._resumable_sort_key(current, last_answered):
+                latest_by_bank[session.bank_id] = session
+        return {
+            bank_id: ResumableSessionOut(
+                id=session.id,
+                mode=session.mode,
+                total_questions=session.total_questions,
+                answered_count=answered_counts.get(session.id, 0),
+                started_at=session.started_at,
+                last_answered_at=last_answered.get(session.id),
+            )
+            for bank_id, session in latest_by_bank.items()
+        }
+
+    @staticmethod
+    def _resumable_sort_key(session: PracticeSession, last_answered: dict[int, datetime | None]) -> tuple[datetime, datetime, int]:
+        return (last_answered.get(session.id) or session.started_at, session.started_at, session.id)
 
     def _active_workflow(self, bank_id: int) -> ActiveWorkflowOut | None:
         workflow = self.db.scalar(

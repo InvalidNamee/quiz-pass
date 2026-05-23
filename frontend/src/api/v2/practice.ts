@@ -9,6 +9,10 @@ export function getSession(sessionId: number) {
   return api<PracticeSession>(`/api/v2/practice/sessions/${sessionId}`)
 }
 
+export function getResumableSession(bankId: number) {
+  return api<PracticeSession | null>(`/api/v2/banks/${bankId}/practice/resumable-session`)
+}
+
 export function getSessionQuestions(sessionId: number, shuffleOptions?: boolean) {
   const q = shuffleOptions ? '?shuffle_options=true' : ''
   return api<any[]>(`/api/v2/practice/sessions/${sessionId}/questions${q}`)

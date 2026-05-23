@@ -5,6 +5,7 @@ import { useBankList } from '../composables/useBankList'
 import { favoriteBank, unfavoriteBank } from '../api/v2/banks'
 import type { QuestionBankV2 } from '../api/types'
 import GenerateBankDialog from './GenerateBankDialog.vue'
+import PracticeSetupDialog from './PracticeSetupDialog.vue'
 import TagFilterDialog from './TagFilterDialog.vue'
 import AuthorFilterDialog from './AuthorFilterDialog.vue'
 import { isUnstableBankStatus, isUnstableWorkflowStatus } from '../utils/generationStatus'
@@ -21,6 +22,8 @@ const router = useRouter()
 const { banks, pageInfo, keyword, selectedAuthor, selectedTags, visibility, generationStatus, loading, hasActiveFilters, load, clearAll, goPage } = useBankList(props.scope)
 
 const createDialogVisible = ref(false)
+const practiceDialogVisible = ref(false)
+const selectedPracticeBank = ref<QuestionBankV2 | null>(null)
 let pollingTimer: number | null = null
 
 function hasUnstableBanks() {
@@ -64,6 +67,16 @@ function applySearch() {
   if (visibility.value) q.visibility = visibility.value
   if (generationStatus.value) q.generation_status = generationStatus.value
   router.push({ query: q })
+}
+
+function openPractice(bank: QuestionBankV2) {
+  selectedPracticeBank.value = bank
+  practiceDialogVisible.value = true
+}
+
+function continuePractice(bank: QuestionBankV2) {
+  if (!bank.resumable_session) return
+  router.push(`/practice/session/${bank.resumable_session.id}`)
 }
 
 onMounted(load)
@@ -159,6 +172,14 @@ onBeforeUnmount(stopPolling)
           >{{ row.is_favorited ? '★' : '☆' }}</el-button>
         </template>
       </el-table-column>
+      <el-table-column label="操作" width="170" align="right">
+        <template #default="{ row }: { row: QuestionBankV2 }">
+          <div class="flex items-center justify-end gap-1">
+            <el-button v-if="row.resumable_session" size="small" type="primary" plain @click.stop="continuePractice(row)">继续</el-button>
+            <el-button v-if="row.permissions.can_practice" size="small" @click.stop="openPractice(row)">练习</el-button>
+          </div>
+        </template>
+      </el-table-column>
     </el-table>
 
     <el-pagination
@@ -174,6 +195,11 @@ onBeforeUnmount(stopPolling)
 
 
     <GenerateBankDialog v-model="createDialogVisible" @submitted="load" />
+    <PracticeSetupDialog
+      v-model="practiceDialogVisible"
+      :bank-id="selectedPracticeBank?.id ?? null"
+      :initial-bank="selectedPracticeBank"
+    />
   </div>
 </template>
 

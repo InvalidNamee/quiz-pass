@@ -34,6 +34,11 @@ def get_session(session_id: int, current_user: User = Depends(get_current_user),
     return service.to_out(service.get_owned_session(session_id, current_user))
 
 
+@router.get("/banks/{bank_id}/practice/resumable-session", response_model=PracticeSessionOut | None)
+def get_resumable_session(bank_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return PracticeSessionService(db).latest_resumable_session(bank_id, current_user)
+
+
 @router.get("/practice/sessions/{session_id}/questions", response_model=list[PracticeQuestionOut])
 def get_session_questions(session_id: int, shuffle_options: bool = False, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return PracticeSessionService(db).list_questions(session_id, current_user, shuffle_options)

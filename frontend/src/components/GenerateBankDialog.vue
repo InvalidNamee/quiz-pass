@@ -32,7 +32,7 @@ const extraInstruction = ref('')
 const inheritContext = ref(true)
 const includeExistingQuestions = ref(false)
 const selectedTags = ref<TagInputValue[]>([])
-const file = ref<File | null>(null)
+const files = ref<File[]>([])
 const configs = ref<AIProviderConfig[]>([])
 const bank = ref<QuestionBankV2 | null>(props.initialBank ?? null)
 const submitting = ref(false)
@@ -60,7 +60,7 @@ function reset() {
   inheritContext.value = true
   includeExistingQuestions.value = false
   selectedTags.value = []
-  file.value = null
+  files.value = []
 }
 
 function configLabel(config: AIProviderConfig) {
@@ -92,19 +92,20 @@ async function prefillFromJson(uploadedFile: File) {
   }
 }
 
-async function onUploadChange(uploadFile: { raw?: File }) {
-  file.value = uploadFile.raw ?? null
-  if (!file.value) return
-  if (!isExtend.value && !title.value.trim()) title.value = fileStem(file.value.name)
-  await prefillFromJson(file.value)
+async function onUploadChange(uploadFile: { raw?: File }, uploadFiles: Array<{ raw?: File }>) {
+  files.value = uploadFiles.map(item => item.raw).filter((item): item is File => Boolean(item))
+  const firstFile = files.value[0] ?? uploadFile.raw
+  if (!firstFile) return
+  if (!isExtend.value && !title.value.trim()) title.value = fileStem(firstFile.name)
+  await prefillFromJson(firstFile)
 }
 
-function onUploadRemove() {
-  file.value = null
+function onUploadRemove(_uploadFile: unknown, uploadFiles: Array<{ raw?: File }>) {
+  files.value = uploadFiles.map(item => item.raw).filter((item): item is File => Boolean(item))
 }
 
 async function submit() {
-  if (!file.value) {
+  if (!files.value.length) {
     toast.show('请选择文件', 'error')
     return
   }
@@ -115,18 +116,20 @@ async function submit() {
   submitting.value = true
   try {
     const form = new FormData()
-    form.set('file', file.value)
 
     if (createMode.value === 'json_import') {
+      const jsonFile = files.value[0]
+      form.set('file', jsonFile)
       form.set('visibility', isPublic.value ? 'public' : 'private')
       const tagNames = normalizeTagNames(selectedTags.value)
       if (tagNames.length) form.set('tag_names', JSON.stringify(tagNames))
-      if (!isExtend.value) form.set('file_stem', fileStem(file.value.name))
+      if (!isExtend.value) form.set('file_stem', fileStem(jsonFile.name))
       const importedBank = isExtend.value && props.extendBankId
         ? await importJsonToBank(props.extendBankId, form)
         : await importJsonNewBank(form)
       toast.show(`题目已导入「${importedBank.title}」`, 'success')
     } else {
+      files.value.forEach(item => form.append('files', item))
       if (!isExtend.value) {
         form.set('title', title.value)
         if (description.value.trim()) form.set('description', description.value.trim())
@@ -221,7 +224,8 @@ watch(() => props.modelValue, (open) => { if (open) load() }, { immediate: true 
       <el-form-item label="上传文件">
         <el-upload
           :auto-upload="false"
-          :limit="1"
+          :limit="createMode === 'json_import' ? 1 : 20"
+          :multiple="createMode !== 'json_import'"
           :accept="createMode === 'json_import' ? '.json' : '.txt,.docx,.pdf'"
           :on-change="onUploadChange"
           :on-remove="onUploadRemove"

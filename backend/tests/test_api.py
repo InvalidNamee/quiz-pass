@@ -70,6 +70,21 @@ def _sample_question_payload(stem: str = "示例题") -> dict:
     }
 
 
+def _question_payload_with_option_count(count: int, stem: str = "多选项题") -> dict:
+    return {
+        "type": "single",
+        "stem": stem,
+        "options": [
+            {
+                "label": chr(65 + index) if index < 26 else f"X{index}",
+                "content": f"选项 {index + 1}",
+                "is_correct": index == 0,
+            }
+            for index in range(count)
+        ],
+    }
+
+
 def _create_shareable_bank(client: TestClient, headers: dict[str, str], title: str = "Share Source", tag_names: list[str] | None = None) -> dict:
     bank = client.post("/api/v2/banks", headers=headers, json={"title": title, "visibility": "private", "tag_names": tag_names or []})
     assert bank.status_code == 200, bank.text
@@ -234,6 +249,41 @@ def test_sharing_bank_creates_static_public_copy_and_locks_normal_management():
         after_delete = client.get(f"/api/v2/banks/{shared['id']}", headers=reader_headers)
         assert after_delete.status_code == 200, after_delete.text
         assert after_delete.json()["source_bank_id"] is None
+
+
+def test_bank_resumable_session_api_and_list_dto_use_latest_in_progress_session():
+    with TestClient(app) as client:
+        owner_headers = _register(client, "resume-owner@example.com", "resumeowner")
+        other_headers = _register(client, "resume-other@example.com", "resumeother")
+        bank = client.post("/api/v2/banks", headers=owner_headers, json={"title": "Resume Bank", "visibility": "private"}).json()
+        question = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=owner_headers, json=_sample_question_payload("继续练习题")).json()
+
+        none_response = client.get(f"/api/v2/banks/{bank['id']}/practice/resumable-session", headers=owner_headers)
+        assert none_response.status_code == 200
+        assert none_response.json() is None
+
+        practice = client.post("/api/v2/practice/sessions", headers=owner_headers, json={"bank_id": bank["id"], "mode": "practice"}).json()
+        exam = client.post("/api/v2/practice/sessions", headers=owner_headers, json={"bank_id": bank["id"], "mode": "exam"}).json()
+        client.post(
+            f"/api/v2/practice/sessions/{exam['id']}/answers",
+            headers=owner_headers,
+            json={"question_id": question["id"], "selected_option_ids": [question["options"][0]["id"]]},
+        )
+
+        latest = client.get(f"/api/v2/banks/{bank['id']}/practice/resumable-session", headers=owner_headers)
+        assert latest.status_code == 200, latest.text
+        assert latest.json()["id"] == exam["id"]
+        assert latest.json()["mode"] == "exam"
+        assert latest.json()["answered_count"] == 1
+
+        mine = client.get("/api/v2/banks?scope=mine&keyword=Resume", headers=owner_headers).json()["items"][0]
+        assert mine["resumable_session"]["id"] == exam["id"]
+        assert client.get(f"/api/v2/banks/{bank['id']}/practice/resumable-session", headers=other_headers).status_code == 404
+
+        submitted = client.post(f"/api/v2/practice/sessions/{exam['id']}/submit", headers=owner_headers)
+        assert submitted.status_code == 200, submitted.text
+        after_submit = client.get(f"/api/v2/banks/{bank['id']}/practice/resumable-session", headers=owner_headers).json()
+        assert after_submit["id"] == practice["id"]
 
 
 def test_refresh_token_can_refresh_access_but_not_access_api():
@@ -1291,6 +1341,102 @@ def test_v2_ai_workflow_create_draft_confirm_is_workflow_centred(monkeypatch):
         assert bank["generation_status"] == "succeeded"
 
 
+def test_ai_workflow_accepts_multiple_source_files_and_preserves_section_markers(monkeypatch):
+    with TestClient(app) as client:
+        headers = _register(client, "multi-file-ai@example.com", "multifileai")
+        client.post(
+            "/api/v2/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+
+        from app.domains.ai_generation import facade as ai_generation
+
+        seen_texts = []
+
+        def good_ai(*args, **kwargs):
+            seen_texts.append(args[1])
+            return {
+                "questions": [
+                    {
+                        "type": "single",
+                        "stem": "Multi file question",
+                        "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
+                    }
+                ]
+            }
+
+        monkeypatch.setattr(ai_generation, "_call_openai_compatible", good_ai)
+        created = client.post(
+            "/api/v2/ai/workflows",
+            headers=headers,
+            data={"title": "Multi File AI", "question_count": "1"},
+            files=[
+                ("files", ("alpha.txt", b"alpha content", "text/plain")),
+                ("files", ("beta.txt", b"beta content", "text/plain")),
+            ],
+        )
+        assert created.status_code == 200, created.text
+        workflow = client.get(f"/api/v2/ai/workflows/{created.json()['workflow_id']}", headers=headers).json()
+        assert workflow["source_file_name"] == "alpha.txt, beta.txt"
+        assert "===== 文件: alpha.txt =====" in workflow["source_text_snapshot"]
+        assert "alpha content" in workflow["source_text_snapshot"]
+        assert "===== 文件: beta.txt =====" in workflow["source_text_snapshot"]
+        assert "beta content" in workflow["source_text_snapshot"]
+        assert workflow["source_text_snapshot"] == seen_texts[-1]
+
+
+def test_confirm_draft_imports_latest_edited_persisted_questions(monkeypatch):
+    with TestClient(app) as client:
+        headers = _register(client, "draft-edit-confirm@example.com", "drafteditconfirm")
+        client.post(
+            "/api/v2/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+
+        from app.domains.ai_generation import facade as ai_generation
+
+        def two_questions(*args, **kwargs):
+            return {
+                "questions": [
+                    _sample_question_payload("原始第一题"),
+                    {
+                        **_sample_question_payload("原始第二题"),
+                        "options": [{"label": "A", "content": "旧正确", "is_correct": True}, {"label": "B", "content": "旧错误", "is_correct": False}],
+                    },
+                ]
+            }
+
+        monkeypatch.setattr(ai_generation, "_call_openai_compatible", two_questions)
+        created = client.post(
+            "/api/v2/ai/workflows",
+            headers=headers,
+            data={"title": "Draft Edit Confirm", "question_count": "2"},
+            files={"file": ("material.txt", b"content", "text/plain")},
+        )
+        assert created.status_code == 200, created.text
+        workflow_id = created.json()["workflow_id"]
+        draft = client.get(f"/api/v2/ai/workflows/{workflow_id}/draft", headers=headers).json()
+        assert len(draft["questions"]) == 2
+        edited_question = draft["questions"][1]
+        edited_question["stem"] = "编辑后的唯一题"
+        edited_question["options"] = [{"label": "A", "content": "新正确", "is_correct": True}, {"label": "B", "content": "新错误", "is_correct": False}]
+        draft["questions"] = [edited_question]
+
+        saved = client.patch(f"/api/v2/ai/workflows/{workflow_id}/draft", headers=headers, json=draft)
+        assert saved.status_code == 200, saved.text
+        assert len(saved.json()["questions"]) == 1
+        assert saved.json()["questions"][0]["stem"] == "编辑后的唯一题"
+
+        confirmed = client.post(f"/api/v2/ai/workflows/{workflow_id}/draft/confirm", headers=headers)
+        assert confirmed.status_code == 200, confirmed.text
+        questions = client.get(f"/api/v2/banks/{created.json()['bank_id']}/questions?all=true", headers=headers).json()["items"]
+        assert len(questions) == 1
+        assert questions[0]["stem"] == "编辑后的唯一题"
+        assert questions[0]["options"][0]["content"] == "新正确"
+
+
 def test_v2_ai_workflow_cancel_create_bank_preserves_audit_and_deletes_shell(monkeypatch):
     with TestClient(app) as client:
         headers = _register(client, "cancel-workflow@example.com", "cancelworkflow")
@@ -2250,6 +2396,79 @@ def test_v2_question_crud_permissions_and_json_import_export():
         deleted = client.delete(f"/api/v2/questions/{question_id}", headers=owner_headers)
         assert deleted.status_code == 200, deleted.text
         assert client.get(f"/api/v2/banks/{public_bank['id']}", headers=owner_headers).json()["stats"]["question_count"] == 1
+
+
+def test_question_management_all_true_returns_full_list_for_managers_only():
+    with TestClient(app) as client:
+        owner_headers = _register(client, "all-q-owner@example.com", "allqowner")
+        visitor_headers = _register(client, "all-q-visitor@example.com", "allqvisitor")
+        bank = client.post("/api/v2/banks", headers=owner_headers, json={"title": "All Questions", "visibility": "private"}).json()
+        for index in range(25):
+            created = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=owner_headers, json=_sample_question_payload(f"题目 {index:02d}"))
+            assert created.status_code == 200, created.text
+
+        default_page = client.get(f"/api/v2/banks/{bank['id']}/questions", headers=owner_headers)
+        assert default_page.status_code == 200, default_page.text
+        assert len(default_page.json()["items"]) == 20
+        assert default_page.json()["total"] == 25
+
+        full = client.get(f"/api/v2/banks/{bank['id']}/questions?all=true", headers=owner_headers)
+        assert full.status_code == 200, full.text
+        assert len(full.json()["items"]) == 25
+        assert full.json()["page_size"] == 25
+        assert client.get(f"/api/v2/banks/{bank['id']}/questions?all=true", headers=visitor_headers).status_code == 404
+
+
+def test_question_options_are_limited_to_26_across_manual_json_and_draft_confirm(monkeypatch):
+    with TestClient(app) as client:
+        headers = _register(client, "option-cap@example.com", "optioncap")
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Option Cap", "visibility": "private"}).json()
+        too_many = _question_payload_with_option_count(27)
+
+        manual = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=too_many)
+        assert manual.status_code == 422
+
+        json_payload = {"bank": {"title": "Too Many Options"}, "questions": [too_many]}
+        imported = client.post(
+            "/api/v2/banks/import-json",
+            headers=headers,
+            data={"visibility": "private"},
+            files={"file": ("too-many.json", json.dumps(json_payload).encode("utf-8"), "application/json")},
+        )
+        assert imported.status_code == 400
+        assert "26" in imported.json()["error"]["message"]
+
+        client.post(
+            "/api/v2/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+
+        from app.domains.ai_generation import facade as ai_generation
+
+        monkeypatch.setattr(ai_generation, "_call_openai_compatible", lambda *args, **kwargs: {"questions": [_sample_question_payload("合法草稿")]})
+        created = client.post(
+            "/api/v2/ai/workflows",
+            headers=headers,
+            data={"title": "Draft Option Cap", "question_count": "1"},
+            files={"file": ("material.txt", b"content", "text/plain")},
+        )
+        assert created.status_code == 200, created.text
+        workflow_id = created.json()["workflow_id"]
+        db = SessionLocal()
+        try:
+            draft = db.scalar(select(AIGenerationDraft).where(AIGenerationDraft.workflow_id == workflow_id))
+            assert draft is not None
+            question = db.scalar(select(AIGenerationDraftQuestion).where(AIGenerationDraftQuestion.draft_id == draft.id))
+            assert question is not None
+            question.options_json = json.dumps(too_many["options"], ensure_ascii=False)
+            db.commit()
+        finally:
+            db.close()
+
+        confirmed = client.post(f"/api/v2/ai/workflows/{workflow_id}/draft/confirm", headers=headers)
+        assert confirmed.status_code == 422
+        assert "26" in confirmed.json()["error"]["message"]
 
 
 def test_ai_generation_prompt_builder_and_validator_components():

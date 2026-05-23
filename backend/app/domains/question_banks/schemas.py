@@ -34,6 +34,15 @@ class ActiveWorkflowOut(BaseModel):
     draft_question_count: int = 0
 
 
+class ResumableSessionOut(BaseModel):
+    id: int
+    mode: str
+    total_questions: int
+    answered_count: int = 0
+    started_at: datetime
+    last_answered_at: datetime | None = None
+
+
 class QuestionBankV2Out(BaseModel):
     id: int
     owner_id: int
@@ -55,6 +64,7 @@ class QuestionBankV2Out(BaseModel):
     favorite_count: int = 0
     permissions: QuestionBankPermissionsOut
     active_workflow: ActiveWorkflowOut | None = None
+    resumable_session: ResumableSessionOut | None = None
     ai_model_name: str | None = None
     is_favorited: bool = False
     created_at: datetime

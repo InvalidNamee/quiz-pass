@@ -11,6 +11,8 @@ def normalize_question_payload(raw: dict) -> dict:
     options = raw.get("options")
     if not isinstance(options, list) or len(options) < 2:
         raise ValueError("每题至少需要两个选项")
+    if len(options) > 26:
+        raise ValueError("每题最多 26 个选项")
     normalized_options = []
     for index, option in enumerate(options):
         content = str(option.get("content") or "").strip()

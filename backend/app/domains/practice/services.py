@@ -6,6 +6,7 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.domains.question_banks.permissions import QuestionBankPermissionService
+from app.domains.question_banks.queries import QuestionBankQueryService
 from app.models.practice import MistakeRecord, PracticeAnswer, PracticeSession, PracticeSessionQuestion
 from app.models.question import Question, QuestionOption
 from app.models.question_bank import QuestionBank
@@ -141,6 +142,16 @@ class PracticeSessionService:
         self.db.commit()
         self.db.refresh(session)
         return self.to_out(session)
+
+    def latest_resumable_session(self, bank_id: int, user: User) -> PracticeSessionOut | None:
+        bank = self.db.get(QuestionBank, bank_id)
+        if not QuestionBankPermissionService.can_practice(bank, user):
+            raise HTTPException(status_code=404, detail="Question bank not found")
+        resumable = QuestionBankQueryService(self.db).resumable_session_for_bank(bank_id, user)
+        if not resumable:
+            return None
+        session = self.db.get(PracticeSession, resumable.id)
+        return self.to_out(session) if session else None
 
     def get_owned_session(self, session_id: int, user: User) -> PracticeSession:
         session = self.db.get(PracticeSession, session_id)

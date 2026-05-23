@@ -11,6 +11,7 @@ export type QuestionForm = {
 }
 
 export type EditableQuestion = Question | AIGenerationDraftQuestion
+export const MAX_OPTION_COUNT = 26
 
 export function emptyQuestionForm(): QuestionForm {
   return {
@@ -98,6 +99,7 @@ export function validateQuestionForm(form: QuestionForm) {
   if (!stem) return '请输入题干'
   const filledOptions = form.options.filter((option) => option.content.trim())
   if (filledOptions.length < 2) return '至少需要两个有效选项'
+  if (form.options.length > MAX_OPTION_COUNT) return '最多 26 个选项'
   const correctCount = form.options.filter((option) => option.is_correct).length
   if (form.type === 'single' && correctCount !== 1) return '单选题必须且只能有一个正确答案'
   if (form.type === 'multiple' && correctCount < 2) return '多选题至少需要两个正确答案'

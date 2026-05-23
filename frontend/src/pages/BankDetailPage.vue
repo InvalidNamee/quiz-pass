@@ -141,6 +141,11 @@ async function saveAIContext() {
   }
 }
 
+function continuePractice() {
+  if (!bank.value?.resumable_session) return
+  router.push(`/practice/session/${bank.value.resumable_session.id}`)
+}
+
 onMounted(load)
 watch(bank, syncPolling, { deep: true })
 onBeforeUnmount(stopPolling)
@@ -179,6 +184,7 @@ onBeforeUnmount(stopPolling)
       <div class="qp-section">
         <h2 class="qp-section-title">练习与内容</h2>
         <div class="flex flex-wrap gap-2">
+          <el-button v-if="bank.resumable_session" type="primary" plain @click="continuePractice">继续练习</el-button>
           <el-button v-if="bank.permissions.can_practice" type="primary" @click="practiceDialogVisible = true">开始练习</el-button>
           <RouterLink v-if="bank.permissions.can_view_mistakes" :to="`/banks/${bank.id}/mistakes`"><el-button>我的错题</el-button></RouterLink>
           <el-button v-if="bank.permissions.can_export" :loading="exporting" @click="exportJson">导出题库</el-button>

@@ -37,7 +37,7 @@ def list_banks(
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     items, total, page, page_size = paginate(db, stmt, page, page_size)
-    return page_response([service.to_out(item, current_user) for item in items], total, page, page_size)
+    return page_response(service.to_out_many(items, current_user), total, page, page_size)
 
 
 @router.post("/banks", response_model=QuestionBankV2Out)
@@ -94,8 +94,8 @@ async def import_json_to_bank(bank_id: int, file: UploadFile = File(...), curren
 
 
 @router.get("/banks/{bank_id}/questions", response_model=Page[QuestionOut])
-def list_questions(bank_id: int, page: int = 1, page_size: int = 20, keyword: str | None = None, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return QuestionService(db).list_questions(bank_id, current_user, page, page_size, keyword)
+def list_questions(bank_id: int, page: int = 1, page_size: int = 20, keyword: str | None = None, all: bool = False, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return QuestionService(db).list_questions(bank_id, current_user, page, page_size, keyword, all)
 
 
 @router.post("/banks/{bank_id}/questions", response_model=QuestionOut)

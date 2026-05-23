@@ -27,7 +27,8 @@ async def create_workflow(
     extra_instruction: str | None = Form(None),
     inherit_context: bool = Form(False),
     tag_names: str | None = Form(None),
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    files: list[UploadFile] | None = File(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -46,6 +47,7 @@ async def create_workflow(
         inherit_context,
         tag_names,
         file,
+        files,
     )
 
 
@@ -61,7 +63,8 @@ async def create_extend_workflow(
     extra_instruction: str | None = Form(None),
     inherit_context: bool = Form(True),
     include_existing_questions: bool = Form(False),
-    file: UploadFile = File(...),
+    file: UploadFile | None = File(None),
+    files: list[UploadFile] | None = File(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -78,6 +81,7 @@ async def create_extend_workflow(
         inherit_context,
         include_existing_questions,
         file,
+        files,
     )
 
 
@@ -153,6 +157,7 @@ async def retry_workflow(
     description: str | None = Form(None),
     desired_visibility: str | None = Form(None),
     file: UploadFile | None = File(None),
+    files: list[UploadFile] | None = File(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -173,4 +178,5 @@ async def retry_workflow(
         description,
         desired_visibility,
         file,
+        files,
     )
