@@ -16,3 +16,5 @@ pypdf==6.4.0
 cryptography==46.0.3
 alembic==1.17.2
 pytest==9.0.2
+redis==7.0.1
+rq==2.6.1

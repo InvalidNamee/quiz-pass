@@ -21,6 +21,7 @@ from app.utils.avatar import build_qq_avatar_url
 from app.utils.crypto import decrypt_secret, encrypt_secret
 from app.utils.pagination import paginate
 from app.infrastructure.email import EmailDeliveryService
+from app.infrastructure.audit import AuditService
 
 
 class UserAuthService:
@@ -348,7 +349,7 @@ class AdminUserService:
         items, total, page, page_size = paginate(self.db, stmt, page, page_size)
         return page_response(items, total, page, page_size)
 
-    def update_user(self, user_id: int, payload: AdminUserUpdate) -> User:
+    def update_user(self, user_id: int, payload: AdminUserUpdate, current_admin: User | None = None) -> User:
         user = self.db.get(User, user_id)
         if not user:
             raise HTTPException(status_code=404, detail="User not found")
@@ -356,6 +357,7 @@ class AdminUserService:
         for field in ("display_name", "bio", "is_active"):
             if field in updates:
                 setattr(user, field, updates[field])
+        AuditService(self.db).record(current_admin.id if current_admin else None, "admin.user_update", "user", user.id, updates)
         self.db.commit()
         self.db.refresh(user)
         return user
@@ -368,6 +370,7 @@ class AdminUserService:
             raise HTTPException(status_code=404, detail="User not found")
         temporary_password = self.temporary_password()
         user.password_hash = get_password_hash(temporary_password)
+        AuditService(self.db).record(current_admin.id, "admin.reset_password", "user", user.id)
         self.db.commit()
         return AdminPasswordResetOut(temporary_password=temporary_password)
 

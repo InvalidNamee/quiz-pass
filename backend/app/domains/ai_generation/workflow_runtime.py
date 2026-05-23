@@ -76,21 +76,25 @@ class WorkflowRuntime:
             job.started_at = now_utc()
         workflow.source_text_snapshot = workflow.source_text_snapshot or text
         self.db.commit()
-        self.graph.invoke(
-            {
-                "db": self.db,
-                "workflow_id": workflow.id,
-                "bank_id": bank.id,
-                "user_id": workflow.user_id,
-                "config_id": config.id,
-                "text": workflow.source_text_snapshot or text,
-                "requested_count": requested_count,
-                "generate_description": generate_description,
-                "generation_mode": generation_mode,
-                "extra_instruction": PromptBuilder.normalize_extra_instruction(extra_instruction),
-                "repair_attempts": 0,
-            }
-        )
+        try:
+            self.graph.invoke(
+                {
+                    "db": self.db,
+                    "workflow_id": workflow.id,
+                    "bank_id": bank.id,
+                    "user_id": workflow.user_id,
+                    "config_id": config.id,
+                    "text": workflow.source_text_snapshot or text,
+                    "requested_count": requested_count if requested_count is not None else workflow.requested_count,
+                    "generate_description": generate_description if generate_description is not None else workflow.generate_description == "true",
+                    "generation_mode": generation_mode or workflow.generation_mode,
+                    "extra_instruction": PromptBuilder.normalize_extra_instruction(extra_instruction if extra_instruction is not None else workflow.extra_instruction),
+                    "repair_attempts": 0,
+                }
+            )
+        except WorkflowCancelled:
+            self.db.rollback()
+            return
 
     def build_graph(self):
         graph = StateGraph(AIGenerationState)
@@ -113,13 +117,22 @@ class WorkflowRuntime:
 
     def load_objects(self, state: AIGenerationState):
         db = state["db"]
+        db.expire_all()
         workflow = db.get(AIGenerationWorkflow, state["workflow_id"])
         job = db.scalar(select(ImportJob).where(ImportJob.workflow_id == state["workflow_id"]))
+        if not job or not workflow:
+            raise AIGenerationError("生成任务或 workflow 不存在")
+        self.raise_if_cancelled(workflow, job)
         bank = db.get(QuestionBank, state["bank_id"])
         config = db.get(UserAIProviderConfig, state["config_id"])
-        if not job or not workflow or not bank or not config:
-            raise AIGenerationError("生成任务、workflow、题库或 AI 配置不存在")
+        if not bank or not config:
+            raise AIGenerationError("题库或 AI 配置不存在")
         return db, job, workflow, bank, config
+
+    @staticmethod
+    def raise_if_cancelled(workflow: AIGenerationWorkflow, job: ImportJob) -> None:
+        if workflow.status == "cancelled" or job.status == "cancelled":
+            raise WorkflowCancelled()
 
     def extract_document_node(self, state: AIGenerationState) -> AIGenerationState:
         db, job, workflow, bank, _ = self.load_objects(state)
@@ -256,3 +269,7 @@ class WorkflowRuntime:
     @staticmethod
     def route_after_repair(state: AIGenerationState) -> Literal["validate_payload", "fail"]:
         return "fail" if state.get("route") == "fail" else "validate_payload"
+
+
+class WorkflowCancelled(Exception):
+    pass

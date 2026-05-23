@@ -103,6 +103,60 @@ cd frontend
 npm run build
 ```
 
+## Docker Compose Deployment
+
+The production compose stack runs:
+
+- MySQL 8.4 for application data.
+- Redis 7 for RQ workflow jobs.
+- FastAPI backend with Alembic migration on startup.
+- RQ worker for AI generation workflows.
+- Nginx frontend serving the built Vue app and proxying `/api` and `/health`.
+
+Create a deployment env file first:
+
+```bash
+cp .env.docker.example .env.docker
+```
+
+Edit `.env.docker` before exposing the service:
+
+```env
+JWT_SECRET_KEY=replace-with-a-long-random-secret
+MYSQL_PASSWORD=replace-me
+MYSQL_ROOT_PASSWORD=replace-me
+FRONTEND_PORT=8080
+FRONTEND_BASE_URL=http://your-host:8080
+CORS_ORIGINS=http://your-host:8080
+```
+
+If SMTP is configured, email verification and password reset links will point to
+`FRONTEND_BASE_URL`. If SMTP is not configured, development-style debug links may
+be logged by the backend.
+
+Start the stack:
+
+```bash
+APP_ENV_FILE=.env.docker docker compose --env-file .env.docker up -d --build
+```
+
+Open:
+
+```text
+http://localhost:8080
+```
+
+Useful commands:
+
+```bash
+APP_ENV_FILE=.env.docker docker compose --env-file .env.docker logs -f backend
+APP_ENV_FILE=.env.docker docker compose --env-file .env.docker logs -f worker
+APP_ENV_FILE=.env.docker docker compose --env-file .env.docker down
+```
+
+MySQL and Redis data are stored in Docker volumes named `mysql_data` and
+`redis_data`.
+
 ## Database and Migrations
 
 Alembic is the schema source of truth:

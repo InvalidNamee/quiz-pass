@@ -21,6 +21,8 @@ class ImportJob(Base):
     ai_base_url_snapshot: Mapped[str | None] = mapped_column(String(512), nullable=True)
     ai_model_snapshot: Mapped[str | None] = mapped_column(String(128), nullable=True)
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    queue_job_id: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    enqueued_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())

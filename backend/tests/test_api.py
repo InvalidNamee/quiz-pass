@@ -2,6 +2,8 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 os.environ["DATABASE_URL"] = "sqlite:///./test_quiz_pass.db"
 os.environ["JWT_SECRET_KEY"] = "test-secret"
 os.environ["APP_ENV"] = "test"
@@ -17,6 +19,7 @@ command.upgrade(alembic_cfg, "head")
 
 from app.db.session import SessionLocal  # noqa: E402
 from app.main import app  # noqa: E402
+from app.models.audit import AuditEvent  # noqa: E402
 from app.models.ai_workflow import AIGenerationDraft, AIGenerationWorkflow, AIGenerationWorkflowStep, AIGenerationDraftQuestion  # noqa: E402
 from app.models.import_job import ImportJob  # noqa: E402
 from app.models.practice import MistakeRecord, PracticeAnswer, PracticeSession, PracticeSessionQuestion  # noqa: E402
@@ -84,6 +87,8 @@ def test_database_model_removes_workflow_job_cycle_and_uses_cascades():
     assert _fk_ondelete(AIGenerationDraftQuestion, "draft_id") == "CASCADE"
     assert _fk_ondelete(AIGenerationWorkflow, "ai_provider_config_id") == "SET NULL"
     assert _fk_ondelete(ImportJob, "ai_provider_config_id") == "SET NULL"
+    assert "queue_job_id" in ImportJob.__table__.c
+    assert "enqueued_at" in ImportJob.__table__.c
 
 
 def test_login_identifier_and_change_password():
@@ -858,6 +863,8 @@ def test_bank_workflow_logs_redact_failed_error_for_readers(monkeypatch):
         assert item["source_text_snapshot"] is None
         assert item["extra_instruction"] is None
         assert item["ai_provider_config_id"] is None
+        assert item["can_retry"] is False
+        assert item["can_cancel"] is False
         assert "sensitive source text" not in str(item)
         assert "sensitive extra instruction" not in str(item)
 
@@ -941,6 +948,8 @@ def test_public_bank_workflow_logs_cover_extension_states_and_redaction():
             assert item["error_message"] is None
             assert item["ai_provider_config_id"] is None
             assert item["can_confirm"] is False
+            assert item["can_retry"] is False
+            assert item["can_cancel"] is False
         assert items[workflow_ids["draft_ready"]]["draft_question_count"] == 1
         assert items[workflow_ids["imported"]]["imported_question_count"] == 3
         assert items[workflow_ids["imported"]]["question_delta"] == 3
@@ -1188,6 +1197,11 @@ def test_v2_ai_workflow_cancel_create_bank_preserves_audit_and_deletes_shell(mon
         assert workflow["bank_title_snapshot"] == "Cancel Shell"
         assert workflow["cancel_reason"] == "不需要了"
         assert client.get(f"/api/v2/banks/{payload['bank_id']}", headers=headers).status_code == 404
+        db = SessionLocal()
+        try:
+            assert db.scalar(select(AuditEvent).where(AuditEvent.action == "workflow.cancel", AuditEvent.target_id == payload["workflow_id"])) is not None
+        finally:
+            db.close()
 
 
 def test_v2_ai_workflow_retry_failed_creates_new_workflow(monkeypatch):
@@ -1255,6 +1269,229 @@ def test_v2_ai_workflow_retry_failed_creates_new_workflow(monkeypatch):
             data={"cancel_reason": "too late"},
         )
         assert cancelled_old.status_code == 400
+        db = SessionLocal()
+        try:
+            assert db.scalar(select(AuditEvent).where(AuditEvent.action == "workflow.retry", AuditEvent.target_id == failed_workflow["id"])) is not None
+        finally:
+            db.close()
+
+
+def test_v2_ai_workflow_detail_owner_only_and_rq_enqueue(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "ai_workflow_execution_mode", "rq")
+
+    from app.domains.ai_generation import facade as ai_generation
+    from app.domains.ai_generation.workflow_state import now_utc
+    import app.domains.ai_generation.queue as workflow_queue
+
+    def should_not_run(*args, **kwargs):
+        raise AssertionError("RQ mode should enqueue instead of running synchronously")
+
+    def fake_enqueue(workflow_id, job):
+        job.queue_job_id = f"rq-{workflow_id}"
+        job.enqueued_at = now_utc()
+
+    monkeypatch.setattr(ai_generation, "_call_openai_compatible", should_not_run)
+    monkeypatch.setattr(workflow_queue, "enqueue_workflow", fake_enqueue)
+
+    with TestClient(app) as client:
+        headers = _register(client, "rq-workflow@example.com", "rqworkflow")
+        other_headers = _register(client, "rq-workflow-other@example.com", "rqworkflowother")
+        client.post(
+            "/api/v2/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+        created = client.post(
+            "/api/v2/ai/workflows",
+            headers=headers,
+            data={"title": "RQ Bank", "question_count": "1", "extra_instruction": "owner only instruction"},
+            files={"file": ("rq.txt", b"owner only source", "text/plain")},
+        )
+        assert created.status_code == 200, created.text
+        workflow_id = created.json()["workflow_id"]
+        workflow = client.get(f"/api/v2/ai/workflows/{workflow_id}", headers=headers).json()
+        assert workflow["status"] == "pending"
+        assert workflow["queue_job_id"] == f"rq-{workflow_id}"
+        assert workflow["enqueued_at"] is not None
+
+        detail = client.get(f"/api/v2/ai/workflows/{workflow_id}/detail", headers=headers)
+        assert detail.status_code == 200, detail.text
+        detail_payload = detail.json()
+        assert detail_payload["source_text_snapshot"] == "owner only source"
+        assert detail_payload["extra_instruction"] == "owner only instruction"
+        assert detail_payload["queue_job_id"] == f"rq-{workflow_id}"
+        assert detail_payload["steps"] == []
+        assert client.get(f"/api/v2/ai/workflows/{workflow_id}/detail", headers=other_headers).status_code == 404
+
+
+def test_v2_rq_enqueue_failure_marks_create_workflow_failed(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "ai_workflow_execution_mode", "rq")
+
+    import app.domains.ai_generation.queue as workflow_queue
+
+    def broken_enqueue(*args, **kwargs):
+        raise RuntimeError("redis unavailable")
+
+    monkeypatch.setattr(workflow_queue, "enqueue_workflow", broken_enqueue)
+
+    with TestClient(app) as client:
+        headers = _register(client, "rq-fail-create@example.com", "rqfailcreate")
+        client.post(
+            "/api/v2/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+        created = client.post(
+            "/api/v2/ai/workflows",
+            headers=headers,
+            data={"title": "RQ Failure Bank", "desired_visibility": "public", "question_count": "1"},
+            files={"file": ("rq-fail.txt", b"source", "text/plain")},
+        )
+        assert created.status_code == 200, created.text
+        payload = created.json()
+        workflow = client.get(f"/api/v2/ai/workflows/{payload['workflow_id']}", headers=headers).json()
+        assert workflow["status"] == "failed"
+        assert "队列入队失败" in workflow["error_message"]
+        assert "redis unavailable" in workflow["error_message"]
+        bank = client.get(f"/api/v2/banks/{payload['bank_id']}", headers=headers).json()
+        assert bank["generation_status"] == "failed"
+        assert bank["visibility"] == "private"
+
+
+def test_v2_rq_enqueue_failure_does_not_pollute_extend_bank(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "ai_workflow_execution_mode", "rq")
+
+    import app.domains.ai_generation.queue as workflow_queue
+
+    def broken_enqueue(*args, **kwargs):
+        raise RuntimeError("redis unavailable")
+
+    monkeypatch.setattr(workflow_queue, "enqueue_workflow", broken_enqueue)
+
+    with TestClient(app) as client:
+        headers = _register(client, "rq-fail-extend@example.com", "rqfailextend")
+        reader_headers = _register(client, "rq-fail-reader@example.com", "rqfailreader")
+        client.post(
+            "/api/v2/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Extend RQ Failure", "visibility": "public"}).json()
+        before = client.get(f"/api/v2/banks/{bank['id']}", headers=reader_headers).json()
+
+        created = client.post(
+            f"/api/v2/banks/{bank['id']}/ai-workflows",
+            headers=headers,
+            data={"question_count": "1"},
+            files={"file": ("extend-rq-fail.txt", b"source", "text/plain")},
+        )
+        assert created.status_code == 200, created.text
+        workflow = client.get(f"/api/v2/ai/workflows/{created.json()['workflow_id']}", headers=headers).json()
+        assert workflow["status"] == "failed"
+        assert "队列入队失败" in workflow["error_message"]
+        after = client.get(f"/api/v2/banks/{bank['id']}", headers=reader_headers)
+        assert after.status_code == 200, after.text
+        assert after.json()["generation_status"] == before["generation_status"]
+
+
+def test_cancelled_create_workflow_worker_stops_after_shell_deleted(monkeypatch):
+    with TestClient(app) as client:
+        headers = _register(client, "cancel-worker@example.com", "cancelworker")
+        client.post(
+            "/api/v2/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+
+        from app.domains.ai_generation import facade as ai_generation
+
+        def good_ai(*args, **kwargs):
+            return {
+                "questions": [
+                    {
+                        "type": "single",
+                        "stem": "Cancel worker",
+                        "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
+                    }
+                ]
+            }
+
+        monkeypatch.setattr(ai_generation, "_call_openai_compatible", good_ai)
+        created = client.post(
+            "/api/v2/ai/workflows",
+            headers=headers,
+            data={"title": "Cancel Worker Shell", "question_count": "1"},
+            files={"file": ("material.txt", b"content", "text/plain")},
+        )
+        assert created.status_code == 200, created.text
+        payload = created.json()
+        config_id = client.get(f"/api/v2/ai/workflows/{payload['workflow_id']}", headers=headers).json()["ai_provider_config_id"]
+        assert client.post(f"/api/v2/ai/workflows/{payload['workflow_id']}/cancel", headers=headers).status_code == 200
+
+        from app.domains.ai_generation.workflow_runtime import WorkflowCancelled, WorkflowRuntime
+
+        db = SessionLocal()
+        try:
+            with pytest.raises(WorkflowCancelled):
+                WorkflowRuntime(db).load_objects(
+                    {
+                        "db": db,
+                        "workflow_id": payload["workflow_id"],
+                        "bank_id": payload["bank_id"],
+                        "config_id": config_id,
+                    }
+                )
+        finally:
+            db.close()
+
+
+def test_v2_ai_workflow_retry_draft_ready_head_only(monkeypatch):
+    with TestClient(app) as client:
+        headers = _register(client, "retry-draft@example.com", "retrydraft")
+        client.post(
+            "/api/v2/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+
+        from app.domains.ai_generation import facade as ai_generation
+
+        def good_ai(*args, **kwargs):
+            return {
+                "questions": [
+                    {
+                        "type": "single",
+                        "stem": "Draft retry success",
+                        "options": [{"label": "A", "content": "A", "is_correct": True}, {"label": "B", "content": "B", "is_correct": False}],
+                    }
+                ]
+            }
+
+        monkeypatch.setattr(ai_generation, "_call_openai_compatible", good_ai)
+        created = client.post(
+            "/api/v2/ai/workflows",
+            headers=headers,
+            data={"title": "Draft Retry", "question_count": "1"},
+            files={"file": ("material.txt", b"original source", "text/plain")},
+        )
+        assert created.status_code == 200, created.text
+        original = client.get(f"/api/v2/ai/workflows/{created.json()['workflow_id']}", headers=headers).json()
+        assert original["status"] == "draft_ready"
+        assert original["can_retry"] is True
+
+        retried = client.post(
+            f"/api/v2/ai/workflows/{original['id']}/retry",
+            headers=headers,
+            data={"source_text": "retry from draft", "question_count_mode": "fixed", "question_count": "1", "title": "Draft Retry 2"},
+        )
+        assert retried.status_code == 200, retried.text
+        old_after_retry = client.get(f"/api/v2/ai/workflows/{original['id']}", headers=headers).json()
+        assert old_after_retry["retried_by_workflow_id"] == retried.json()["workflow_id"]
+        assert old_after_retry["can_retry"] is False
+        assert client.post(f"/api/v2/ai/workflows/{original['id']}/cancel", headers=headers).status_code == 400
 
 
 def test_v2_ai_workflow_extends_existing_bank(monkeypatch):

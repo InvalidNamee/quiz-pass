@@ -1,8 +1,9 @@
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 BACKEND_DIR = Path(__file__).resolve().parents[2]
 
@@ -25,7 +26,10 @@ class Settings(BaseSettings):
     ai_config_encryption_key: str = ""
     upload_max_mb: int = 10
     ai_max_text_chars: int = 30000
-    cors_origins: list[str] = ["*"]
+    cors_origins: Annotated[list[str], NoDecode] = ["*"]
+    redis_url: str = "redis://localhost:6379/0"
+    ai_workflow_queue_name: str = "ai-generation"
+    ai_workflow_execution_mode: str = "background_tasks"
 
     model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env", env_file_encoding="utf-8")
 

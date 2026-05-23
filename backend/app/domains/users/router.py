@@ -121,8 +121,8 @@ def list_admin_users(
 
 
 @router.patch("/admin/users/{user_id}", response_model=UserMe)
-def update_admin_user(user_id: int, payload: AdminUserUpdate, _: User = Depends(require_admin), db: Session = Depends(get_db)):
-    return AdminUserService(db).update_user(user_id, payload)
+def update_admin_user(user_id: int, payload: AdminUserUpdate, current_admin: User = Depends(require_admin), db: Session = Depends(get_db)):
+    return AdminUserService(db).update_user(user_id, payload, current_admin)
 
 
 @router.post("/admin/users/{user_id}/reset-password", response_model=AdminPasswordResetOut)

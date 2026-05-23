@@ -1,0 +1,9 @@
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.mypy_cache
+quiz_pass.db
+test_quiz_pass.db
+.env
+alembic/__pycache__

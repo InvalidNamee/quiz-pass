@@ -10,6 +10,7 @@ from app.domains.question_banks.stats import QuestionBankStatsService
 from app.models.question_bank import QuestionBank, QuestionBankFavorite
 from app.models.user import User
 from app.domains.question_banks.tags import set_bank_tags
+from app.infrastructure.audit import AuditService
 
 
 class QuestionBankService:
@@ -73,6 +74,7 @@ class QuestionBankService:
 
     def delete(self, bank_id: int, user: User) -> None:
         bank = self.get_manageable(bank_id, user)
+        AuditService(self.db).record(user.id, "bank.delete", "bank", bank.id, {"title": bank.title})
         QuestionBankLifecycleService(self.db).delete_bank(bank)
         self.db.commit()
 

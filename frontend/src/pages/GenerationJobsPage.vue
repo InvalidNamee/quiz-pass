@@ -6,6 +6,7 @@ import type { AIProviderConfig, Page } from '../api/types'
 import { cancelWorkflow, listWorkflows, retryWorkflow, type WorkflowListItem } from '../api/v2/aiGeneration'
 import { listAIConfigs } from '../api/v2/users'
 import WorkflowTable from '../components/WorkflowTable.vue'
+import WorkflowDetailDrawer from '../components/WorkflowDetailDrawer.vue'
 import { useToast } from '../composables/useToast'
 import { isUnstableWorkflowStatus } from '../utils/generationStatus'
 
@@ -20,6 +21,8 @@ const configs = ref<AIProviderConfig[]>([])
 const retryDialogVisible = ref(false)
 const retrying = ref(false)
 const retryTarget = ref<WorkflowListItem | null>(null)
+const detailDrawerVisible = ref(false)
+const detailTarget = ref<WorkflowListItem | null>(null)
 const retryFile = ref<File | null>(null)
 const retryForm = ref({
   aiProviderConfigId: '',
@@ -103,6 +106,11 @@ async function openRetry(row: WorkflowListItem) {
   retryDialogVisible.value = true
 }
 
+function openDetail(row: WorkflowListItem) {
+  detailTarget.value = row
+  detailDrawerVisible.value = true
+}
+
 function onRetryUploadChange(uploadFile: { raw?: File }) {
   retryFile.value = uploadFile.raw ?? null
 }
@@ -180,6 +188,7 @@ onBeforeUnmount(stopPolling)
           <el-option value="draft_ready">草稿待确认</el-option>
           <el-option value="imported">已入库</el-option>
           <el-option value="failed">生成失败</el-option>
+          <el-option value="cancelled">已取消</el-option>
         </el-select>
         <el-button size="small" type="primary" @click="applyFilters()">筛选</el-button>
       </div>
@@ -188,12 +197,13 @@ onBeforeUnmount(stopPolling)
     <WorkflowTable :workflows="jobs" :loading="loading" show-actions show-sensitive-error>
       <template #actions="{ row }">
           <div class="flex flex-wrap gap-1">
+            <el-button size="small" @click="openDetail(row)">详情</el-button>
             <RouterLink v-if="row.can_confirm" :to="`/ai-generation/workflows/${row.id}/draft`">
               <el-button size="small" type="primary">确认草稿</el-button>
             </RouterLink>
-            <el-tag v-if="row.status === 'failed' && row.retried_by_workflow_id" type="info">已重新生成 #{{ row.retried_by_workflow_id }}</el-tag>
-            <el-button v-if="row.status === 'failed' && !row.retried_by_workflow_id" size="small" @click="openRetry(row)">重新生成</el-button>
-            <el-button v-if="(row.status === 'failed' || row.status === 'draft_ready') && !row.retried_by_workflow_id" size="small" type="danger" plain @click="cancelRow(row)">撤销</el-button>
+            <el-tag v-if="row.retried_by_workflow_id" type="info">已重新生成 #{{ row.retried_by_workflow_id }}</el-tag>
+            <el-button v-if="row.can_retry" size="small" @click="openRetry(row)">重新生成</el-button>
+            <el-button v-if="row.can_cancel" size="small" type="danger" plain @click="cancelRow(row)">撤销</el-button>
             <RouterLink v-if="row.bank_id" :to="`/banks/${row.bank_id}`">
               <el-button size="small">查看题库</el-button>
             </RouterLink>
@@ -270,5 +280,12 @@ onBeforeUnmount(stopPolling)
         <el-button type="primary" :loading="retrying" @click="submitRetry">重新生成</el-button>
       </template>
     </el-dialog>
+
+    <WorkflowDetailDrawer
+      v-model="detailDrawerVisible"
+      :workflow="detailTarget"
+      @retry="openRetry"
+      @cancel="cancelRow"
+    />
   </section>
 </template>

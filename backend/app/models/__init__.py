@@ -1,4 +1,5 @@
 from app.models.ai_workflow import AIGenerationDraft, AIGenerationDraftQuestion, AIGenerationWorkflow, AIGenerationWorkflowStep
+from app.models.audit import AuditEvent
 from app.models.ai_provider_config import UserAIProviderConfig
 from app.models.import_job import ImportJob
 from app.models.practice import MistakeRecord, PracticeAnswer, PracticeSession, PracticeSessionQuestion
@@ -24,6 +25,7 @@ __all__ = [
     "QuestionOption",
     "User",
     "EmailAuthToken",
+    "AuditEvent",
     "UserAIProviderConfig",
     "UserPromptTemplate",
 ]

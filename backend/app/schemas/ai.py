@@ -111,11 +111,20 @@ class AIGenerationWorkflowOut(BaseModel):
     imported_question_count: int = 0
     question_delta: int = 0
     can_confirm: bool = False
+    can_retry: bool = False
+    can_cancel: bool = False
+    queue_job_id: str | None = None
+    enqueued_at: datetime | None = None
+    started_at: datetime | None = None
     finished_at: datetime | None
     created_at: datetime
     updated_at: datetime
 
     model_config = {"from_attributes": True}
+
+
+class AIGenerationWorkflowDetailOut(AIGenerationWorkflowOut):
+    steps: list["AIGenerationWorkflowStepOut"] = Field(default_factory=list)
 
 
 class AIGenerationWorkflowStepOut(BaseModel):

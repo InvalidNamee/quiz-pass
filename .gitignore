@@ -1,5 +1,7 @@
 backend/.venv/
 backend/.env
+.env
+.env.docker
 backend/quiz_pass.db
 backend/test_quiz_pass.db
 test_quiz_pass.db

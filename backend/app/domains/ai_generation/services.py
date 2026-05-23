@@ -5,6 +5,7 @@ from fastapi import BackgroundTasks, HTTPException, UploadFile
 from sqlalchemy import delete, func, select
 from sqlalchemy.orm import Session, selectinload
 
+from app.core.config import get_settings
 from app.db.session import SessionLocal
 from app.domains.ai_generation.schemas import AIGenerationWorkflowCreatedOut
 from app.domains.ai_generation.drafts import DraftService
@@ -12,12 +13,13 @@ from app.domains.ai_generation.errors import AIOutputValidationError
 from app.domains.ai_generation.workflow_runtime import WorkflowRuntime
 from app.domains.ai_generation.workflow_state import now_utc
 from app.domains.question_banks.permissions import QuestionBankPermissionService
+from app.infrastructure.audit import AuditService
 from app.models.ai_provider_config import UserAIProviderConfig
 from app.models.ai_workflow import AIGenerationDraft, AIGenerationDraftQuestion, AIGenerationWorkflow, AIGenerationWorkflowStep
 from app.models.import_job import ImportJob
 from app.models.question_bank import QuestionBank
 from app.models.user import User
-from app.schemas.ai import AIGenerationDraftOut, AIGenerationWorkflowOut, AIGenerationWorkflowStepOut
+from app.schemas.ai import AIGenerationDraftOut, AIGenerationWorkflowDetailOut, AIGenerationWorkflowOut, AIGenerationWorkflowStepOut
 from app.domains.question_banks.tags import set_bank_tags
 from app.utils.document_extractors import extract_text
 
@@ -27,6 +29,13 @@ def run_generation_task(workflow_id: int, text: str, question_count: int | None,
     try:
         from app.domains.ai_generation import facade as ai_generation
 
+        workflow = db.get(AIGenerationWorkflow, workflow_id)
+        if workflow:
+            text = text or workflow.source_text_snapshot or ""
+            question_count = question_count if question_count is not None else workflow.requested_count
+            generate_description = generate_description if generate_description is not None else workflow.generate_description == "true"
+            generation_mode = generation_mode or workflow.generation_mode
+            extra_instruction = extra_instruction if extra_instruction is not None else workflow.extra_instruction
         WorkflowRuntime(db, model_client=ai_generation._call_openai_compatible).run(
             workflow_id,
             text,
@@ -53,6 +62,46 @@ class AIGenerationWorkflowService:
         if not config:
             raise HTTPException(status_code=400, detail="请先配置可用的 AI Provider")
         return config
+
+    def schedule_workflow(
+        self,
+        background_tasks: BackgroundTasks,
+        workflow: AIGenerationWorkflow,
+        job: ImportJob,
+        text: str,
+        question_count: int | None,
+        generate_description: bool,
+        generation_mode: str,
+        extra_instruction: str | None,
+    ) -> None:
+        if get_settings().ai_workflow_execution_mode == "rq":
+            from app.domains.ai_generation.queue import enqueue_workflow
+
+            try:
+                enqueue_workflow(workflow.id, job)
+            except Exception as exc:
+                self.mark_queue_enqueue_failed(workflow, job, exc)
+                self.db.commit()
+                return
+            self.db.commit()
+            return
+        background_tasks.add_task(run_generation_task, workflow.id, text, question_count, generate_description, generation_mode, extra_instruction)
+
+    def mark_queue_enqueue_failed(self, workflow: AIGenerationWorkflow, job: ImportJob, exc: Exception) -> None:
+        message = f"队列入队失败：{type(exc).__name__}: {str(exc)[:500]}"
+        workflow.status = "failed"
+        workflow.error_message = message
+        workflow.finished_at = now_utc()
+        job.status = "failed"
+        job.error_message = message
+        job.finished_at = now_utc()
+        bank = self.db.get(QuestionBank, workflow.bank_id) if workflow.bank_id else None
+        if bank and workflow.purpose == "create_bank":
+            bank.generation_status = "failed"
+            bank.visibility = "private"
+        elif bank:
+            bank.generation_status = "succeeded" if bank.question_count > 0 else "none"
+        self.db.flush()
 
     async def create_bank_workflow(
         self,
@@ -141,7 +190,7 @@ class AIGenerationWorkflowService:
         self.db.add(job)
         self.db.flush()
         self.db.commit()
-        background_tasks.add_task(run_generation_task, workflow.id, text, effective_count, generate_description, generation_mode, normalized_extra_instruction)
+        self.schedule_workflow(background_tasks, workflow, job, text, effective_count, generate_description, generation_mode, normalized_extra_instruction)
         return AIGenerationWorkflowCreatedOut(workflow_id=workflow.id, bank_id=bank.id, job_id=job.id)
 
     async def create_extend_workflow(
@@ -206,7 +255,7 @@ class AIGenerationWorkflowService:
         self.db.add(job)
         self.db.flush()
         self.db.commit()
-        background_tasks.add_task(run_generation_task, workflow.id, text, effective_count, generate_description, generation_mode, normalized_extra_instruction)
+        self.schedule_workflow(background_tasks, workflow, job, text, effective_count, generate_description, generation_mode, normalized_extra_instruction)
         return AIGenerationWorkflowCreatedOut(workflow_id=workflow.id, bank_id=bank.id, job_id=job.id)
 
     async def retry_workflow(
@@ -229,8 +278,8 @@ class AIGenerationWorkflowService:
         file: UploadFile | None,
     ) -> AIGenerationWorkflowCreatedOut:
         original = self.get_owned_workflow(workflow_id, user)
-        if original.status != "failed":
-            raise HTTPException(status_code=400, detail="只有失败的 workflow 可以重新生成")
+        if original.status not in {"failed", "cancelled", "draft_ready"}:
+            raise HTTPException(status_code=400, detail="只有失败、已取消或草稿待确认的 workflow 可以重新生成")
         if self.retried_by_workflow_id(original.id):
             raise HTTPException(status_code=400, detail="该 workflow 已经重新生成，不能再次操作")
 
@@ -322,8 +371,9 @@ class AIGenerationWorkflowService:
         self.db.add(job)
         if original.purpose == "create_bank":
             bank.generation_status = "processing"
+        AuditService(self.db).record(user.id, "workflow.retry", "workflow", original.id, {"new_workflow_id": workflow.id})
         self.db.commit()
-        background_tasks.add_task(run_generation_task, workflow.id, text, effective_count, next_generate_description, next_mode, normalized_extra_instruction)
+        self.schedule_workflow(background_tasks, workflow, job, text, effective_count, next_generate_description, next_mode, normalized_extra_instruction)
         return AIGenerationWorkflowCreatedOut(workflow_id=workflow.id, bank_id=bank.id, job_id=job.id)
 
     def workflows_for_user_stmt(self, user: User, status: str | None = None, bank_id: int | None = None):
@@ -433,12 +483,17 @@ class AIGenerationWorkflowService:
         if job:
             out.job_id = job.id
             out.type = job.type
+            out.queue_job_id = job.queue_job_id
+            out.enqueued_at = job.enqueued_at
+            out.started_at = job.started_at
         if draft:
             out.draft_question_count = draft_question_counts.get(draft.id, 0)
             out.can_confirm = workflow.status == "draft_ready"
         out.imported_question_count = imported_question_count
         out.question_delta = out.imported_question_count
         out.error_summary = self.error_summary(workflow.error_message)
+        out.can_retry = workflow.status in {"failed", "cancelled", "draft_ready"} and retried_by_workflow_id is None
+        out.can_cancel = workflow.status in {"pending", "extracting_document", "calling_model", "validating", "repairing", "draft_ready", "failed"} and retried_by_workflow_id is None
         if redact_sensitive:
             out.source_file_name = None
             out.source_text_snapshot = None
@@ -446,6 +501,8 @@ class AIGenerationWorkflowService:
             out.error_message = None
             out.ai_provider_config_id = None
             out.can_confirm = False
+            out.can_retry = False
+            out.can_cancel = False
         return out
 
     def imported_question_count(self, workflow_id: int) -> int:
@@ -485,6 +542,12 @@ class AIGenerationWorkflowService:
         ).all()
         return [AIGenerationWorkflowStepOut.model_validate(step, from_attributes=True) for step in steps]
 
+    def workflow_detail(self, workflow_id: int, user: User) -> AIGenerationWorkflowDetailOut:
+        workflow = self.get_owned_workflow(workflow_id, user)
+        detail = AIGenerationWorkflowDetailOut.model_validate(self.workflow_out(workflow).model_dump())
+        detail.steps = self.workflow_steps(workflow_id, user)
+        return detail
+
     def draft_for_workflow(self, workflow_id: int, user: User) -> AIGenerationDraftOut:
         workflow = self.get_owned_workflow(workflow_id, user)
         draft = self.db.scalar(select(AIGenerationDraft).options(selectinload(AIGenerationDraft.questions)).where(AIGenerationDraft.workflow_id == workflow.id, AIGenerationDraft.status == "ready"))
@@ -517,6 +580,7 @@ class AIGenerationWorkflowService:
             raise HTTPException(status_code=400, detail="没有可确认的草稿")
         try:
             bank = DraftService(self.db).confirm(job, draft)
+            AuditService(self.db).record(user.id, "workflow.confirm_draft", "workflow", workflow.id, {"bank_id": bank.id})
             self.db.commit()
             return {"ok": True, "bank_id": bank.id}
         except AIOutputValidationError as exc:
@@ -528,7 +592,7 @@ class AIGenerationWorkflowService:
 
     def cancel_workflow(self, workflow_id: int, user: User, cancel_reason: str | None = None) -> dict:
         workflow = self.get_owned_workflow(workflow_id, user)
-        if workflow.status not in {"draft_ready", "failed"}:
+        if workflow.status not in {"pending", "extracting_document", "calling_model", "validating", "repairing", "draft_ready", "failed"}:
             raise HTTPException(status_code=400, detail="当前 workflow 状态不允许撤销")
         if self.retried_by_workflow_id(workflow.id):
             raise HTTPException(status_code=400, detail="该 workflow 已经重新生成，不能再次操作")
@@ -554,6 +618,7 @@ class AIGenerationWorkflowService:
             self.db.delete(bank)
         elif bank:
             bank.generation_status = "none" if bank.question_count == 0 else "succeeded"
+        AuditService(self.db).record(user.id, "workflow.cancel", "workflow", workflow.id, {"reason": workflow.cancel_reason})
         self.db.commit()
         return {"ok": True}
 

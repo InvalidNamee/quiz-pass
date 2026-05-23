@@ -13,9 +13,18 @@ export type WorkflowListItem = {
   repair_attempts: number; error_message: string | null; cancel_reason: string | null
   error_summary: string | null
   draft_question_count: number; imported_question_count: number; question_delta: number
-  can_confirm: boolean
+  can_confirm: boolean; can_retry: boolean; can_cancel: boolean
+  queue_job_id: string | null; enqueued_at: string | null; started_at: string | null
   created_at: string; finished_at: string | null
 }
+
+export type WorkflowStep = {
+  id: number; workflow_id: number; step_name: string; status: string
+  input_json: string | null; output_json: string | null; error_message: string | null
+  started_at: string | null; finished_at: string | null; created_at: string
+}
+
+export type WorkflowDetail = WorkflowListItem & { steps: WorkflowStep[] }
 
 export function createWorkflow(form: FormData) {
   return api<{ workflow_id: number; bank_id: number; job_id: number }>('/api/v2/ai/workflows', { method: 'POST', body: form })
@@ -39,6 +48,10 @@ export function listBankWorkflows(bankId: number, params: { page?: number; page_
 
 export function getWorkflow(workflowId: number) {
   return api<WorkflowListItem>(`/api/v2/ai/workflows/${workflowId}`)
+}
+
+export function getWorkflowDetail(workflowId: number) {
+  return api<WorkflowDetail>(`/api/v2/ai/workflows/${workflowId}/detail`)
 }
 
 export function getDraft(workflowId: number) {
