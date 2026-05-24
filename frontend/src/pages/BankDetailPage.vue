@@ -10,7 +10,7 @@ import UserAvatar from '../components/UserAvatar.vue'
 import PracticeSetupDialog from '../components/PracticeSetupDialog.vue'
 import GenerateBankDialog from '../components/GenerateBankDialog.vue'
 import { isUnstableBankStatus, isUnstableWorkflowStatus } from '../utils/generationStatus'
-import { Zap, Rocket, Download, Share2, FileText, Settings, Plus, CircleCheck, Star, Trash2 } from '@lucide/vue'
+import { Bot, CircleCheck, CircleX, Download, FileText, Pencil, Plus, Rocket, Settings, Share2, Star, Trash2, Zap } from '@lucide/vue'
 import { normalizeTagNames, tagKey, tagLabel, type TagInputValue } from '../features/tags/tagUtils'
 import { ElMessageBox } from 'element-plus'
 
@@ -274,8 +274,8 @@ onBeforeUnmount(stopPolling)
       <div v-if="canManage" class="qp-section space-y-3.5 shadow-sm border border-slate-100/80">
         <h2 class="qp-section-title !mb-0 text-slate-800">题库管理</h2>
         <div class="flex flex-wrap gap-2 pt-1">
-          <el-button class="!rounded-xl active:scale-95 transition-all" @click="editing = !editing">
-            ✏️ {{ editing ? '收起编辑' : '编辑基本信息' }}
+          <el-button class="!rounded-xl active:scale-95 transition-all" @click="editing = true">
+            <Pencil :size="14" class="mr-1" />编辑基本信息
           </el-button>
           <el-button type="danger" plain class="!rounded-xl active:scale-95 transition-all" @click="deleteModal = true"><Trash2 :size="14" class="mr-1" />删除题库</el-button>
         </div>
@@ -284,7 +284,9 @@ onBeforeUnmount(stopPolling)
       <!-- AI Background Prompt Context -->
       <div v-if="canManage" class="qp-section space-y-3.5 shadow-sm border border-slate-100/80">
         <div class="flex items-center justify-between gap-2">
-          <h2 class="qp-section-title !mb-0 text-slate-800">🤖 AI 命题背景知识</h2>
+          <h2 class="qp-section-title !mb-0 flex items-center gap-1.5 text-slate-800">
+            <Bot :size="17" class="text-indigo-500" />AI 命题背景知识
+          </h2>
           <el-button
             size="small"
             type="primary"
@@ -307,21 +309,22 @@ onBeforeUnmount(stopPolling)
         />
       </div>
 
-      <!-- Edit Form Section (Dynamic) -->
-      <el-form v-if="editing" class="qp-section space-y-4 shadow-lg border border-slate-150" label-position="top">
-        <h3 class="text-sm font-bold text-slate-700 pb-2 border-b border-slate-100">修改题库信息</h3>
-        <el-form-item label="题库名称"><el-input v-model="editForm.title" /></el-form-item>
-        <el-form-item label="题库描述"><el-input v-model="editForm.description" type="textarea" :rows="4" /></el-form-item>
-        <el-form-item v-if="auth.user?.role === 'admin'"><el-checkbox v-model="editIsPublic">公开此题库</el-checkbox></el-form-item>
-        <el-form-item label="题库标签">
-          <div class="flex flex-wrap gap-1.5 mb-2.5">
-            <el-tag v-for="(tag, i) in editTags" :key="tagKey(tag, i)" closable size="small" :disable-transitions="true" class="!rounded-md" @close="editTags.splice(i, 1)">{{ tagLabel(tag) }}</el-tag>
-          </div>
-          <el-select v-model="editTags" multiple filterable allow-create default-first-option clearable placeholder="添加或创建标签" style="width: 100%">
-            <el-option v-for="(tag, i) in editTags" :key="tagKey(tag, i)" :label="tagLabel(tag)" :value="tag" />
-          </el-select>
-        </el-form-item>
-        <div class="pt-2">
+      <el-dialog v-model="editing" title="编辑基本信息" width="640px" top="8vh">
+        <el-form class="grid gap-1" label-position="top">
+          <el-form-item label="题库名称"><el-input v-model="editForm.title" /></el-form-item>
+          <el-form-item label="题库描述"><el-input v-model="editForm.description" type="textarea" :rows="4" /></el-form-item>
+          <el-form-item v-if="auth.user?.role === 'admin'"><el-checkbox v-model="editIsPublic">公开此题库</el-checkbox></el-form-item>
+          <el-form-item label="题库标签">
+            <div class="mb-2.5 flex flex-wrap gap-1.5">
+              <el-tag v-for="(tag, i) in editTags" :key="tagKey(tag, i)" closable size="small" :disable-transitions="true" class="!rounded-md" @close="editTags.splice(i, 1)">{{ tagLabel(tag) }}</el-tag>
+            </div>
+            <el-select v-model="editTags" multiple filterable allow-create default-first-option clearable placeholder="添加或创建标签" style="width: 100%">
+              <el-option v-for="(tag, i) in editTags" :key="tagKey(tag, i)" :label="tagLabel(tag)" :value="tag" />
+            </el-select>
+          </el-form-item>
+        </el-form>
+        <template #footer>
+          <el-button @click="editing = false">取消</el-button>
           <el-button
             type="primary"
             class="!rounded-xl shadow-md shadow-indigo-500/10 active:scale-95 transition-all"
@@ -330,8 +333,8 @@ onBeforeUnmount(stopPolling)
           >
             保存修改
           </el-button>
-        </div>
-      </el-form>
+        </template>
+      </el-dialog>
 
       <el-dialog v-model="deleteModal" title="删除题库" width="400px">
         <p>确定要删除「{{ bank.title }}」吗？题库和所有题目将被永久删除。</p>

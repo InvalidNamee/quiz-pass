@@ -2,6 +2,7 @@
 import { watch, ref } from 'vue'
 import { getWorkflowDetail, type WorkflowDetail, type WorkflowListItem } from '../api/v2/aiGeneration'
 import { useToast } from '../composables/useToast'
+import { formatDateTime } from '../utils/dateTime'
 
 const props = withDefaults(defineProps<{
   modelValue: boolean
@@ -37,7 +38,7 @@ function statusText(value: string) {
 }
 
 function formatTime(value: string | null) {
-  return value ? new Date(value).toLocaleString() : '-'
+  return formatDateTime(value)
 }
 
 function jsonPreview(value: string | null) {

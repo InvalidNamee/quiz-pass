@@ -9,7 +9,7 @@ import GenerateBankDialog from './GenerateBankDialog.vue'
 import PracticeSetupDialog from './PracticeSetupDialog.vue'
 import TagFilterDialog from './TagFilterDialog.vue'
 import AuthorFilterDialog from './AuthorFilterDialog.vue'
-import { Star, Zap, Target, Share2, Trash2, Plus } from '@lucide/vue'
+import { Rocket, Star, Zap, Share2, Trash2, Plus } from '@lucide/vue'
 import { isUnstableBankStatus, isUnstableWorkflowStatus } from '../utils/generationStatus'
 import { useToast } from '../composables/useToast'
 import { practiceProgressColor, practiceProgressPercent, practiceProgressText, practiceProgressType } from '../utils/practiceProgress'
@@ -61,7 +61,15 @@ function syncPolling() {
 async function toggleFavorite(bank: QuestionBankV2) {
   const next = !bank.is_favorited
   bank.is_favorited = next
-  try { if (next) await favoriteBank(bank.id); else await unfavoriteBank(bank.id) } catch { bank.is_favorited = !next }
+  try {
+    if (next) await favoriteBank(bank.id)
+    else await unfavoriteBank(bank.id)
+    bank.stats.favorite_count = Math.max(0, bank.stats.favorite_count + (next ? 1 : -1))
+    toast.show(next ? '已收藏题库' : '已取消收藏', 'success')
+  } catch (err) {
+    bank.is_favorited = !next
+    toast.show(err instanceof Error ? err.message : '收藏操作失败', 'error')
+  }
 }
 
 function applySearch() {
@@ -197,21 +205,26 @@ onBeforeUnmount(stopPolling)
       stripe
       size="small"
       highlight-current-row
-      class="cursor-pointer border border-slate-100 !rounded-2xl shadow-sm"
-      @row-click="(row: QuestionBankV2) => router.push(`/banks/${row.id}`)"
+      class="border border-slate-100 !rounded-2xl shadow-sm"
     >
       <el-table-column label="题库名称" min-width="220">
         <template #default="{ row }: { row: QuestionBankV2 }">
           <div class="flex flex-col py-1">
             <div class="flex items-center gap-2">
               <button
-                class="text-lg leading-none transition-transform hover:scale-125 duration-150"
-                :class="row.is_favorited ? 'text-amber-500' : 'text-slate-300 hover:text-amber-400'"
+                class="inline-flex h-8 w-8 items-center justify-center rounded-lg border transition-all active:scale-95"
+                :class="row.is_favorited ? 'border-amber-200 bg-amber-50 text-amber-500 hover:bg-amber-100' : 'border-slate-200 bg-slate-50 text-slate-300 hover:border-amber-200 hover:bg-amber-50 hover:text-amber-400'"
                 @click.stop="toggleFavorite(row)"
               >
-                <Star :size="18" :fill="row.is_favorited ? '#f59e0b' : 'none'" />
+                <Star :size="16" :fill="row.is_favorited ? '#f59e0b' : 'none'" :stroke="row.is_favorited ? '#f59e0b' : 'currentColor'" />
               </button>
-              <span class="font-semibold text-slate-800 text-[14px]">{{ row.title }}</span>
+              <RouterLink
+                class="font-semibold text-slate-800 text-[14px] hover:text-indigo-600 hover:underline"
+                :to="`/banks/${row.id}`"
+                @click.stop
+              >
+                {{ row.title }}
+              </RouterLink>
               <el-tag size="small" class="!rounded-md" :type="row.visibility === 'public' ? 'success' : 'info'">
                 {{ row.visibility === 'public' ? '公开' : '私有' }}
               </el-tag>
@@ -264,19 +277,27 @@ onBeforeUnmount(stopPolling)
       </el-table-column>
       <el-table-column label="操作" min-width="210" align="right">
         <template #default="{ row }: { row: QuestionBankV2 }">
-          <div class="flex items-center justify-end gap-1.5">
-            <el-button v-if="row.resumable_session" size="small" type="primary" class="!rounded-xl !h-8 !bg-indigo-600 !border-indigo-600 shadow-sm shadow-indigo-600/10 active:scale-95 transition-all !px-2.5" @click.stop="continuePractice(row)">
-              <Zap :size="12" class="mr-1" />继续
-            </el-button>
-            <el-button v-if="row.permissions.can_practice" size="small" class="!rounded-xl !h-8 active:scale-95 transition-all !px-2.5" @click.stop="openPractice(row)">
-              <Target :size="12" class="mr-1" />练习
-            </el-button>
-            <el-button v-if="row.permissions.can_share" size="small" class="!rounded-xl !h-8 active:scale-95 transition-all !px-2.5" @click.stop="handleShare(row)">
-              <Share2 :size="12" class="mr-1" />分享
-            </el-button>
-            <el-button v-if="row.permissions.can_manage" size="small" type="danger" plain class="!rounded-xl !h-8 active:scale-95 transition-all !px-2" @click.stop="handleDelete(row)">
-              <Trash2 :size="12" />
-            </el-button>
+          <div class="qp-icon-actions">
+            <el-tooltip v-if="row.resumable_session" content="继续练习" placement="top">
+              <el-button size="small" class="qp-icon-button is-blue" @click.stop="continuePractice(row)">
+                <Zap :size="16" />
+              </el-button>
+            </el-tooltip>
+            <el-tooltip v-if="row.permissions.can_practice" content="开始练习" placement="top">
+              <el-button size="small" class="qp-icon-button" @click.stop="openPractice(row)">
+                <Rocket :size="16" />
+              </el-button>
+            </el-tooltip>
+            <el-tooltip v-if="row.permissions.can_share" content="分享题库" placement="top">
+              <el-button size="small" class="qp-icon-button is-blue" @click.stop="handleShare(row)">
+                <Share2 :size="16" />
+              </el-button>
+            </el-tooltip>
+            <el-tooltip v-if="row.permissions.can_manage" content="删除题库" placement="top">
+              <el-button size="small" class="qp-icon-button is-red" @click.stop="handleDelete(row)">
+                <Trash2 :size="16" />
+              </el-button>
+            </el-tooltip>
           </div>
         </template>
       </el-table-column>
@@ -287,19 +308,24 @@ onBeforeUnmount(stopPolling)
       <div
         v-for="bank in banks"
         :key="bank.id"
-        class="group flex cursor-pointer flex-col gap-2.5 rounded-2xl border border-slate-100 bg-white p-4.5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:border-indigo-500/10"
-        @click="router.push(`/banks/${bank.id}`)"
+        class="group flex flex-col gap-2.5 rounded-2xl border border-slate-100 bg-white p-4.5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:border-indigo-500/10"
       >
         <div class="flex items-start justify-between gap-2">
           <div class="flex flex-1 items-center gap-1.5 min-w-0">
             <button
-              class="text-lg leading-none transition-transform hover:scale-125 duration-150"
-              :class="bank.is_favorited ? 'text-amber-500' : 'text-slate-300 hover:text-amber-400'"
+              class="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-all active:scale-95"
+              :class="bank.is_favorited ? 'border-amber-200 bg-amber-50 text-amber-500 hover:bg-amber-100' : 'border-slate-200 bg-slate-50 text-slate-300 hover:border-amber-200 hover:bg-amber-50 hover:text-amber-400'"
               @click.stop="toggleFavorite(bank)"
             >
-              <Star :size="18" :fill="bank.is_favorited ? '#f59e0b' : 'none'" />
+              <Star :size="16" :fill="bank.is_favorited ? '#f59e0b' : 'none'" :stroke="bank.is_favorited ? '#f59e0b' : 'currentColor'" />
             </button>
-            <div class="truncate text-[14px] font-bold text-slate-800 group-hover:text-indigo-600 transition-colors">{{ bank.title }}</div>
+            <RouterLink
+              class="truncate text-[14px] font-bold text-slate-800 transition-colors hover:text-indigo-600 hover:underline"
+              :to="`/banks/${bank.id}`"
+              @click.stop
+            >
+              {{ bank.title }}
+            </RouterLink>
           </div>
           <div class="flex shrink-0 items-center gap-1">
             <el-tag size="small" class="!rounded-md" :type="bank.visibility === 'public' ? 'success' : 'info'">
@@ -340,18 +366,26 @@ onBeforeUnmount(stopPolling)
         </div>
 
         <div class="mt-2.5 flex flex-wrap items-center gap-1.5 pt-2 border-t border-slate-50">
-          <el-button v-if="bank.resumable_session" size="small" type="primary" class="!rounded-xl !h-8 !bg-indigo-600 !border-indigo-600 shadow-sm shadow-indigo-600/10 active:scale-95 transition-all !px-2.5" @click.stop="continuePractice(bank)">
-            <Zap :size="12" class="mr-1" />继续
-          </el-button>
-          <el-button v-if="bank.permissions.can_practice" size="small" class="!rounded-xl !h-8 active:scale-95 transition-all !px-2.5" @click.stop="openPractice(bank)">
-            <Target :size="12" class="mr-1" />练习
-          </el-button>
-          <el-button v-if="bank.permissions.can_share" size="small" class="!rounded-xl !h-8 active:scale-95 transition-all !px-2.5" @click.stop="handleShare(bank)">
-            <Share2 :size="12" class="mr-1" />分享
-          </el-button>
-          <el-button v-if="bank.permissions.can_manage" size="small" type="danger" plain class="!rounded-xl !h-8 active:scale-95 transition-all !px-2 ml-auto" @click.stop="handleDelete(bank)">
-            <Trash2 :size="12" />
-          </el-button>
+          <el-tooltip v-if="bank.resumable_session" content="继续练习" placement="top">
+            <el-button size="small" class="qp-icon-button is-blue" @click.stop="continuePractice(bank)">
+              <Zap :size="16" />
+            </el-button>
+          </el-tooltip>
+          <el-tooltip v-if="bank.permissions.can_practice" content="开始练习" placement="top">
+            <el-button size="small" class="qp-icon-button" @click.stop="openPractice(bank)">
+              <Rocket :size="16" />
+            </el-button>
+          </el-tooltip>
+          <el-tooltip v-if="bank.permissions.can_share" content="分享题库" placement="top">
+            <el-button size="small" class="qp-icon-button is-blue" @click.stop="handleShare(bank)">
+              <Share2 :size="16" />
+            </el-button>
+          </el-tooltip>
+          <el-tooltip v-if="bank.permissions.can_manage" content="删除题库" placement="top">
+            <el-button size="small" class="qp-icon-button is-red ml-auto" @click.stop="handleDelete(bank)">
+              <Trash2 :size="16" />
+            </el-button>
+          </el-tooltip>
         </div>
       </div>
     </div>

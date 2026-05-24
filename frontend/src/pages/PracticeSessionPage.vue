@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, computed } from 'vue'
+import { onMounted, onBeforeUnmount, computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { usePracticeSession } from '../composables/usePracticeSession'
@@ -12,6 +12,7 @@ const route = useRoute()
 const router = useRouter()
 const toast = useToast()
 const sessionId = Number(route.params.sessionId)
+const redirectingToResult = ref(false)
 const {
   session, questions, currentIndex, selected, answerStatus, answerResults,
   loading, currentQuestion, totalQuestions,
@@ -78,7 +79,23 @@ async function onKeydown(e: KeyboardEvent) {
   }
 }
 
-onMounted(() => { load(); document.addEventListener('keydown', onKeydown) })
+async function loadOrRedirectFinishedSession() {
+  try {
+    await load()
+    if (session.value && session.value.status !== 'in_progress') {
+      redirectingToResult.value = true
+      await ElMessageBox.alert('本次练习已经结束，将为你打开结果页。', '练习已结束', {
+        confirmButtonText: '查看结果',
+        type: 'info',
+      }).catch(() => undefined)
+      router.replace(`/practice/result/${sessionId}`)
+    }
+  } catch (err) {
+    toast.show(err instanceof Error ? err.message : '加载练习失败', 'error')
+  }
+}
+
+onMounted(() => { void loadOrRedirectFinishedSession(); document.addEventListener('keydown', onKeydown) })
 onBeforeUnmount(() => {
   void saveDraftIfChanged()
   document.removeEventListener('keydown', onKeydown)
@@ -87,7 +104,7 @@ onBeforeUnmount(() => {
 
 <template>
   <section v-loading="loading" class="qp-page" element-loading-text="加载中...">
-    <template v-if="questions.length">
+    <template v-if="questions.length && !redirectingToResult">
       <SessionHeader
         :current-index="currentIndex"
         :total-questions="totalQuestions"

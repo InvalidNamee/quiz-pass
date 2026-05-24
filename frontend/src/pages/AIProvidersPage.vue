@@ -74,11 +74,21 @@ onMounted(load)
 <template>
   <section class="qp-page">
     <div class="qp-titlebar">
-      <h1 class="qp-title">AI 配置</h1>
+      <div>
+        <h1 class="qp-title">AI 配置</h1>
+        <p class="qp-subtitle">管理用于生成题库的 OpenAI 兼容模型配置。</p>
+      </div>
       <el-button size="small" type="primary" @click="openAdd">添加配置</el-button>
     </div>
 
-    <el-table :data="configs" size="small" empty-text="暂无配置">
+    <el-table
+      :data="configs"
+      stripe
+      size="small"
+      highlight-current-row
+      empty-text="暂无配置"
+      class="border border-slate-100 !rounded-2xl shadow-sm"
+    >
       <el-table-column label="名称" min-width="180">
         <template #default="{ row }">
           <div class="flex items-center gap-1.5">
@@ -97,7 +107,7 @@ onMounted(load)
         </template>
       </el-table-column>
       <el-table-column label="API 地址" prop="api_base_url" min-width="200" show-overflow-tooltip />
-      <el-table-column label="操作" width="220" align="right">
+      <el-table-column label="操作" width="260" align="right">
         <template #default="{ row }">
           <div class="qp-icon-actions">
             <el-tooltip content="测试连接" placement="top">

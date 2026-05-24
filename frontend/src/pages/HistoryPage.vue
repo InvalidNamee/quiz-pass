@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { listHistory } from '../api/v2/practice'
 import type { Page, PracticeSession } from '../api/types'
 import { practiceProgressColor, practiceProgressPercent, practiceProgressText, practiceProgressType } from '../utils/practiceProgress'
+import { formatDateTime } from '../utils/dateTime'
 
 const route = useRoute(); const router = useRouter()
 const sessions = ref<PracticeSession[]>([])
@@ -13,15 +14,11 @@ const loading = ref(true)
 
 type TagType = 'primary' | 'success' | 'warning' | 'danger' | 'info'
 
-function modeBadge(m: string): TagType | undefined {
-  const map: Record<string, TagType | undefined> = { practice: undefined, exam: 'warning', mistake_review: 'danger' }
+function modeBadge(m: string): TagType {
+  const map: Record<string, TagType> = { practice: 'info', exam: 'warning', mistake_review: 'danger' }
   return map[m]
 }
 function modeText(m: string) { const map: Record<string, string> = { practice: '练习', exam: '考试', mistake_review: '错题' }; return map[m] || m }
-function formatTime(value: string | null | undefined) {
-  if (!value) return '无'
-  return new Date(value).toLocaleString()
-}
 function lastActivity(row: PracticeSession) {
   return row.last_answered_at || row.submitted_at || row.started_at
 }
@@ -40,18 +37,30 @@ onMounted(load); watch(() => route.fullPath, load)
 <template>
   <div class="qp-page">
     <div class="qp-titlebar">
-      <h1 class="qp-title">刷题记录</h1>
-      <div class="flex flex-wrap gap-2">
-        <el-select v-model="mode" size="small" placeholder="模式" clearable class="!w-28" @change="applyFilters()">
-          <el-option label="普通练习" value="practice" /><el-option label="模拟考试" value="exam" /><el-option label="错题复习" value="mistake_review" />
-        </el-select>
-        <el-select v-model="status" size="small" placeholder="状态" clearable class="!w-28" @change="applyFilters()">
-          <el-option label="进行中" value="in_progress" /><el-option label="已提交" value="submitted" />
-        </el-select>
+      <div>
+        <h1 class="qp-title">练习记录</h1>
+        <p class="qp-subtitle">查看历史练习、继续未完成会话，或进入已提交结果页。</p>
       </div>
     </div>
 
-    <el-table v-loading="loading" :data="sessions" stripe size="small" highlight-current-row @row-click="(row: PracticeSession) => router.push(row.status === 'in_progress' ? `/practice/session/${row.id}` : `/practice/result/${row.id}`)" class="cursor-pointer">
+    <div class="qp-toolbar rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
+      <el-select v-model="mode" size="small" placeholder="模式" clearable class="!w-32" @change="applyFilters()">
+        <el-option label="普通练习" value="practice" /><el-option label="模拟考试" value="exam" /><el-option label="错题复习" value="mistake_review" />
+      </el-select>
+      <el-select v-model="status" size="small" placeholder="状态" clearable class="!w-32" @change="applyFilters()">
+        <el-option label="进行中" value="in_progress" /><el-option label="已提交" value="submitted" />
+      </el-select>
+    </div>
+
+    <el-table
+      v-loading="loading"
+      :data="sessions"
+      stripe
+      size="small"
+      highlight-current-row
+      class="cursor-pointer border border-slate-100 !rounded-2xl shadow-sm"
+      @row-click="(row: PracticeSession) => router.push(row.status === 'in_progress' ? `/practice/session/${row.id}` : `/practice/result/${row.id}`)"
+    >
       <el-table-column label="题库" min-width="160">
         <template #default="{ row }: { row: PracticeSession }">{{ row.bank_title || `题库 #${row.bank_id}` }}</template>
       </el-table-column>
@@ -78,10 +87,10 @@ onMounted(load); watch(() => route.fullPath, load)
         </template>
       </el-table-column>
       <el-table-column label="开始时间" width="190">
-        <template #default="{ row }: { row: PracticeSession }">{{ formatTime(row.started_at) }}</template>
+        <template #default="{ row }: { row: PracticeSession }">{{ formatDateTime(row.started_at, '无') }}</template>
       </el-table-column>
       <el-table-column label="最后作答" width="190">
-        <template #default="{ row }: { row: PracticeSession }">{{ formatTime(lastActivity(row)) }}</template>
+        <template #default="{ row }: { row: PracticeSession }">{{ formatDateTime(lastActivity(row), '无') }}</template>
       </el-table-column>
     </el-table>
 

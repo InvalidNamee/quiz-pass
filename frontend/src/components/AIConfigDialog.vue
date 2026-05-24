@@ -62,23 +62,37 @@ function reset() {
 }
 
 async function handleSave() {
-  if (!form.value.name.trim() || !form.value.model.trim()) {
-    toast.show('请输入配置名称与模型名称', 'error')
+  if (!form.value.model.trim()) {
+    toast.show('请输入模型名称', 'error')
+    return
+  }
+  if (!form.value.api_base_url.trim()) {
+    toast.show('请输入接口地址', 'error')
+    return
+  }
+  if (!isEdit.value && !form.value.api_key.trim()) {
+    toast.show('请输入 API Key', 'error')
     return
   }
   submitting.value = true
   try {
     if (isEdit.value && props.configId) {
       await updateAIConfig(props.configId, {
-        name: form.value.name,
-        api_base_url: form.value.api_base_url,
-        model: form.value.model,
+        name: form.value.name.trim(),
+        api_base_url: form.value.api_base_url.trim(),
+        model: form.value.model.trim(),
         response_format_type: form.value.response_format_type,
         is_default: form.value.is_default,
       })
       toast.show('已更新', 'success')
     } else {
-      await createAIConfig({ ...form.value })
+      await createAIConfig({
+        ...form.value,
+        name: form.value.name.trim(),
+        api_base_url: form.value.api_base_url.trim(),
+        api_key: form.value.api_key.trim(),
+        model: form.value.model.trim(),
+      })
       toast.show('已添加', 'success')
     }
     visible.value = false
@@ -99,7 +113,7 @@ watch(() => props.modelValue, (open) => {
   <el-dialog v-model="visible" :title="isEdit ? '编辑配置' : '添加配置'" width="460px" class="!rounded-2xl shadow-xl">
     <el-form label-position="top" size="default">
       <el-form-item label="配置名称">
-        <el-input v-model="form.name" placeholder="输入配置名称" />
+        <el-input v-model="form.name" placeholder="输入配置名称（可选）" autocomplete="off" />
       </el-form-item>
       <el-form-item label="接口地址">
         <el-input v-model="form.api_base_url" placeholder="https://api.openai.com/v1" />
@@ -115,7 +129,17 @@ watch(() => props.modelValue, (open) => {
         <div class="mt-1 text-xs text-slate-400">模型不支持 json_schema 时请选择 json_object。</div>
       </el-form-item>
       <el-form-item v-if="!isEdit" label="API Key">
-        <el-input v-model="form.api_key" autocomplete="off" placeholder="sk-..." type="password" show-password />
+        <el-input
+          v-model="form.api_key"
+          autocomplete="off"
+          name="qp-ai-provider-key"
+          placeholder="请输入 API Key"
+          type="text"
+          spellcheck="false"
+          data-lpignore="true"
+          data-1p-ignore="true"
+          data-form-type="other"
+        />
         <span class="text-xs text-slate-400">保存后不可查看、不可编辑，只能删除重建</span>
       </el-form-item>
       <el-form-item>

@@ -24,7 +24,7 @@ const retrying = ref(false)
 const retryTarget = ref<WorkflowListItem | null>(null)
 const detailDrawerVisible = ref(false)
 const detailTarget = ref<WorkflowListItem | null>(null)
-const retryFile = ref<File | null>(null)
+const retryFiles = ref<File[]>([])
 const retryForm = ref({
   aiProviderConfigId: '',
   generationMode: 'knowledge_generate',
@@ -36,7 +36,6 @@ const retryForm = ref({
   includeExistingQuestions: false,
   sourceText: '',
   title: '',
-  desiredVisibility: 'private',
 })
 let pollingTimer: number | null = null
 
@@ -101,9 +100,8 @@ async function openRetry(row: WorkflowListItem) {
     includeExistingQuestions: row.include_existing_questions,
     sourceText: row.source_text_snapshot || '',
     title: row.bank_title_snapshot || '重新生成题库',
-    desiredVisibility: 'private',
   }
-  retryFile.value = null
+  retryFiles.value = []
   retryDialogVisible.value = true
 }
 
@@ -112,17 +110,17 @@ function openDetail(row: WorkflowListItem) {
   detailDrawerVisible.value = true
 }
 
-function onRetryUploadChange(uploadFile: { raw?: File }) {
-  retryFile.value = uploadFile.raw ?? null
+function onRetryUploadChange(_uploadFile: { raw?: File }, uploadFiles: Array<{ raw?: File }>) {
+  retryFiles.value = uploadFiles.map(item => item.raw).filter((item): item is File => Boolean(item))
 }
 
-function onRetryUploadRemove() {
-  retryFile.value = null
+function onRetryUploadRemove(_uploadFile: unknown, uploadFiles: Array<{ raw?: File }>) {
+  retryFiles.value = uploadFiles.map(item => item.raw).filter((item): item is File => Boolean(item))
 }
 
 async function submitRetry() {
   if (!retryTarget.value) return
-  if (!retryFile.value && !retryForm.value.sourceText.trim()) {
+  if (!retryFiles.value.length && !retryForm.value.sourceText.trim()) {
     toast.show('请填写源文本或重新上传文件', 'error')
     return
   }
@@ -139,9 +137,8 @@ async function submitRetry() {
     form.set('include_existing_questions', String(retryTarget.value.purpose === 'extend_bank' ? retryForm.value.includeExistingQuestions : false))
     if (retryTarget.value.purpose === 'create_bank') {
       form.set('title', retryForm.value.title || '重新生成题库')
-      form.set('desired_visibility', retryForm.value.desiredVisibility)
     }
-    if (retryFile.value) form.set('file', retryFile.value)
+    if (retryFiles.value.length) retryFiles.value.forEach(item => form.append('files', item))
     else form.set('source_text', retryForm.value.sourceText.trim())
     const data = await retryWorkflow(retryTarget.value.id, form)
     toast.show(`已创建重新生成 workflow #${data.workflow_id}`, 'success')
@@ -161,7 +158,7 @@ async function cancelRow(row: WorkflowListItem) {
       cancelButtonText: '取消',
       type: 'warning',
     })
-    await cancelWorkflow(row.id, '用户在生成队列撤销')
+    await cancelWorkflow(row.id, '用户在生成任务撤销')
     toast.show('任务已撤销', 'success')
     await load()
   } catch (err) {
@@ -178,21 +175,25 @@ onBeforeUnmount(stopPolling)
 <template>
   <section class="qp-page">
     <div class="qp-titlebar">
-      <h1 class="qp-title">生成队列</h1>
-      <div class="flex flex-wrap gap-2">
-        <el-select v-model="status" size="small" placeholder="全部状态" style="width: 160px">
-          <el-option value="">全部状态</el-option>
-          <el-option value="pending">等待生成</el-option>
-          <el-option value="calling_model">调用模型</el-option>
-          <el-option value="validating">校验中</el-option>
-          <el-option value="repairing">自动修复</el-option>
-          <el-option value="draft_ready">草稿待确认</el-option>
-          <el-option value="imported">已入库</el-option>
-          <el-option value="failed">生成失败</el-option>
-          <el-option value="cancelled">已取消</el-option>
-        </el-select>
-        <el-button size="small" type="primary" @click="applyFilters()">筛选</el-button>
+      <div>
+        <h1 class="qp-title">生成任务</h1>
+        <p class="qp-subtitle">跟踪 AI 生成、重试、撤销和草稿确认状态。</p>
       </div>
+    </div>
+
+    <div class="qp-toolbar rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
+      <el-select v-model="status" size="small" placeholder="全部状态" style="width: 160px">
+        <el-option value="">全部状态</el-option>
+        <el-option value="pending">等待生成</el-option>
+        <el-option value="calling_model">调用模型</el-option>
+        <el-option value="validating">校验中</el-option>
+        <el-option value="repairing">自动修复</el-option>
+        <el-option value="draft_ready">草稿待确认</el-option>
+        <el-option value="imported">已入库</el-option>
+        <el-option value="failed">生成失败</el-option>
+        <el-option value="cancelled">已取消</el-option>
+      </el-select>
+      <el-button size="small" type="primary" @click="applyFilters()">筛选</el-button>
     </div>
 
     <WorkflowTable :workflows="jobs" :loading="loading" show-actions show-sensitive-error>
@@ -254,29 +255,23 @@ onBeforeUnmount(stopPolling)
 
     <el-dialog v-model="retryDialogVisible" title="重新生成" width="760px" top="5vh">
       <el-form label-position="top">
+        <el-form-item label="生成模式">
+          <el-radio-group v-model="retryForm.generationMode">
+            <el-radio-button value="knowledge_generate">从知识库生成</el-radio-button>
+            <el-radio-button value="bank_parse">从题库解析</el-radio-button>
+          </el-radio-group>
+        </el-form-item>
+
+        <el-form-item v-if="retryTarget?.purpose === 'create_bank'" label="题库名称">
+          <el-input v-model="retryForm.title" placeholder="重新生成题库" />
+        </el-form-item>
+
         <div class="grid gap-3 sm:grid-cols-2">
           <el-form-item label="AI 模型">
             <el-select v-model="retryForm.aiProviderConfigId" class="w-full">
               <el-option v-for="config in configs" :key="config.id" :value="String(config.id)" :label="configLabel(config)" />
             </el-select>
           </el-form-item>
-          <el-form-item label="生成模式">
-            <el-select v-model="retryForm.generationMode" class="w-full">
-              <el-option value="knowledge_generate" label="从知识库生成" />
-              <el-option value="bank_parse" label="从题库解析" />
-            </el-select>
-          </el-form-item>
-        </div>
-        <div v-if="retryTarget?.purpose === 'create_bank'" class="grid gap-3 sm:grid-cols-2">
-          <el-form-item label="题库名称"><el-input v-model="retryForm.title" /></el-form-item>
-          <el-form-item label="入库后可见性">
-            <el-select v-model="retryForm.desiredVisibility" class="w-full">
-              <el-option value="private" label="私有" />
-              <el-option value="public" label="公开" />
-            </el-select>
-          </el-form-item>
-        </div>
-        <div class="grid gap-3 sm:grid-cols-2">
           <el-form-item v-if="retryForm.generationMode === 'knowledge_generate'" label="题数">
             <el-checkbox v-model="retryForm.useQuestionCount">指定题数</el-checkbox>
           </el-form-item>
@@ -300,8 +295,16 @@ onBeforeUnmount(stopPolling)
           <el-input v-model="retryForm.sourceText" type="textarea" :rows="8" placeholder="可直接编辑上次提取文本；也可以上传新文件替换" />
         </el-form-item>
         <el-form-item label="替换文件（可选）">
-          <el-upload :auto-upload="false" :limit="1" accept=".txt,.docx,.pdf" :on-change="onRetryUploadChange" :on-remove="onRetryUploadRemove">
+          <el-upload
+            :auto-upload="false"
+            :limit="20"
+            multiple
+            accept=".txt,.docx,.pdf"
+            :on-change="onRetryUploadChange"
+            :on-remove="onRetryUploadRemove"
+          >
             <el-button>选择文件</el-button>
+            <template #tip><span class="ml-2 text-sm text-slate-500">支持 .txt / .docx / .pdf，可上传多个文件；上传后将替换上方源文本。</span></template>
           </el-upload>
         </el-form-item>
       </el-form>

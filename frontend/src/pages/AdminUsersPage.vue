@@ -5,6 +5,7 @@ import type { Page, UserMe } from '../api/types'
 import { listAdminUsers, resetAdminPassword, updateAdminUser } from '../api/v2/users'
 import { useAuthStore } from '../stores/auth'
 import { useToast } from '../composables/useToast'
+import { KeyRound, Pencil, UserCheck, UserX } from '@lucide/vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -118,9 +119,12 @@ watch(() => route.fullPath, load)
 <template>
   <section class="qp-page">
     <div class="qp-titlebar">
-      <h1 class="qp-title">用户管理</h1>
+      <div>
+        <h1 class="qp-title">用户管理</h1>
+        <p class="qp-subtitle">管理员分页检索用户、启停账号和重置密码。</p>
+      </div>
     </div>
-    <div class="qp-toolbar">
+    <div class="qp-toolbar rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
       <el-input v-model="keyword" size="small" placeholder="搜索用户" clearable style="width: 200px" />
       <el-select v-model="role" size="small" placeholder="全部角色" style="width: 120px">
         <el-option value="">全部角色</el-option>
@@ -135,7 +139,15 @@ watch(() => route.fullPath, load)
       <el-button size="small" type="primary" @click="applyFilters()">筛选</el-button>
     </div>
 
-    <el-table v-loading="loading" :data="users" size="small" empty-text="没有匹配的用户">
+    <el-table
+      v-loading="loading"
+      :data="users"
+      stripe
+      size="small"
+      highlight-current-row
+      empty-text="没有匹配的用户"
+      class="border border-slate-100 !rounded-2xl shadow-sm"
+    >
       <el-table-column label="用户" min-width="220">
         <template #default="{ row }">
           <RouterLink :to="`/users/${row.id}`" class="hover:text-blue-600">
@@ -158,22 +170,37 @@ watch(() => route.fullPath, load)
           <el-tag :type="row.is_active ? 'success' : 'danger'">{{ row.is_active ? '启用' : '禁用' }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="300">
+      <el-table-column label="操作" width="220" align="right">
         <template #default="{ row }">
-          <el-button text size="small" @click="startEdit(row)">编辑</el-button>
-          <el-button
-            size="small"
-            :disabled="row.id === auth.user?.id"
-            @click="toggleActive(row)"
-          >{{ row.is_active ? '禁用' : '启用' }}</el-button>
-          <el-button
-            text
-            size="small"
-            type="danger"
-            :disabled="row.id === auth.user?.id"
-            :loading="resettingUserId === row.id"
-            @click="resetPassword(row)"
-          >重置密码</el-button>
+          <div class="qp-icon-actions">
+            <el-tooltip content="编辑资料" placement="top">
+              <el-button size="small" class="qp-icon-button is-blue" @click="startEdit(row)">
+                <Pencil :size="16" />
+              </el-button>
+            </el-tooltip>
+            <el-tooltip :content="row.is_active ? '禁用账号' : '启用账号'" placement="top">
+              <el-button
+                size="small"
+                :disabled="row.id === auth.user?.id"
+                :class="['qp-icon-button', row.is_active ? 'is-red' : 'is-green']"
+                @click="toggleActive(row)"
+              >
+                <UserX v-if="row.is_active" :size="16" />
+                <UserCheck v-else :size="16" />
+              </el-button>
+            </el-tooltip>
+            <el-tooltip content="重置密码" placement="top">
+              <el-button
+                size="small"
+                :disabled="row.id === auth.user?.id"
+                :loading="resettingUserId === row.id"
+                class="qp-icon-button is-amber"
+                @click="resetPassword(row)"
+              >
+                <KeyRound v-if="resettingUserId !== row.id" :size="16" />
+              </el-button>
+            </el-tooltip>
+          </div>
         </template>
       </el-table-column>
     </el-table>

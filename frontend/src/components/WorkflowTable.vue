@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import type { WorkflowListItem } from '../api/v2/aiGeneration'
+import { formatDateTime } from '../utils/dateTime'
 
 defineProps<{
   workflows: WorkflowListItem[]
@@ -57,7 +58,7 @@ function questionChangeText(row: WorkflowListItem) {
 }
 
 function formatTime(value: string | null) {
-  return value ? new Date(value).toLocaleString() : '-'
+  return formatDateTime(value)
 }
 
 function visibleError(row: WorkflowListItem, showSensitiveError?: boolean) {
@@ -66,7 +67,15 @@ function visibleError(row: WorkflowListItem, showSensitiveError?: boolean) {
 </script>
 
 <template>
-  <el-table v-loading="loading" :data="workflows" size="small" empty-text="暂无工作流记录">
+  <el-table
+    v-loading="loading"
+    :data="workflows"
+    stripe
+    size="small"
+    highlight-current-row
+    empty-text="暂无工作流记录"
+    class="border border-slate-100 !rounded-2xl shadow-sm"
+  >
     <el-table-column label="#" width="70">
       <template #default="{ row }">
         <span class="font-medium">#{{ row.id }}</span>
@@ -120,7 +129,7 @@ function visibleError(row: WorkflowListItem, showSensitiveError?: boolean) {
         </el-popover>
       </template>
     </el-table-column>
-    <el-table-column v-if="showActions" label="操作" width="260" fixed="right" align="right">
+    <el-table-column v-if="showActions" label="操作" width="300" fixed="right" align="right">
       <template #default="{ row }">
         <slot name="actions" :row="row" />
       </template>

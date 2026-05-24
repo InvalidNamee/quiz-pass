@@ -125,7 +125,7 @@ onMounted(loadRecentPractice)
             class="!rounded-xl !h-10 !px-4.5 !bg-white/15 !border-white/20 !text-white hover:!bg-white/25 active:scale-95 transition-all shadow-inner font-bold"
             @click="aiConfigVisible = true"
           >
-            <Settings :size="16" class="mr-1" />AI 配置
+            <Settings :size="16" class="mr-1" />添加 AI 配置
           </el-button>
         </div>
       </div>

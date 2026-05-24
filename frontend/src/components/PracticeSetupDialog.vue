@@ -75,11 +75,11 @@ watch(() => props.modelValue, (open) => { if (open) load() }, { immediate: true 
       <p v-if="bank" class="mb-3 text-sm text-slate-600">{{ bank.title }} · {{ bank.stats.question_count }} 题</p>
       <el-form label-position="top">
         <el-form-item label="练习模式">
-          <el-select v-model="mode" class="w-full">
-            <el-option value="practice" label="普通练习" />
-            <el-option value="exam" label="模拟考试" />
-            <el-option value="mistake_review" label="错题复习" />
-          </el-select>
+          <el-radio-group v-model="mode">
+            <el-radio-button value="practice">普通练习</el-radio-button>
+            <el-radio-button value="exam">模拟考试</el-radio-button>
+            <el-radio-button value="mistake_review">错题复习</el-radio-button>
+          </el-radio-group>
           <span class="mt-1 text-sm text-slate-500">{{ modeDescriptions[mode] }}</span>
         </el-form-item>
         <el-form-item><el-checkbox v-model="useLimit">指定题数</el-checkbox></el-form-item>
