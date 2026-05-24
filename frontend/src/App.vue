@@ -39,7 +39,7 @@ watch(() => router.currentRoute.value.fullPath, () => { sidebarOpen.value = fals
       <AppSidebar v-if="auth.token" @close="sidebarOpen = false" />
     </div>
 
-    <main :class="auth.token ? 'md:ml-56 min-h-screen px-4 py-4 pt-16 md:px-5 md:pt-5' : 'p-4'">
+    <main :class="auth.token ? 'md:ml-56 min-h-screen px-4 py-4 pt-16 md:px-4 md:pt-4' : 'p-4'">
       <RouterView />
     </main>
   </div>

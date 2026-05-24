@@ -3,6 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import type { PracticeSession } from '../api/types'
 import { getResult, getSession } from '../api/v2/practice'
+import { Lightbulb, CircleCheck, CircleX } from '@lucide/vue'
 import MathText from '../components/MathText.vue'
 
 type ResultOption = { id: number; label: string; content: string }
@@ -37,52 +38,154 @@ onMounted(async () => {
 </script>
 
 <template>
-  <section class="qp-page">
-    <div class="qp-titlebar">
-      <div>
-      <h1 class="qp-title">练习结果</h1>
-      <p v-if="session" class="qp-subtitle">
-        得分 <strong class="text-slate-900">{{ session.score }}</strong>，答对 {{ session.correct_count }} / {{ session.total_questions }}
-      </p>
+  <section class="qp-page space-y-6">
+    <!-- Polished Results Header Board -->
+    <div v-if="session" class="relative overflow-hidden rounded-2xl bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 p-6 text-white shadow-xl shadow-indigo-500/10">
+      <div class="absolute -right-10 -bottom-10 h-40 w-40 rounded-full bg-white/10 blur-xl" />
+      <div class="relative z-10 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+        <div>
+          <h1 class="text-2xl font-extrabold tracking-tight">本次练习报告 🎉</h1>
+          <p class="mt-1.5 text-xs text-indigo-100">复盘今日错题，查漏补缺，争取下次完美通关！</p>
+        </div>
+        <div class="flex items-center gap-6">
+          <div class="text-center">
+            <span class="text-2xl font-black block">{{ session.score }}</span>
+            <span class="text-[10px] uppercase font-bold tracking-wider text-indigo-200">得分</span>
+          </div>
+          <div class="h-8 w-px bg-white/20" />
+          <div class="text-center">
+            <span class="text-2xl font-black block">{{ session.correct_count }} / {{ session.total_questions }}</span>
+            <span class="text-[10px] uppercase font-bold tracking-wider text-indigo-200">答对题数</span>
+          </div>
+          <div class="h-8 w-px bg-white/20" />
+          <div class="text-center">
+            <span class="text-2xl font-black block">{{ Math.round((session.correct_count / (session.total_questions || 1)) * 100) }}%</span>
+            <span class="text-[10px] uppercase font-bold tracking-wider text-indigo-200">正确率</span>
+          </div>
+        </div>
       </div>
     </div>
 
-    <el-table v-loading="loading" :data="results" size="small" empty-text="暂无结果">
-      <el-table-column label="题目" min-width="500">
-        <template #default="{ row, $index }">
-          <div
-            :class="{
-              'border-l-4 border-l-green-500 pl-4': row.is_correct,
-              'border-l-4 border-l-red-500 pl-4': !row.is_correct && !row.is_unanswered,
-              'border-l-4 border-l-yellow-500 pl-4': row.is_unanswered,
-            }"
-            class="py-4"
-          >
-            <div class="flex items-start justify-between gap-2">
-              <strong class="text-slate-900">
-                {{ $index + 1 }}. [{{ row.type === 'single' ? '单选' : '多选' }}]
-                <MathText :key="`result-stem-${row.question_id}`" class="inline" :text="row.stem" />
-              </strong>
-              <el-tag v-if="row.is_unanswered" type="warning">未作答</el-tag>
-              <el-tag v-else-if="row.is_correct" type="success">正确</el-tag>
-              <el-tag v-else type="danger">错误</el-tag>
+    <!-- Loading Skeleton or Real Card Stream -->
+    <div v-loading="loading" class="space-y-4">
+      <template v-if="results.length">
+        <div
+          v-for="(row, index) in results"
+          :key="row.question_id"
+          class="relative rounded-2xl border border-slate-100/80 bg-white p-5 shadow-sm transition-all hover:shadow-md flex flex-col gap-3.5"
+          :class="{
+            'border-l-4 border-l-emerald-500': row.is_correct,
+            'border-l-4 border-l-rose-500': !row.is_correct && !row.is_unanswered,
+            'border-l-4 border-l-amber-500': row.is_unanswered,
+          }"
+        >
+          <!-- Question Index and Status micro tags -->
+          <div class="flex items-center justify-between gap-3 border-b border-slate-50 pb-3">
+            <div class="flex min-w-0 items-center gap-2">
+              <span class="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">
+                {{ index + 1 }}
+              </span>
+              <el-tag size="small" class="!rounded-md" type="info">{{ row.type === 'single' ? '单选题' : '多选题' }}</el-tag>
             </div>
-            <div class="mt-2 grid gap-1 text-sm text-slate-700">
-              <p v-for="option in row.options" :key="option.id" class="m-0">
-                <span class="font-medium">{{ option.label }}.</span>
-                <MathText :key="`result-option-${row.question_id}-${option.id}`" class="inline" :text="option.content" />
-              </p>
-            </div>
-            <div class="mt-2 flex flex-wrap gap-2 text-sm">
-              <span class="text-slate-500">你的选择：{{ row.is_unanswered ? '未作答' : row.selected_labels.join('、') || '无' }}</span>
-              <span class="font-medium text-slate-700">正确答案：{{ row.correct_labels.join('、') }}</span>
-            </div>
-            <p v-if="row.explanation" class="mt-2 border border-blue-100 bg-blue-50 px-3 py-2 text-sm text-blue-800">
-              <MathText :key="`result-explanation-${row.question_id}`" :text="row.explanation" />
-            </p>
+
+            <span v-if="row.is_unanswered" class="result-status-pill is-unanswered">未作答</span>
+            <span v-else-if="row.is_correct" class="result-status-pill is-correct"><CircleCheck :size="13" />正确</span>
+            <span v-else class="result-status-pill is-wrong"><CircleX :size="13" />错误</span>
           </div>
-        </template>
-      </el-table-column>
-    </el-table>
+
+          <!-- Question Stem -->
+          <div class="text-sm font-bold text-slate-800 leading-relaxed">
+            <MathText :key="`result-stem-${row.question_id}`" class="inline" :text="row.stem" />
+          </div>
+
+          <!-- Option lists -->
+          <div class="grid gap-2 bg-slate-50/40 p-3.5 rounded-xl border border-slate-100/50">
+            <div
+              v-for="option in row.options"
+              :key="option.id"
+              class="flex items-start gap-2.5 text-xs text-slate-600 leading-relaxed py-1"
+            >
+              <span class="font-extrabold text-slate-700 select-none">{{ option.label }}.</span>
+              <MathText :key="`result-option-${row.question_id}-${option.id}`" class="inline min-w-0 flex-1" :text="option.content" />
+            </div>
+          </div>
+
+          <!-- Selected & Correct Summary -->
+          <div class="flex flex-wrap gap-x-6 gap-y-2 text-xs font-semibold py-1 px-1 border-t border-slate-50 mt-1">
+            <div class="flex items-center gap-1.5">
+              <span class="text-slate-400">您的答案：</span>
+              <span
+                v-if="row.is_unanswered"
+                class="text-amber-600 bg-amber-50 px-2 py-0.5 rounded font-mono"
+              >
+                未作答
+              </span>
+              <span
+                v-else
+                class="px-2 py-0.5 rounded font-mono"
+                :class="row.is_correct ? 'text-emerald-600 bg-emerald-50' : 'text-rose-600 bg-rose-50'"
+              >
+                {{ row.selected_labels.join('、') || '无' }}
+              </span>
+            </div>
+
+            <div class="flex items-center gap-1.5">
+              <span class="text-slate-400">正确答案：</span>
+              <span class="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-mono font-bold tracking-wider">
+                {{ row.correct_labels.join('、') }}
+              </span>
+            </div>
+          </div>
+
+          <!-- Styled explanation section -->
+          <div
+            v-if="row.explanation"
+            class="rounded-xl border border-indigo-50/50 bg-indigo-50/30 p-3.5 text-xs text-indigo-950 leading-relaxed shadow-inner"
+          >
+            <div class="font-extrabold text-indigo-900 mb-1.5 flex items-center gap-1">
+              <span><Lightbulb :size="14" class="mr-1" />题目解析：</span>
+            </div>
+            <MathText :key="`result-explanation-${row.question_id}`" :text="row.explanation" class="text-slate-600" />
+          </div>
+        </div>
+      </template>
+      <el-empty v-else description="暂无练习测试结果" class="bg-white rounded-2xl border border-slate-100 shadow-sm" />
+    </div>
   </section>
 </template>
+
+<style scoped>
+.result-status-pill {
+  display: inline-flex;
+  width: 64px;
+  height: 24px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  border-radius: 6px;
+  border: 1px solid transparent;
+  font-size: 12px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.result-status-pill.is-correct {
+  border-color: #bbf7d0;
+  background: #f0fdf4;
+  color: #15803d;
+}
+
+.result-status-pill.is-wrong {
+  border-color: #fecaca;
+  background: #fef2f2;
+  color: #b91c1c;
+}
+
+.result-status-pill.is-unanswered {
+  border-color: #fde68a;
+  background: #fffbeb;
+  color: #b45309;
+}
+</style>

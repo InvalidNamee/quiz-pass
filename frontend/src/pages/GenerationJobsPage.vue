@@ -7,6 +7,7 @@ import { cancelWorkflow, listWorkflows, retryWorkflow, type WorkflowListItem } f
 import { listAIConfigs } from '../api/v2/users'
 import WorkflowTable from '../components/WorkflowTable.vue'
 import WorkflowDetailDrawer from '../components/WorkflowDetailDrawer.vue'
+import { Ban, Eye, FileCheck2, ExternalLink, RotateCcw } from '@lucide/vue'
 import { useToast } from '../composables/useToast'
 import { isUnstableWorkflowStatus } from '../utils/generationStatus'
 
@@ -196,18 +197,47 @@ onBeforeUnmount(stopPolling)
 
     <WorkflowTable :workflows="jobs" :loading="loading" show-actions show-sensitive-error>
       <template #actions="{ row }">
-          <div class="flex flex-wrap gap-1.5 items-center">
-            <el-button size="small" @click="openDetail(row)">详情</el-button>
-            <RouterLink v-if="row.can_confirm" :to="`/ai-generation/workflows/${row.id}/draft`">
-              <el-button size="small" type="primary">确认草稿</el-button>
+        <div class="qp-icon-actions">
+          <el-tooltip content="查看详情" placement="top">
+            <el-button size="small" class="qp-icon-button is-blue" @click="openDetail(row)">
+              <Eye :size="16" />
+            </el-button>
+          </el-tooltip>
+
+          <el-tooltip content="确认草稿" placement="top">
+            <RouterLink v-if="row.can_confirm" :to="`/ai-generation/workflows/${row.id}/draft`" class="inline-block">
+              <el-button size="small" class="qp-icon-button is-green">
+                <FileCheck2 :size="16" />
+              </el-button>
             </RouterLink>
-            <el-tag v-if="row.retried_by_workflow_id" size="small" type="info">已被 #{{ row.retried_by_workflow_id }} 取代</el-tag>
-            <el-button v-if="row.can_retry" size="small" @click="openRetry(row)">重新生成</el-button>
-            <el-button v-if="row.can_cancel" size="small" type="danger" plain @click="cancelRow(row)">撤销</el-button>
-            <RouterLink v-if="row.bank_id" :to="`/banks/${row.bank_id}`">
-              <el-button size="small">查看题库</el-button>
+            <el-button v-else disabled size="small" class="qp-icon-button is-green">
+              <FileCheck2 :size="16" />
+            </el-button>
+          </el-tooltip>
+
+          <el-tooltip content="重新生成" placement="top">
+            <el-button size="small" :disabled="!row.can_retry" class="qp-icon-button is-amber" @click="openRetry(row)">
+              <RotateCcw :size="16" />
+            </el-button>
+          </el-tooltip>
+
+          <el-tooltip content="撤销" placement="top">
+            <el-button size="small" :disabled="!row.can_cancel" class="qp-icon-button is-red" @click="cancelRow(row)">
+              <Ban :size="16" />
+            </el-button>
+          </el-tooltip>
+
+          <el-tooltip content="查看题库" placement="top">
+            <RouterLink v-if="row.bank_id" :to="`/banks/${row.bank_id}`" class="inline-block">
+              <el-button size="small" class="qp-icon-button">
+                <ExternalLink :size="16" />
+              </el-button>
             </RouterLink>
-          </div>
+            <el-button v-else disabled size="small" class="qp-icon-button">
+              <ExternalLink :size="16" />
+            </el-button>
+          </el-tooltip>
+        </div>
       </template>
     </WorkflowTable>
 

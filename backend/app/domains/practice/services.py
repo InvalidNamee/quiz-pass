@@ -223,6 +223,12 @@ class PracticeSessionService:
         existing = self.db.scalar(select(PracticeAnswer).where(PracticeAnswer.session_id == session.id, PracticeAnswer.question_id == payload.question_id))
         if existing and existing.is_submitted and session.mode != "exam":
             return {"ok": True, "changed": False}
+        if not payload.selected_option_ids:
+            if existing:
+                self.db.delete(existing)
+                self.db.commit()
+                return {"ok": True, "changed": True}
+            return {"ok": True, "changed": False}
         is_correct = self._is_correct(options, payload.selected_option_ids)
         if existing:
             if existing.selected_option_ids == payload.selected_option_ids and existing.is_submitted == (session.mode == "exam"):

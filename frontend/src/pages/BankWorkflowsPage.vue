@@ -5,15 +5,21 @@ import type { Page, QuestionBankV2 } from '../api/types'
 import { listBankWorkflows, type WorkflowListItem } from '../api/v2/aiGeneration'
 import { getBank } from '../api/v2/banks'
 import WorkflowTable from '../components/WorkflowTable.vue'
+import WorkflowDetailDrawer from '../components/WorkflowDetailDrawer.vue'
 import { isUnstableWorkflowStatus } from '../utils/generationStatus'
+import { useAuthStore } from '../stores/auth'
+import { Eye } from '@lucide/vue'
 
 const route = useRoute()
 const router = useRouter()
+const auth = useAuthStore()
 const bank = ref<QuestionBankV2 | null>(null)
 const workflows = ref<WorkflowListItem[]>([])
 const pageInfo = ref<Page<WorkflowListItem> | null>(null)
 const status = ref('')
 const loading = ref(true)
+const detailDrawerVisible = ref(false)
+const detailTarget = ref<WorkflowListItem | null>(null)
 let pollingTimer: number | null = null
 
 const bankId = () => Number(route.params.bankId)
@@ -65,6 +71,15 @@ function applyFilters(page = 1) {
   router.push({ query })
 }
 
+function canOpenDetail(row: WorkflowListItem) {
+  return row.user_id === auth.user?.id
+}
+
+function openDetail(row: WorkflowListItem) {
+  detailTarget.value = row
+  detailDrawerVisible.value = true
+}
+
 onMounted(load)
 watch(() => route.fullPath, () => { void load() })
 watch(workflows, syncPolling, { deep: true })
@@ -95,7 +110,15 @@ onBeforeUnmount(stopPolling)
       </div>
     </div>
 
-    <WorkflowTable :workflows="workflows" :loading="loading" :show-source-file="false" />
+    <WorkflowTable :workflows="workflows" :loading="loading" :show-source-file="false" show-actions>
+      <template #actions="{ row }">
+        <el-tooltip v-if="canOpenDetail(row)" content="查看详情" placement="top">
+          <el-button size="small" class="qp-icon-button is-blue" @click="openDetail(row)">
+            <Eye :size="16" />
+          </el-button>
+        </el-tooltip>
+      </template>
+    </WorkflowTable>
 
     <el-pagination
       v-if="pageInfo"
@@ -106,6 +129,12 @@ onBeforeUnmount(stopPolling)
       :total="pageInfo.total"
       layout="prev, pager, next, total"
       @current-change="applyFilters"
+    />
+
+    <WorkflowDetailDrawer
+      v-model="detailDrawerVisible"
+      :workflow="detailTarget"
+      :show-actions="false"
     />
   </section>
 </template>

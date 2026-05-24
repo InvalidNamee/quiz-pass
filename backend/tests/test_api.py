@@ -286,6 +286,78 @@ def test_bank_resumable_session_api_and_list_dto_use_latest_in_progress_session(
         assert after_submit["id"] == practice["id"]
 
 
+def test_bank_latest_practice_session_includes_submitted_sessions_without_replacing_resumable():
+    with TestClient(app) as client:
+        headers = _register(client, "latest-progress@example.com", "latestprogress")
+        other_headers = _register(client, "latest-progress-other@example.com", "latestprogressother")
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Latest Progress Bank", "visibility": "private"}).json()
+        question = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_sample_question_payload("最近进度题")).json()
+
+        in_progress = client.post("/api/v2/practice/sessions", headers=headers, json={"bank_id": bank["id"], "mode": "practice"}).json()
+        submitted = client.post("/api/v2/practice/sessions", headers=headers, json={"bank_id": bank["id"], "mode": "exam"}).json()
+        client.post(
+            f"/api/v2/practice/sessions/{submitted['id']}/answers",
+            headers=headers,
+            json={"question_id": question["id"], "selected_option_ids": [question["options"][0]["id"]]},
+        )
+        submitted = client.post(f"/api/v2/practice/sessions/{submitted['id']}/submit", headers=headers).json()
+
+        item = client.get("/api/v2/banks?scope=mine&keyword=Latest%20Progress", headers=headers).json()["items"][0]
+        assert item["resumable_session"]["id"] == in_progress["id"]
+        assert item["latest_practice_session"]["id"] == submitted["id"]
+        assert item["latest_practice_session"]["status"] == "submitted"
+        assert item["latest_practice_session"]["score"] == submitted["score"]
+        assert item["latest_practice_session"]["correct_count"] == 1
+
+        detail = client.get(f"/api/v2/banks/{bank['id']}", headers=headers).json()
+        assert detail["latest_practice_session"]["id"] == submitted["id"]
+
+        hidden = client.get("/api/v2/banks?scope=mine&keyword=Latest%20Progress", headers=other_headers).json()["items"]
+        assert hidden == []
+
+
+def test_recent_practice_banks_returns_distinct_readable_banks_by_latest_activity():
+    with TestClient(app) as client:
+        headers = _register(client, "recent-banks@example.com", "recentbanks")
+        other_headers = _register(client, "recent-banks-other@example.com", "recentbanksother")
+        first_bank = client.post("/api/v2/banks", headers=headers, json={"title": "Recent First", "visibility": "private"}).json()
+        second_bank = client.post("/api/v2/banks", headers=headers, json={"title": "Recent Second", "visibility": "private"}).json()
+        first_question = client.post(f"/api/v2/banks/{first_bank['id']}/questions", headers=headers, json=_sample_question_payload("第一题库")).json()
+        second_question = client.post(f"/api/v2/banks/{second_bank['id']}/questions", headers=headers, json=_sample_question_payload("第二题库")).json()
+
+        first_old = client.post("/api/v2/practice/sessions", headers=headers, json={"bank_id": first_bank["id"], "mode": "practice"}).json()
+        client.post(
+            f"/api/v2/practice/sessions/{first_old['id']}/answers",
+            headers=headers,
+            json={"question_id": first_question["id"], "selected_option_ids": [first_question["options"][0]["id"]]},
+        )
+        second_latest = client.post("/api/v2/practice/sessions", headers=headers, json={"bank_id": second_bank["id"], "mode": "exam"}).json()
+        client.post(
+            f"/api/v2/practice/sessions/{second_latest['id']}/answers",
+            headers=headers,
+            json={"question_id": second_question["id"], "selected_option_ids": [second_question["options"][0]["id"]]},
+        )
+        client.post(f"/api/v2/practice/sessions/{second_latest['id']}/submit", headers=headers)
+        first_latest = client.post("/api/v2/practice/sessions", headers=headers, json={"bank_id": first_bank["id"], "mode": "exam"}).json()
+        client.post(
+            f"/api/v2/practice/sessions/{first_latest['id']}/answers",
+            headers=headers,
+            json={"question_id": first_question["id"], "selected_option_ids": [first_question["options"][0]["id"]]},
+        )
+        client.post(f"/api/v2/practice/sessions/{first_latest['id']}/submit", headers=headers)
+
+        recent = client.get("/api/v2/banks/recent-practice?page_size=6", headers=headers)
+        assert recent.status_code == 200, recent.text
+        items = recent.json()
+        assert [item["id"] for item in items[:2]] == [first_bank["id"], second_bank["id"]]
+        assert items[0]["latest_practice_session"]["id"] == first_latest["id"]
+        assert items[1]["latest_practice_session"]["id"] == second_latest["id"]
+
+        limited = client.get("/api/v2/banks/recent-practice?page_size=1", headers=headers).json()
+        assert [item["id"] for item in limited] == [first_bank["id"]]
+        assert client.get("/api/v2/banks/recent-practice?page_size=6", headers=other_headers).json() == []
+
+
 def test_refresh_token_can_refresh_access_but_not_access_api():
     with TestClient(app) as client:
         response = client.post(
@@ -701,6 +773,41 @@ def test_practice_answer_draft_saves_without_locking_normal_practice():
         assert state_after["is_answered"] is True
         progress_after = client.get(f"/api/v2/practice/sessions/{session['id']}", headers=headers).json()
         assert progress_after["answered_count"] == 1
+
+
+def test_exam_empty_answer_draft_clears_saved_choice_and_counts_unanswered():
+    with TestClient(app) as client:
+        headers = _register(client, "exam-clear@example.com", "examclear")
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Exam Clear", "visibility": "private"}).json()
+        question = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_sample_question_payload("考试可清空题")).json()
+        session = client.post("/api/v2/practice/sessions", headers=headers, json={"bank_id": bank["id"], "mode": "exam"}).json()
+
+        saved = client.put(
+            f"/api/v2/practice/sessions/{session['id']}/answers/{question['id']}/draft",
+            headers=headers,
+            json={"question_id": question["id"], "selected_option_ids": [question["options"][0]["id"]]},
+        )
+        assert saved.status_code == 200, saved.text
+        assert client.get(f"/api/v2/practice/sessions/{session['id']}", headers=headers).json()["answered_count"] == 1
+
+        cleared = client.put(
+            f"/api/v2/practice/sessions/{session['id']}/answers/{question['id']}/draft",
+            headers=headers,
+            json={"question_id": question["id"], "selected_option_ids": []},
+        )
+        assert cleared.status_code == 200, cleared.text
+        assert cleared.json()["changed"] is True
+        restored = client.get(f"/api/v2/practice/sessions/{session['id']}/questions", headers=headers).json()[0]["answer_state"]
+        assert restored["selected_option_ids"] == []
+        assert restored["is_answered"] is False
+        assert client.get(f"/api/v2/practice/sessions/{session['id']}", headers=headers).json()["answered_count"] == 0
+
+        submitted = client.post(f"/api/v2/practice/sessions/{session['id']}/submit", headers=headers)
+        assert submitted.status_code == 200, submitted.text
+        result = client.get(f"/api/v2/practice/sessions/{session['id']}/result", headers=headers).json()[0]
+        assert result["is_unanswered"] is True
+        assert result["selected_option_ids"] == []
+        assert result["selected_labels"] == []
 
 
 def test_ai_config_api_key_cannot_be_updated_and_list_has_only_real_configs():
@@ -1378,12 +1485,43 @@ def test_ai_workflow_accepts_multiple_source_files_and_preserves_section_markers
         )
         assert created.status_code == 200, created.text
         workflow = client.get(f"/api/v2/ai/workflows/{created.json()['workflow_id']}", headers=headers).json()
-        assert workflow["source_file_name"] == "alpha.txt, beta.txt"
+        assert workflow["source_file_name"] == "alpha.txt 等 2 个文件"
         assert "===== 文件: alpha.txt =====" in workflow["source_text_snapshot"]
         assert "alpha content" in workflow["source_text_snapshot"]
         assert "===== 文件: beta.txt =====" in workflow["source_text_snapshot"]
         assert "beta content" in workflow["source_text_snapshot"]
         assert workflow["source_text_snapshot"] == seen_texts[-1]
+
+
+def test_ai_workflow_multi_file_source_name_is_bounded(monkeypatch):
+    with TestClient(app) as client:
+        headers = _register(client, "long-files-ai@example.com", "longfilesai")
+        client.post(
+            "/api/v2/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+
+        from app.domains.ai_generation import facade as ai_generation
+
+        monkeypatch.setattr(ai_generation, "_call_openai_compatible", lambda *args, **kwargs: {"questions": [_sample_question_payload("长文件名题")]})
+        long_alpha = f"{'a' * 240}.txt"
+        long_beta = f"{'b' * 240}.txt"
+        created = client.post(
+            "/api/v2/ai/workflows",
+            headers=headers,
+            data={"title": "Long File Names", "question_count": "1"},
+            files=[
+                ("files", (long_alpha, b"alpha long content", "text/plain")),
+                ("files", (long_beta, b"beta long content", "text/plain")),
+            ],
+        )
+        assert created.status_code == 200, created.text
+        workflow = client.get(f"/api/v2/ai/workflows/{created.json()['workflow_id']}", headers=headers).json()
+        assert workflow["source_file_name"].endswith(" 等 2 个文件")
+        assert len(workflow["source_file_name"]) <= 255
+        assert f"===== 文件: {long_alpha} =====" in workflow["source_text_snapshot"]
+        assert f"===== 文件: {long_beta} =====" in workflow["source_text_snapshot"]
 
 
 def test_confirm_draft_imports_latest_edited_persisted_questions(monkeypatch):
@@ -1841,7 +1979,17 @@ def test_v2_ai_workflow_retry_draft_ready_head_only(monkeypatch):
         old_after_retry = client.get(f"/api/v2/ai/workflows/{original['id']}", headers=headers).json()
         assert old_after_retry["retried_by_workflow_id"] == retried.json()["workflow_id"]
         assert old_after_retry["can_retry"] is False
+        assert old_after_retry["can_confirm"] is False
+        old_confirm = client.post(f"/api/v2/ai/workflows/{original['id']}/draft/confirm", headers=headers)
+        assert old_confirm.status_code == 400
+        assert "重新生成" in old_confirm.json()["error"]["message"]
         assert client.post(f"/api/v2/ai/workflows/{original['id']}/cancel", headers=headers).status_code == 400
+
+        new_workflow = client.get(f"/api/v2/ai/workflows/{retried.json()['workflow_id']}", headers=headers).json()
+        assert new_workflow["status"] == "draft_ready"
+        assert new_workflow["can_confirm"] is True
+        new_confirm = client.post(f"/api/v2/ai/workflows/{new_workflow['id']}/draft/confirm", headers=headers)
+        assert new_confirm.status_code == 200, new_confirm.text
 
 
 def test_v2_ai_workflow_extends_existing_bank(monkeypatch):

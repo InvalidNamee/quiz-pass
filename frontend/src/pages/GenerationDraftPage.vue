@@ -13,6 +13,7 @@ import { useToast } from '../composables/useToast'
 import QuestionEditorDrawer from '../features/questions/QuestionEditorDrawer.vue'
 import QuestionTable from '../features/questions/QuestionTable.vue'
 import { emptyQuestionForm, formToDraftQuestion, questionToForm, type QuestionForm } from '../features/questions/questionForm'
+import { Pencil, Trash2 } from '@lucide/vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -172,9 +173,17 @@ onMounted(load)
         </div>
         <QuestionTable :questions="draft.questions" show-validation empty-text="暂无题目">
           <template #actions="{ index }">
-            <div class="flex items-center justify-end gap-1">
-              <el-button text size="small" @click="openEditor(index)">编辑</el-button>
-              <el-button text type="danger" size="small" @click="removeQuestion(index)">删除</el-button>
+            <div class="qp-icon-actions">
+              <el-tooltip content="编辑" placement="top">
+                <el-button size="small" class="qp-icon-button is-blue" @click="openEditor(index)">
+                  <Pencil :size="16" />
+                </el-button>
+              </el-tooltip>
+              <el-tooltip content="删除" placement="top">
+                <el-button size="small" class="qp-icon-button is-red" @click="removeQuestion(index)">
+                  <Trash2 :size="16" />
+                </el-button>
+              </el-tooltip>
             </div>
           </template>
         </QuestionTable>

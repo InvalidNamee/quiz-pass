@@ -17,10 +17,10 @@ function getClass(status: string, isCurrent: boolean) {
 </script>
 
 <template>
-  <div class="sticky top-5 max-h-[calc(100vh-7rem)] border border-slate-200 bg-white p-2">
-    <p class="mb-2 text-center text-xs font-medium text-slate-400">答题卡</p>
-    <el-scrollbar max-height="calc(100vh - 10rem)">
-      <div class="grid grid-cols-5 gap-1.5 pr-1">
+  <div class="sticky top-5 max-h-[calc(100vh-8rem)] rounded-2xl border border-slate-100/80 bg-white/95 p-4 shadow-sm backdrop-blur-md">
+    <p class="mb-3 text-center text-xs font-bold text-slate-400 tracking-wider">答题卡</p>
+    <el-scrollbar max-height="calc(100vh - 12rem)">
+      <div class="grid grid-cols-5 gap-1.5 pr-1.5">
         <button
           v-for="(status, index) in statuses"
           :key="index"
@@ -37,30 +37,37 @@ function getClass(status: string, isCurrent: boolean) {
 
 <style scoped>
 .navigator-cell {
-  --practice-ok-border: #86efac;
-  --practice-ok-bg: #f0fdf4;
-  --practice-ok-text: #166534;
-  --practice-bad-border: #fda4af;
-  --practice-bad-bg: #fff1f2;
-  --practice-bad-text: #be123c;
+  --practice-ok-border: rgba(16, 185, 129, 0.4);
+  --practice-ok-bg: #ecfdf5;
+  --practice-ok-text: #059669;
+  --practice-bad-border: rgba(239, 68, 68, 0.3);
+  --practice-bad-bg: #fef2f2;
+  --practice-bad-text: #dc2626;
+
   height: 34px;
   width: 100%;
-  border: 1px solid #d8dee8;
+  border-radius: 9999px !important;
+  border: 1px solid rgba(226, 232, 240, 0.8);
   background: #fff;
   color: #64748b;
-  font-size: 13px;
-  font-weight: 650;
-  transition: border-color .15s ease, background-color .15s ease, color .15s ease;
+  font-size: 12px;
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  transition: all 0.2s ease;
 }
 .navigator-cell:hover {
-  border-color: #93c5fd;
-  color: #1d4ed8;
+  border-color: #a5b4fc;
+  color: #4f46e5;
+  background: #f5f3ff;
 }
 .navigator-cell.is-selected,
 .navigator-cell.is-answered {
-  border-color: #bfdbfe;
-  background: #eff6ff;
-  color: #1d4ed8;
+  border-color: #c7d2fe;
+  background: #e0e7ff;
+  color: #4f46e5;
 }
 .navigator-cell.is-correct {
   border-color: var(--practice-ok-border);
@@ -73,8 +80,9 @@ function getClass(status: string, isCurrent: boolean) {
   color: var(--practice-bad-text);
 }
 .navigator-cell.is-current {
-  border-color: #2563eb;
-  box-shadow: inset 0 0 0 1px #2563eb;
-  color: #1e293b;
+  border-color: #6366f1;
+  box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.2);
+  color: #4f46e5;
+  font-weight: 800;
 }
 </style>

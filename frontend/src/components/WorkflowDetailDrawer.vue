@@ -3,10 +3,13 @@ import { watch, ref } from 'vue'
 import { getWorkflowDetail, type WorkflowDetail, type WorkflowListItem } from '../api/v2/aiGeneration'
 import { useToast } from '../composables/useToast'
 
-const props = defineProps<{
+const props = withDefaults(defineProps<{
   modelValue: boolean
   workflow: WorkflowListItem | null
-}>()
+  showActions?: boolean
+}>(), {
+  showActions: true,
+})
 
 const emit = defineEmits<{
   'update:modelValue': [value: boolean]
@@ -81,7 +84,7 @@ watch(() => [props.modelValue, props.workflow?.id], load, { immediate: true })
           </el-descriptions-item>
         </el-descriptions>
 
-        <div class="flex flex-wrap gap-2">
+        <div v-if="showActions" class="flex flex-wrap gap-2">
           <el-button v-if="detail.can_retry" size="small" @click="emit('retry', detail)">重新生成</el-button>
           <el-button v-if="detail.can_cancel" size="small" type="danger" plain @click="emit('cancel', detail)">撤销</el-button>
           <RouterLink v-if="detail.can_confirm" :to="`/ai-generation/workflows/${detail.id}/draft`">

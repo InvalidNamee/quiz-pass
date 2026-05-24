@@ -120,7 +120,7 @@ function visibleError(row: WorkflowListItem, showSensitiveError?: boolean) {
         </el-popover>
       </template>
     </el-table-column>
-    <el-table-column v-if="showActions" label="操作" width="260" fixed="right">
+    <el-table-column v-if="showActions" label="操作" width="260" fixed="right" align="right">
       <template #default="{ row }">
         <slot name="actions" :row="row" />
       </template>

@@ -10,6 +10,10 @@ export function listBanks(scope: 'mine' | 'public' | 'favorites', params: BankLi
   return api<Page<QuestionBankV2>>(`/api/v2/banks?${q}`)
 }
 
+export function listRecentPracticeBanks(pageSize = 6) {
+  return api<QuestionBankV2[]>(`/api/v2/banks/recent-practice?page_size=${pageSize}`)
+}
+
 export function getBank(bankId: number) {
   return api<QuestionBankV2>(`/api/v2/banks/${bankId}`)
 }

@@ -24,6 +24,19 @@ from app.domains.question_banks.tags import set_bank_tags
 from app.utils.document_extractors import extract_text
 
 
+SOURCE_FILE_NAME_MAX_LENGTH = 255
+
+
+def summarize_source_file_name(filenames: list[str]) -> str | None:
+    if not filenames:
+        return None
+    if len(filenames) == 1:
+        return filenames[0][:SOURCE_FILE_NAME_MAX_LENGTH]
+    suffix = f" 等 {len(filenames)} 个文件"
+    prefix_limit = max(0, SOURCE_FILE_NAME_MAX_LENGTH - len(suffix))
+    return f"{filenames[0][:prefix_limit]}{suffix}"
+
+
 async def extract_uploaded_sources(file: UploadFile | None = None, files: list[UploadFile] | None = None) -> tuple[str, str | None]:
     uploads: list[UploadFile] = []
     if files:
@@ -43,9 +56,9 @@ async def extract_uploaded_sources(file: UploadFile | None = None, files: list[U
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if len(extracted) == 1:
-        return extracted[0][1], extracted[0][0]
+        return extracted[0][1], summarize_source_file_name([extracted[0][0]])
     combined_text = "\n\n".join(f"===== 文件: {filename} =====\n{text}" for filename, text in extracted)
-    return combined_text, ", ".join(filename for filename, _ in extracted)
+    return combined_text, summarize_source_file_name([filename for filename, _ in extracted])
 
 
 def run_generation_task(workflow_id: int, text: str, question_count: int | None, generate_description: bool, generation_mode: str, extra_instruction: str | None) -> None:
@@ -525,7 +538,7 @@ class AIGenerationWorkflowService:
             out.started_at = job.started_at
         if draft:
             out.draft_question_count = draft_question_counts.get(draft.id, 0)
-            out.can_confirm = workflow.status == "draft_ready"
+            out.can_confirm = workflow.status == "draft_ready" and retried_by_workflow_id is None
         out.imported_question_count = imported_question_count
         out.question_delta = out.imported_question_count
         out.error_summary = self.error_summary(workflow.error_message)
@@ -609,6 +622,8 @@ class AIGenerationWorkflowService:
 
     def confirm_draft(self, workflow_id: int, user: User) -> dict:
         workflow = self.get_owned_workflow(workflow_id, user)
+        if self.retried_by_workflow_id(workflow.id):
+            raise HTTPException(status_code=400, detail="该 workflow 已重新生成，不能确认旧草稿")
         job = self.db.scalar(select(ImportJob).where(ImportJob.workflow_id == workflow.id))
         if not job:
             raise HTTPException(status_code=404, detail="Job not found")

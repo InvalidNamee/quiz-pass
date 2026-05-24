@@ -2,18 +2,33 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { QuestionBankV2, UserPublic } from '../api/types'
-import { listBanks } from '../api/v2/banks'
+import { listBanks, favoriteBank, unfavoriteBank } from '../api/v2/banks'
+import { Star } from '@lucide/vue'
 import { getUserPublic } from '../api/v2/users'
 import UserAvatar from '../components/UserAvatar.vue'
+import { useToast } from '../composables/useToast'
 
 const route = useRoute()
 const router = useRouter()
+const toast = useToast()
 const user = ref<UserPublic | null>(null)
 const banks = ref<QuestionBankV2[]>([])
 const loading = ref(true)
 
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString()
+}
+
+async function toggleFavorite(bank: QuestionBankV2) {
+  const next = !bank.is_favorited
+  bank.is_favorited = next
+  try {
+    if (next) await favoriteBank(bank.id)
+    else await unfavoriteBank(bank.id)
+  } catch {
+    bank.is_favorited = !next
+    toast.show('操作失败', 'error')
+  }
 }
 
 onMounted(async () => {
@@ -55,9 +70,17 @@ onMounted(async () => {
         <el-table :data="banks" size="small" empty-text="暂无公开题库" @row-click="(row: QuestionBankV2) => router.push(`/banks/${row.id}`)" class="cursor-pointer">
           <el-table-column label="题库" min-width="240">
             <template #default="{ row }: { row: QuestionBankV2 }">
-              <div class="min-w-0">
-                <strong class="block truncate text-slate-900">{{ row.title }}</strong>
-                <span class="block truncate text-sm text-slate-500">{{ row.description || '暂无描述' }}</span>
+              <div class="flex flex-col gap-0.5">
+                <div class="flex items-center gap-1.5">
+                  <button
+                    class="text-lg leading-none transition-colors"
+                    :class="row.is_favorited ? 'text-amber-500 hover:text-amber-400' : 'text-slate-300 hover:text-slate-400'"
+                    @click.stop="toggleFavorite(row)"
+                  ><Star :size="18" :fill="row.is_favorited ? '#f59e0b' : 'none'" /></button>
+                  <span class="font-medium text-slate-900">{{ row.title }}</span>
+                  <el-tag v-if="row.is_shared_copy" size="small" type="info">共享副本</el-tag>
+                </div>
+                <span class="text-xs text-slate-400 truncate max-w-xs">{{ row.description || '暂无描述' }}</span>
               </div>
             </template>
           </el-table-column>
@@ -68,11 +91,19 @@ onMounted(async () => {
               </div>
             </template>
           </el-table-column>
-          <el-table-column label="题" width="70" align="center">
+          <el-table-column label="题目数" width="70" align="center">
             <template #default="{ row }: { row: QuestionBankV2 }">{{ row.stats.question_count }}</template>
           </el-table-column>
-          <el-table-column label="收藏" width="80" align="center">
+          <el-table-column label="收藏数" width="80" align="center">
             <template #default="{ row }: { row: QuestionBankV2 }">{{ row.stats.favorite_count }}</template>
+          </el-table-column>
+          <el-table-column label="操作" width="180" align="right">
+            <template #default="{ row }: { row: QuestionBankV2 }">
+              <div class="flex items-center justify-end gap-1">
+                <el-button v-if="row.resumable_session" size="small" type="primary" @click.stop="router.push(`/practice/session/${row.resumable_session.id}`)">继续</el-button>
+                <el-button v-if="row.permissions.can_practice" size="small" @click.stop="router.push(`/banks/${row.id}?practice=1`)">练习</el-button>
+              </div>
+            </template>
           </el-table-column>
         </el-table>
       </div>

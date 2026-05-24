@@ -7,6 +7,7 @@ import { getBank, importJsonNewBank, importJsonToBank } from '../api/v2/banks'
 import { listAIConfigs } from '../api/v2/users'
 import { useToast } from '../composables/useToast'
 import { normalizeTagNames, tagKey, tagLabel, type TagInputValue } from '../features/tags/tagUtils'
+import type { UploadInstance } from 'element-plus'
 
 type CreateMode = 'ai_knowledge' | 'ai_parse' | 'json_import'
 
@@ -23,7 +24,6 @@ const toast = useToast()
 const title = ref('')
 const description = ref('')
 const createMode = ref<CreateMode>('ai_knowledge')
-const isPublic = ref(false)
 const aiProviderConfigId = ref('')
 const useQuestionCount = ref(true)
 const questionCount = ref(10)
@@ -32,6 +32,7 @@ const extraInstruction = ref('')
 const inheritContext = ref(true)
 const includeExistingQuestions = ref(false)
 const selectedTags = ref<TagInputValue[]>([])
+const uploadRef = ref<UploadInstance | null>(null)
 const files = ref<File[]>([])
 const configs = ref<AIProviderConfig[]>([])
 const bank = ref<QuestionBankV2 | null>(props.initialBank ?? null)
@@ -120,7 +121,6 @@ async function submit() {
     if (createMode.value === 'json_import') {
       const jsonFile = files.value[0]
       form.set('file', jsonFile)
-      form.set('visibility', isPublic.value ? 'public' : 'private')
       const tagNames = normalizeTagNames(selectedTags.value)
       if (tagNames.length) form.set('tag_names', JSON.stringify(tagNames))
       if (!isExtend.value) form.set('file_stem', fileStem(jsonFile.name))
@@ -133,7 +133,6 @@ async function submit() {
       if (!isExtend.value) {
         form.set('title', title.value)
         if (description.value.trim()) form.set('description', description.value.trim())
-        form.set('desired_visibility', isPublic.value ? 'public' : 'private')
         const tagNames = normalizeTagNames(selectedTags.value)
         if (tagNames.length) form.set('tag_names', JSON.stringify(tagNames))
       }
@@ -164,6 +163,7 @@ async function submit() {
   }
 }
 
+watch(createMode, () => { uploadRef.value?.clearFiles(); files.value = [] })
 watch(() => props.modelValue, (open) => { if (open) load() }, { immediate: true })
 </script>
 
@@ -179,12 +179,7 @@ watch(() => props.modelValue, (open) => { if (open) load() }, { immediate: true 
       </el-form-item>
 
       <template v-if="showNewBankFields">
-        <div class="grid gap-3 sm:grid-cols-2">
-          <el-form-item label="题库名称"><el-input v-model="title" placeholder="输入题库名称" /></el-form-item>
-          <el-form-item label="可见性">
-            <el-checkbox v-model="isPublic">{{ createMode === 'json_import' ? '公开题库' : '生成成功后自动公开' }}</el-checkbox>
-          </el-form-item>
-        </div>
+        <el-form-item label="题库名称"><el-input v-model="title" placeholder="输入题库名称" /></el-form-item>
         <el-form-item label="描述"><el-input v-model="description" type="textarea" :rows="2" placeholder="简短描述（可选）" /></el-form-item>
         <el-form-item label="标签">
           <el-select v-model="selectedTags" multiple filterable allow-create default-first-option clearable placeholder="添加标签" style="width: 100%">
@@ -223,6 +218,7 @@ watch(() => props.modelValue, (open) => { if (open) load() }, { immediate: true 
 
       <el-form-item label="上传文件">
         <el-upload
+          ref="uploadRef"
           :auto-upload="false"
           :limit="createMode === 'json_import' ? 1 : 20"
           :multiple="createMode !== 'json_import'"
@@ -231,7 +227,7 @@ watch(() => props.modelValue, (open) => { if (open) load() }, { immediate: true 
           :on-remove="onUploadRemove"
         >
           <el-button>选择文件</el-button>
-          <template #tip><span class="ml-2 text-sm text-slate-500">{{ createMode === 'json_import' ? '支持 .json' : '支持 .txt / .docx / .pdf' }}</span></template>
+          <template #tip><span class="ml-2 text-sm text-slate-500">{{ createMode === 'json_import' ? '仅支持 .json，一次一个文件' : '支持 .txt / .docx / .pdf，可上传多个文件' }}</span></template>
         </el-upload>
       </el-form-item>
     </el-form>

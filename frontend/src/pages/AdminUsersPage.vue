@@ -138,7 +138,7 @@ watch(() => route.fullPath, load)
     <el-table v-loading="loading" :data="users" size="small" empty-text="没有匹配的用户">
       <el-table-column label="用户" min-width="220">
         <template #default="{ row }">
-          <RouterLink :to="`/users/${row.id}`" class="hover:text-brand-600">
+          <RouterLink :to="`/users/${row.id}`" class="hover:text-blue-600">
             <div class="flex flex-wrap items-center gap-2">
               <strong class="truncate">{{ row.display_name || row.username }}</strong>
               <span class="text-sm text-slate-500">@{{ row.username }}</span>

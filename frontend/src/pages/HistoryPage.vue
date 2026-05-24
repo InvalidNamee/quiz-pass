@@ -3,6 +3,7 @@ import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { listHistory } from '../api/v2/practice'
 import type { Page, PracticeSession } from '../api/types'
+import { practiceProgressColor, practiceProgressPercent, practiceProgressText, practiceProgressType } from '../utils/practiceProgress'
 
 const route = useRoute(); const router = useRouter()
 const sessions = ref<PracticeSession[]>([])
@@ -10,9 +11,11 @@ const mode = ref(''); const status = ref('')
 const pageInfo = ref<Page<PracticeSession> | null>(null)
 const loading = ref(true)
 
-function modeBadge(m: string): '' | 'success' | 'warning' | 'danger' | 'info' {
-  const map: Record<string, '' | 'success' | 'warning' | 'danger' | 'info'> = { practice: '', exam: 'warning', mistake_review: 'danger' }
-  return map[m] || ''
+type TagType = 'primary' | 'success' | 'warning' | 'danger' | 'info'
+
+function modeBadge(m: string): TagType | undefined {
+  const map: Record<string, TagType | undefined> = { practice: undefined, exam: 'warning', mistake_review: 'danger' }
+  return map[m]
 }
 function modeText(m: string) { const map: Record<string, string> = { practice: '练习', exam: '考试', mistake_review: '错题' }; return map[m] || m }
 function formatTime(value: string | null | undefined) {
@@ -58,10 +61,20 @@ onMounted(load); watch(() => route.fullPath, load)
       <el-table-column label="状态" width="80">
         <template #default="{ row }: { row: PracticeSession }"><el-tag size="small" :type="row.status === 'submitted' ? 'success' : 'warning'">{{ row.status === 'submitted' ? '已提交' : '进行中' }}</el-tag></template>
       </el-table-column>
-      <el-table-column label="进度" width="100" align="right">
+      <el-table-column label="进度" width="210">
         <template #default="{ row }: { row: PracticeSession }">
-          <span v-if="row.status === 'in_progress'">{{ row.answered_count }}/{{ row.total_questions }}</span>
-          <span v-else :class="{ 'text-green-600': (row.score||0) >= 80, 'text-orange-600': (row.score||0) >= 60 && (row.score||0) < 80, 'text-red-600': (row.score||0) < 60 }">{{ row.score }}分</span>
+          <div class="grid gap-1">
+            <div class="flex items-center justify-between gap-2 text-xs">
+              <span class="font-semibold text-slate-500">{{ practiceProgressType(row) }}</span>
+              <span class="text-slate-400">{{ practiceProgressText(row) }}</span>
+            </div>
+            <el-progress
+              :percentage="practiceProgressPercent(row)"
+              :color="practiceProgressColor(row)"
+              :stroke-width="6"
+              :show-text="false"
+            />
+          </div>
         </template>
       </el-table-column>
       <el-table-column label="开始时间" width="190">

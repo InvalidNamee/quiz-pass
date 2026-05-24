@@ -29,7 +29,7 @@ async function submit() {
 
 <template>
   <div class="flex min-h-[80vh] items-center justify-center">
-    <el-form class="w-full max-w-sm border border-slate-200 bg-white p-5" label-position="top" @submit.prevent>
+    <el-form class="w-full max-w-sm border border-slate-200 bg-white p-4" label-position="top" @submit.prevent>
       <h1 class="mb-4 text-center text-lg font-semibold text-slate-900">重置密码</h1>
       <el-alert v-if="!token" class="mb-4" type="error" title="重置链接缺少 token" :closable="false" show-icon />
       <el-form-item label="新密码">

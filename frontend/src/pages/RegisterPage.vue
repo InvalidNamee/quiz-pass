@@ -42,7 +42,7 @@ async function resend() {
 
 <template>
   <div class="flex min-h-[80vh] items-center justify-center">
-    <el-form class="w-full max-w-sm border border-slate-200 bg-white p-5" label-position="top" @submit.prevent>
+    <el-form class="w-full max-w-sm border border-slate-200 bg-white p-4" label-position="top" @submit.prevent>
       <h1 class="mb-4 text-center text-lg font-semibold text-slate-900">创建账号</h1>
       <el-form-item label="邮箱"><el-input v-model="email" autocomplete="email" /></el-form-item>
       <el-form-item label="用户名"><el-input v-model="username" autocomplete="username" placeholder="至少 3 位" /></el-form-item>

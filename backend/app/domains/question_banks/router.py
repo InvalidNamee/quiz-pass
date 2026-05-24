@@ -70,6 +70,11 @@ def list_tags(page: int = 1, page_size: int = 20, keyword: str | None = None, id
     return page_response(items, total, page, page_size)
 
 
+@router.get("/banks/recent-practice", response_model=list[QuestionBankV2Out])
+def list_recent_practice_banks(page_size: int = 6, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return QuestionBankQueryService(db).recent_practice_banks_for_user(current_user, page_size)
+
+
 @router.get("/banks/{bank_id}", response_model=QuestionBankV2Out)
 def get_bank(bank_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     bank = QuestionBankService(db).get_readable(bank_id, current_user)

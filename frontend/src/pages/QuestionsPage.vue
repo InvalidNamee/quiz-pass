@@ -7,6 +7,7 @@ import { useToast } from '../composables/useToast'
 import QuestionEditorDrawer from '../features/questions/QuestionEditorDrawer.vue'
 import QuestionTable from '../features/questions/QuestionTable.vue'
 import { emptyQuestionForm, formToQuestionPayload, questionToForm, type QuestionForm } from '../features/questions/questionForm'
+import { Pencil, Trash2 } from '@lucide/vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -104,9 +105,17 @@ onMounted(load)
 
       <QuestionTable :questions="questions" :loading="loading" show-source empty-text="暂无题目">
         <template #actions="{ row }">
-          <div class="flex items-center justify-end gap-1">
-            <el-button text size="small" @click="editQuestion(row)">编辑</el-button>
-            <el-button text type="danger" size="small" @click="removeQuestion(row.id)">删除</el-button>
+          <div class="qp-icon-actions">
+            <el-tooltip content="编辑" placement="top">
+              <el-button size="small" class="qp-icon-button is-blue" @click="editQuestion(row)">
+                <Pencil :size="16" />
+              </el-button>
+            </el-tooltip>
+            <el-tooltip content="删除" placement="top">
+              <el-button size="small" class="qp-icon-button is-red" @click="removeQuestion(row.id)">
+                <Trash2 :size="16" />
+              </el-button>
+            </el-tooltip>
           </div>
         </template>
       </QuestionTable>

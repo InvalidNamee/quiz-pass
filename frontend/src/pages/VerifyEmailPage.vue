@@ -31,7 +31,7 @@ onMounted(async () => {
 
 <template>
   <div class="flex min-h-[80vh] items-center justify-center">
-    <div class="w-full max-w-sm border border-slate-200 bg-white p-5">
+    <div class="w-full max-w-sm border border-slate-200 bg-white p-4">
       <h1 class="mb-4 text-center text-lg font-semibold text-slate-900">邮箱验证</h1>
       <el-skeleton v-if="loading" :rows="3" animated />
       <template v-else>

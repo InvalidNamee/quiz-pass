@@ -2,14 +2,14 @@
 import { onMounted, ref } from 'vue'
 import type { AIProviderConfig } from '../api/types'
 import {
-  createAIConfig,
   deleteAIConfig,
   listAIConfigs,
   setDefaultAIConfig,
   testAIConfig,
-  updateAIConfig,
 } from '../api/v2/users'
+import { Link, Star, Pencil, Trash2 } from '@lucide/vue'
 import { useToast } from '../composables/useToast'
+import AIConfigDialog from '../components/AIConfigDialog.vue'
 
 const configs = ref<AIProviderConfig[]>([])
 const formVisible = ref(false)
@@ -33,13 +33,6 @@ function openAdd() {
 }
 function openEdit(item: AIProviderConfig) {
   editingId.value = item.id; form.value = { name: item.name, api_base_url: item.api_base_url, api_key: '', model: item.model, response_format_type: item.response_format_type, is_default: item.is_default }; formVisible.value = true
-}
-async function handleSave() {
-  try {
-    if (editingId.value) { await updateAIConfig(editingId.value, { name: form.value.name, api_base_url: form.value.api_base_url, model: form.value.model, response_format_type: form.value.response_format_type, is_default: form.value.is_default }); toast.show('已更新', 'success') }
-    else { await createAIConfig({ ...form.value }); toast.show('已添加', 'success') }
-    formVisible.value = false; await load()
-  } catch (err) { toast.show(err instanceof Error ? err.message : '保存失败', 'error') }
 }
 
 async function setDefault(id: number) {
@@ -104,33 +97,43 @@ onMounted(load)
         </template>
       </el-table-column>
       <el-table-column label="API 地址" prop="api_base_url" min-width="200" show-overflow-tooltip />
-      <el-table-column label="操作" width="280">
+      <el-table-column label="操作" width="220" align="right">
         <template #default="{ row }">
-          <el-button text size="small" :loading="testingId === row.id" @click="testConfig(row.id)">测试</el-button>
-          <el-button text size="small" @click="setDefault(row.id)">默认</el-button>
-          <el-button text size="small" @click="openEdit(row)">编辑</el-button>
-          <el-button text size="small" type="danger" @click="deleteTarget = row">删除</el-button>
+          <div class="qp-icon-actions">
+            <el-tooltip content="测试连接" placement="top">
+              <el-button size="small" class="qp-icon-button is-blue" :loading="testingId === row.id" @click="testConfig(row.id)">
+                <Link v-if="testingId !== row.id" :size="16" />
+              </el-button>
+            </el-tooltip>
+
+            <el-tooltip content="设为默认" placement="top">
+              <el-button size="small" class="qp-icon-button is-amber" @click="setDefault(row.id)">
+                <Star :size="16" :fill="row.is_default ? '#d97706' : 'none'" />
+              </el-button>
+            </el-tooltip>
+
+            <el-tooltip content="编辑" placement="top">
+              <el-button size="small" class="qp-icon-button" @click="openEdit(row)">
+                <Pencil :size="16" />
+              </el-button>
+            </el-tooltip>
+
+            <el-tooltip content="删除" placement="top">
+              <el-button size="small" class="qp-icon-button is-red" @click="deleteTarget = row">
+                <Trash2 :size="16" />
+              </el-button>
+            </el-tooltip>
+          </div>
         </template>
       </el-table-column>
     </el-table>
 
-    <el-dialog v-model="formVisible" :title="editingId ? '编辑配置' : '添加配置'" width="460px">
-      <el-form label-position="top" size="default">
-        <el-form-item label="配置名称"><el-input v-model="form.name" placeholder="输入配置名称" /></el-form-item>
-        <el-form-item label="接口地址"><el-input v-model="form.api_base_url" placeholder="https://api.openai.com/v1" /></el-form-item>
-        <el-form-item label="模型"><el-input v-model="form.model" placeholder="gpt-4o" /></el-form-item>
-        <el-form-item label="JSON 模式">
-          <el-radio-group v-model="form.response_format_type">
-            <el-radio-button label="json_object">json_object (宽松)</el-radio-button>
-            <el-radio-button label="json_schema">json_schema (严格)</el-radio-button>
-          </el-radio-group>
-          <div class="mt-1 text-xs text-slate-400">模型不支持 json_schema 时请选择 json_object。</div>
-        </el-form-item>
-        <el-form-item v-if="!editingId" label="API Key"><el-input v-model="form.api_key" autocomplete="off" placeholder="sk-..." /><span class="text-xs text-slate-400">保存后不可查看、不可编辑，只能删除重建</span></el-form-item>
-        <el-form-item><el-checkbox v-model="form.is_default">设为默认</el-checkbox></el-form-item>
-      </el-form>
-      <template #footer><el-button @click="formVisible = false">取消</el-button><el-button type="primary" @click="handleSave">{{ editingId ? '保存' : '添加' }}</el-button></template>
-    </el-dialog>
+    <AIConfigDialog
+      v-model="formVisible"
+      :config-id="editingId"
+      :initial-config="editingId ? form : null"
+      @submitted="load"
+    />
 
     <el-dialog :model-value="!!deleteTarget" :key="deleteTarget?.id" title="删除配置" @update:model-value="(val: boolean) => !val && (deleteTarget = null)">
       <template v-if="deleteTarget">
