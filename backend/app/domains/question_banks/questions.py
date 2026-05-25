@@ -4,7 +4,9 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.domains.question_banks.permissions import QuestionBankPermissionService
 from app.domains.question_banks.stats import QuestionBankStatsService
-from app.models.question import Question, QuestionOption
+import json
+
+from app.models.question import Question, QuestionBlank, QuestionOption
 from app.models.question_bank import QuestionBank
 from app.models.user import User
 from app.schemas.common import page_response
@@ -22,7 +24,7 @@ class QuestionService:
             raise HTTPException(status_code=404, detail="Question bank not found")
         if all and not QuestionBankPermissionService.can_manage(bank, user):
             raise HTTPException(status_code=404, detail="Question bank not found")
-        stmt = select(Question).options(selectinload(Question.options)).where(Question.bank_id == bank_id)
+        stmt = select(Question).options(selectinload(Question.options), selectinload(Question.blanks)).where(Question.bank_id == bank_id)
         if keyword:
             stmt = stmt.where(or_(Question.stem.contains(keyword), Question.explanation.contains(keyword)))
         stmt = stmt.order_by(Question.created_at.desc())
@@ -46,6 +48,7 @@ class QuestionService:
         self.db.add(question)
         self.db.flush()
         self.replace_options(question, payload.options)
+        self.replace_blanks(question, payload.blanks)
         QuestionBankStatsService.increment_questions(self.db, bank)
         self.db.commit()
         return self.get_question_for_output(question.id)
@@ -70,8 +73,11 @@ class QuestionService:
         question.difficulty = payload.difficulty
         for option in list(question.options):
             self.db.delete(option)
+        for blank in list(question.blanks):
+            self.db.delete(blank)
         self.db.flush()
         self.replace_options(question, payload.options)
+        self.replace_blanks(question, payload.blanks)
         self.db.commit()
         return self.get_question_for_output(question_id)
 
@@ -91,7 +97,7 @@ class QuestionService:
         return bank
 
     def get_question_for_output(self, question_id: int) -> Question | None:
-        return self.db.scalar(select(Question).options(selectinload(Question.options)).where(Question.id == question_id))
+        return self.db.scalar(select(Question).options(selectinload(Question.options), selectinload(Question.blanks)).where(Question.id == question_id))
 
     def replace_options(self, question: Question, options) -> None:
         for index, option in enumerate(options):
@@ -101,6 +107,17 @@ class QuestionService:
                     label=option.label,
                     content=option.content,
                     is_correct=option.is_correct,
+                    sort_order=index,
+                )
+            )
+
+    def replace_blanks(self, question: Question, blanks) -> None:
+        for index, blank in enumerate(blanks):
+            self.db.add(
+                QuestionBlank(
+                    question_id=question.id,
+                    label=blank.label,
+                    answers_json=json.dumps([answer.strip() for answer in blank.answers if answer.strip()], ensure_ascii=False),
                     sort_order=index,
                 )
             )

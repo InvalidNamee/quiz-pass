@@ -1,3 +1,4 @@
+import json
 from datetime import datetime
 
 from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, String, Text, func
@@ -22,6 +23,7 @@ class Question(Base):
 
     bank = relationship("QuestionBank", back_populates="questions")
     options = relationship("QuestionOption", back_populates="question", cascade="all, delete-orphan")
+    blanks = relationship("QuestionBlank", back_populates="question", cascade="all, delete-orphan")
 
 
 class QuestionOption(Base):
@@ -35,3 +37,19 @@ class QuestionOption(Base):
     sort_order: Mapped[int] = mapped_column(Integer, default=0)
 
     question = relationship("Question", back_populates="options")
+
+
+class QuestionBlank(Base):
+    __tablename__ = "question_blanks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    question_id: Mapped[int] = mapped_column(ForeignKey("questions.id", ondelete="CASCADE"), index=True)
+    label: Mapped[str] = mapped_column(String(16))
+    answers_json: Mapped[str] = mapped_column(Text)
+    sort_order: Mapped[int] = mapped_column(Integer, default=0)
+
+    question = relationship("Question", back_populates="blanks")
+
+    @property
+    def answers(self) -> list[str]:
+        return json.loads(self.answers_json or "[]")

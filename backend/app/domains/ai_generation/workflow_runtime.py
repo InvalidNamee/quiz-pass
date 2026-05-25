@@ -1,3 +1,4 @@
+import json
 from typing import Callable, Literal, TypedDict
 
 from langgraph.graph import END, START, StateGraph
@@ -32,6 +33,7 @@ class AIGenerationState(TypedDict, total=False):
     generate_description: bool
     generation_mode: str
     extra_instruction: str | None
+    question_type_settings: dict | None
     raw_payload: dict
     repaired_payload: dict
     payload: dict
@@ -89,6 +91,7 @@ class WorkflowRuntime:
                     "generate_description": generate_description if generate_description is not None else workflow.generate_description == "true",
                     "generation_mode": generation_mode or workflow.generation_mode,
                     "extra_instruction": PromptBuilder.normalize_extra_instruction(extra_instruction if extra_instruction is not None else workflow.extra_instruction),
+                    "question_type_settings": self.parse_question_type_settings(workflow.question_type_settings_json),
                     "repair_attempts": 0,
                 }
             )
@@ -163,8 +166,15 @@ class WorkflowRuntime:
                 state.get("generate_description", False),
                 state.get("generation_mode", "knowledge_generate"),
                 state.get("extra_instruction"),
-                None,
-                None,
+                system_prompt=None,
+                user_prompt=PromptBuilder.build_generation_prompt(
+                    state.get("context_text") or state["text"],
+                    state.get("requested_count"),
+                    state.get("generate_description", False),
+                    state.get("generation_mode", "knowledge_generate"),
+                    state.get("extra_instruction"),
+                    state.get("question_type_settings"),
+                ),
             )
             state_service.record_step(workflow.id, "generate_or_parse", "succeeded", {"mode": workflow.generation_mode}, {"payload": payload})
             db.commit()
@@ -181,7 +191,7 @@ class WorkflowRuntime:
         payload = state.get("payload") or {}
         try:
             state_service.set_status(workflow, job, bank, "validating")
-            questions, summary = AIPayloadValidator.validate(payload, workflow.generation_mode, workflow.requested_count)
+            questions, summary = AIPayloadValidator.validate(payload, workflow.generation_mode, workflow.requested_count, self.parse_question_type_settings(workflow.question_type_settings_json))
             bank_description = payload.get("bank_description")
             state_service.record_step(workflow.id, "validate_payload", "succeeded", {"payload": payload}, {"summary": summary})
             db.commit()
@@ -269,6 +279,16 @@ class WorkflowRuntime:
     @staticmethod
     def route_after_repair(state: AIGenerationState) -> Literal["validate_payload", "fail"]:
         return "fail" if state.get("route") == "fail" else "validate_payload"
+
+    @staticmethod
+    def parse_question_type_settings(raw: str | None) -> dict | None:
+        if not raw:
+            return None
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        return data if isinstance(data, dict) else None
 
 
 class WorkflowCancelled(Exception):

@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import type { AIProviderConfig, Page } from '../api/types'
@@ -37,6 +37,26 @@ const retryForm = ref({
   sourceText: '',
   title: '',
 })
+type QuestionTypeKey = 'single' | 'multiple' | 'blank' | 'short_answer'
+const questionTypeLabels: Record<QuestionTypeKey, string> = { single: '单选', multiple: '多选', blank: '填空', short_answer: '简答' }
+const questionTypeRows: Array<{ key: QuestionTypeKey; label: string }> = [
+  { key: 'single', label: questionTypeLabels.single },
+  { key: 'multiple', label: questionTypeLabels.multiple },
+  { key: 'blank', label: questionTypeLabels.blank },
+  { key: 'short_answer', label: questionTypeLabels.short_answer },
+]
+const retryTypeSettings = reactive<Record<QuestionTypeKey, { enabled: boolean; useCount: boolean; count: number }>>({
+  single: { enabled: true, useCount: true, count: 5 },
+  multiple: { enabled: true, useCount: true, count: 3 },
+  blank: { enabled: true, useCount: false, count: 2 },
+  short_answer: { enabled: false, useCount: false, count: 1 },
+})
+const defaultRetryTypeSettings: Record<QuestionTypeKey, { enabled: boolean; useCount: boolean; count: number }> = {
+  single: { enabled: true, useCount: true, count: 5 },
+  multiple: { enabled: true, useCount: true, count: 3 },
+  blank: { enabled: true, useCount: false, count: 2 },
+  short_answer: { enabled: false, useCount: false, count: 1 },
+}
 let pollingTimer: number | null = null
 
 function hasUnstableJobs() {
@@ -86,6 +106,17 @@ function configLabel(config: AIProviderConfig) {
   return config.name ? `${config.name} · ${config.model}` : config.model
 }
 
+function applyRetryTypeSettings(row: WorkflowListItem) {
+  for (const { key } of questionTypeRows) {
+    const saved = row.question_type_settings?.[key]
+    const fallback = defaultRetryTypeSettings[key]
+    const count = typeof saved?.count === 'number' && saved.count > 0 ? saved.count : fallback.count
+    retryTypeSettings[key].enabled = typeof saved?.enabled === 'boolean' ? saved.enabled : fallback.enabled
+    retryTypeSettings[key].useCount = typeof saved?.count === 'number' && saved.count > 0
+    retryTypeSettings[key].count = count
+  }
+}
+
 async function openRetry(row: WorkflowListItem) {
   retryTarget.value = row
   if (!configs.value.length) configs.value = await listAIConfigs()
@@ -101,8 +132,23 @@ async function openRetry(row: WorkflowListItem) {
     sourceText: row.source_text_snapshot || '',
     title: row.bank_title_snapshot || '重新生成题库',
   }
+  applyRetryTypeSettings(row)
   retryFiles.value = []
   retryDialogVisible.value = true
+}
+
+function retryQuestionTypeSettingsJson() {
+  const payload: Record<QuestionTypeKey, { enabled: boolean; count: number | null }> = {
+    single: { enabled: retryTypeSettings.single.enabled, count: retryForm.value.generationMode === 'knowledge_generate' && retryTypeSettings.single.useCount ? retryTypeSettings.single.count : null },
+    multiple: { enabled: retryTypeSettings.multiple.enabled, count: retryForm.value.generationMode === 'knowledge_generate' && retryTypeSettings.multiple.useCount ? retryTypeSettings.multiple.count : null },
+    blank: { enabled: retryTypeSettings.blank.enabled, count: retryForm.value.generationMode === 'knowledge_generate' && retryTypeSettings.blank.useCount ? retryTypeSettings.blank.count : null },
+    short_answer: { enabled: retryTypeSettings.short_answer.enabled, count: retryForm.value.generationMode === 'knowledge_generate' && retryTypeSettings.short_answer.useCount ? retryTypeSettings.short_answer.count : null },
+  }
+  if (!Object.values(payload).some((item) => item.enabled)) {
+    toast.show('至少启用一种题型', 'error')
+    return null
+  }
+  return JSON.stringify(payload)
 }
 
 function openDetail(row: WorkflowListItem) {
@@ -129,8 +175,10 @@ async function submitRetry() {
     const form = new FormData()
     if (retryForm.value.aiProviderConfigId) form.set('ai_provider_config_id', retryForm.value.aiProviderConfigId)
     form.set('generation_mode', retryForm.value.generationMode)
-    form.set('question_count_mode', retryForm.value.useQuestionCount && retryForm.value.generationMode === 'knowledge_generate' ? 'fixed' : 'adaptive')
-    if (retryForm.value.useQuestionCount && retryForm.value.generationMode === 'knowledge_generate') form.set('question_count', String(retryForm.value.questionCount))
+    const typeSettings = retryQuestionTypeSettingsJson()
+    if (!typeSettings) return
+    form.set('question_type_settings', typeSettings)
+    form.set('question_count_mode', 'adaptive')
     form.set('generate_description', String(retryForm.value.generateDescription))
     form.set('extra_instruction', retryForm.value.extraInstruction)
     form.set('inherit_context', String(retryTarget.value.purpose === 'extend_bank' ? retryForm.value.inheritContext : false))
@@ -272,13 +320,18 @@ onBeforeUnmount(stopPolling)
               <el-option v-for="config in configs" :key="config.id" :value="String(config.id)" :label="configLabel(config)" />
             </el-select>
           </el-form-item>
-          <el-form-item v-if="retryForm.generationMode === 'knowledge_generate'" label="题数">
-            <el-checkbox v-model="retryForm.useQuestionCount">指定题数</el-checkbox>
-          </el-form-item>
-          <el-form-item v-if="retryForm.generationMode === 'knowledge_generate' && retryForm.useQuestionCount" label="题目数量">
-            <el-input-number v-model="retryForm.questionCount" :min="1" :max="100" />
-          </el-form-item>
         </div>
+        <el-form-item label="题型配置">
+          <div class="w-full overflow-hidden rounded-lg border border-slate-200">
+            <div v-for="row in questionTypeRows" :key="row.key" class="grid grid-cols-[96px_1fr_140px] items-center gap-3 border-b border-slate-100 px-3 py-2 last:border-b-0">
+              <el-checkbox v-model="retryTypeSettings[row.key].enabled">{{ row.label }}</el-checkbox>
+              <el-checkbox v-if="retryForm.generationMode === 'knowledge_generate'" v-model="retryTypeSettings[row.key].useCount" :disabled="!retryTypeSettings[row.key].enabled">限定数量</el-checkbox>
+              <span v-else class="text-xs text-slate-500">解析该题型</span>
+              <el-input-number v-if="retryForm.generationMode === 'knowledge_generate'" v-model="retryTypeSettings[row.key].count" size="small" :min="1" :max="100" :disabled="!retryTypeSettings[row.key].enabled || !retryTypeSettings[row.key].useCount" />
+            </div>
+          </div>
+          <p v-if="retryForm.generationMode === 'knowledge_generate'" class="mt-2 text-xs text-slate-500">不勾选限定数量表示该题型由 AI 自适应；不生成某题型请取消左侧勾选。</p>
+        </el-form-item>
         <el-form-item v-if="retryTarget?.purpose === 'extend_bank'">
           <el-checkbox v-model="retryForm.inheritContext">使用题库 AI 描述</el-checkbox>
         </el-form-item>

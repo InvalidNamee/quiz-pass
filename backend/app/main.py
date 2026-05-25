@@ -25,6 +25,18 @@ def _is_v2_request(request: Request) -> bool:
     return request.url.path.startswith("/api/v2")
 
 
+def _json_safe(value):
+    if isinstance(value, dict):
+        return {key: _json_safe(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    return str(value)
+
+
 @app.exception_handler(HTTPException)
 async def quiz_pass_http_exception_handler(request: Request, exc: HTTPException):
     if not _is_v2_request(request):
@@ -53,7 +65,7 @@ async def quiz_pass_validation_exception_handler(request: Request, exc: RequestV
             "error": {
                 "code": "VALIDATION_ERROR",
                 "message": "请求参数校验失败",
-                "details": exc.errors(),
+                "details": _json_safe(exc.errors()),
             }
         },
     )

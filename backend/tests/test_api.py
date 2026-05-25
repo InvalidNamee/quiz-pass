@@ -70,6 +70,19 @@ def _sample_question_payload(stem: str = "示例题") -> dict:
     }
 
 
+def _multiple_question_payload(stem: str = "多选示例题") -> dict:
+    return {
+        "type": "multiple",
+        "stem": stem,
+        "explanation": "解析",
+        "options": [
+            {"label": "A", "content": "正确 1", "is_correct": True},
+            {"label": "B", "content": "正确 2", "is_correct": True},
+            {"label": "C", "content": "错误", "is_correct": False},
+        ],
+    }
+
+
 def _question_payload_with_option_count(count: int, stem: str = "多选项题") -> dict:
     return {
         "type": "single",
@@ -82,6 +95,26 @@ def _question_payload_with_option_count(count: int, stem: str = "多选项题") 
             }
             for index in range(count)
         ],
+    }
+
+
+def _blank_question_payload(stem: str = "TCP 位于 OSI 的 {{1}} 层") -> dict:
+    return {
+        "type": "blank",
+        "stem": stem,
+        "options": [],
+        "blanks": [{"label": "1", "answers": ["传输层", "Transport Layer"]}],
+        "explanation": "TCP 属于传输层。",
+    }
+
+
+def _short_answer_question_payload(stem: str = "简述反向传播的核心思想") -> dict:
+    return {
+        "type": "short_answer",
+        "stem": stem,
+        "options": [],
+        "blanks": [],
+        "explanation": "给分点：链式法则、误差反向传播、参数更新。",
     }
 
 
@@ -2567,6 +2600,279 @@ def test_question_management_all_true_returns_full_list_for_managers_only():
         assert client.get(f"/api/v2/banks/{bank['id']}/questions?all=true", headers=visitor_headers).status_code == 404
 
 
+def test_blank_and_short_answer_crud_json_and_practice_flow():
+    with TestClient(app) as client:
+        headers = _register(client, "text-types@example.com", "texttypes")
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Text Types", "visibility": "private"}).json()
+
+        blank = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_blank_question_payload())
+        assert blank.status_code == 200, blank.text
+        assert blank.json()["type"] == "blank"
+        assert blank.json()["options"] == []
+        assert blank.json()["blanks"] == [{"id": blank.json()["blanks"][0]["id"], "label": "1", "answers": ["传输层", "Transport Layer"], "sort_order": 0}]
+
+        short = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_short_answer_question_payload())
+        assert short.status_code == 200, short.text
+        assert short.json()["type"] == "short_answer"
+        assert short.json()["options"] == []
+        assert short.json()["blanks"] == []
+
+        invalid_blank = client.post(
+            f"/api/v2/banks/{bank['id']}/questions",
+            headers=headers,
+            json={**_blank_question_payload("题干没有占位符"), "blanks": [{"label": "1", "answers": ["答案"]}]},
+        )
+        assert invalid_blank.status_code == 422
+
+        exported = client.get(f"/api/v2/banks/{bank['id']}/export-json", headers=headers)
+        assert exported.status_code == 200, exported.text
+        exported_questions = {item["type"]: item for item in exported.json()["questions"]}
+        assert exported_questions["blank"]["blanks"][0]["answers"] == ["传输层", "Transport Layer"]
+        assert exported_questions["short_answer"]["blanks"] == []
+
+        imported = client.post(
+            "/api/v2/banks/import-json",
+            headers=headers,
+            data={"visibility": "private"},
+            files={"file": ("text-types.json", json.dumps(exported.json()).encode("utf-8"), "application/json")},
+        )
+        assert imported.status_code == 200, imported.text
+        assert imported.json()["stats"]["question_count"] == 2
+
+        session = client.post("/api/v2/practice/sessions", headers=headers, json={"bank_id": bank["id"], "mode": "practice", "shuffle_questions": False}).json()
+        questions = client.get(f"/api/v2/practice/sessions/{session['id']}/questions", headers=headers).json()
+        blank_question = next(item for item in questions if item["type"] == "blank")
+        short_question = next(item for item in questions if item["type"] == "short_answer")
+        assert blank_question["blanks"][0]["label"] == "1"
+        assert blank_question["answer_state"]["text_answers"] == []
+
+        blank_answer = client.post(
+            f"/api/v2/practice/sessions/{session['id']}/answers",
+            headers=headers,
+            json={"question_id": blank_question["id"], "text_answers": [" 传输层 "]},
+        )
+        assert blank_answer.status_code == 200, blank_answer.text
+        assert blank_answer.json()["is_correct"] is True
+        assert blank_answer.json()["correct_text_answers"] == [["传输层", "Transport Layer"]]
+
+        short_answer = client.post(
+            f"/api/v2/practice/sessions/{session['id']}/answers",
+            headers=headers,
+            json={"question_id": short_question["id"], "text_answers": ["利用链式法则反向传播误差"]},
+        )
+        assert short_answer.status_code == 200, short_answer.text
+        assert short_answer.json()["is_correct"] is True
+        assert short_answer.json()["correct_text_answers"] == []
+
+        result = client.get(f"/api/v2/practice/sessions/{session['id']}/result", headers=headers).json()
+        blank_result = next(item for item in result if item["type"] == "blank")
+        short_result = next(item for item in result if item["type"] == "short_answer")
+        assert blank_result["text_answers"] == [" 传输层 "]
+        assert blank_result["correct_text_answers"] == [["传输层", "Transport Layer"]]
+        assert blank_result["is_correct"] is True
+        assert short_result["text_answers"] == ["利用链式法则反向传播误差"]
+        assert short_result["is_correct"] is True
+
+
+def test_practice_session_can_select_counts_per_question_type():
+    with TestClient(app) as client:
+        headers = _register(client, "type-counts@example.com", "typecounts")
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Type Count Bank", "visibility": "private"}).json()
+        for index in range(3):
+            client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_sample_question_payload(f"单选 {index}"))
+        for index in range(2):
+            client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_multiple_question_payload(f"多选 {index}"))
+        for index in range(2):
+            client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_blank_question_payload(f"填空 {index} {{{{1}}}}"))
+        client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_short_answer_question_payload("简答 0"))
+
+        created = client.post(
+            "/api/v2/practice/sessions",
+            headers=headers,
+            json={
+                "bank_id": bank["id"],
+                "mode": "practice",
+                "shuffle_questions": False,
+                "question_type_settings": {
+                    "single": {"enabled": True, "count": 2},
+                    "multiple": {"enabled": True, "count": 1},
+                    "blank": {"enabled": False, "count": None},
+                    "short_answer": {"enabled": True, "count": None},
+                },
+            },
+        )
+        assert created.status_code == 200, created.text
+        session = created.json()
+        assert session["total_questions"] == 4
+        questions = client.get(f"/api/v2/practice/sessions/{session['id']}/questions", headers=headers).json()
+        types = [question["type"] for question in questions]
+        assert types.count("single") == 2
+        assert types.count("multiple") == 1
+        assert types.count("blank") == 0
+        assert types.count("short_answer") == 1
+
+
+def test_practice_session_rejects_zero_question_type_count():
+    with TestClient(app) as client:
+        headers = _register(client, "type-count-zero@example.com", "typecountzero")
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Type Count Zero", "visibility": "private"}).json()
+        client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_sample_question_payload("单选"))
+
+        created = client.post(
+            "/api/v2/practice/sessions",
+            headers=headers,
+            json={
+                "bank_id": bank["id"],
+                "mode": "practice",
+                "question_type_settings": {
+                    "single": {"enabled": True, "count": 0},
+                    "multiple": {"enabled": False, "count": None},
+                    "blank": {"enabled": False, "count": None},
+                    "short_answer": {"enabled": False, "count": None},
+                },
+            },
+        )
+        assert created.status_code == 422
+        assert "题型数量必须是 1-200" in created.json()["error"]["message"]
+
+
+def test_blank_wrong_answer_records_mistake_and_exam_text_answers_can_change():
+    with TestClient(app) as client:
+        headers = _register(client, "text-exam@example.com", "textexam")
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Text Exam", "visibility": "private"}).json()
+        blank = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_blank_question_payload()).json()
+
+        practice = client.post("/api/v2/practice/sessions", headers=headers, json={"bank_id": bank["id"], "mode": "practice"}).json()
+        wrong = client.post(
+            f"/api/v2/practice/sessions/{practice['id']}/answers",
+            headers=headers,
+            json={"question_id": blank["id"], "text_answers": ["网络层"]},
+        )
+        assert wrong.status_code == 200, wrong.text
+        assert wrong.json()["is_correct"] is False
+        mistakes = client.get(f"/api/v2/banks/{bank['id']}/mistakes", headers=headers).json()
+        assert mistakes["total"] == 1
+        assert mistakes["items"][0]["type"] == "blank"
+        assert mistakes["items"][0]["correct_text_answers"] == [["传输层", "Transport Layer"]]
+
+        exam = client.post("/api/v2/practice/sessions", headers=headers, json={"bank_id": bank["id"], "mode": "exam"}).json()
+        draft = client.put(
+            f"/api/v2/practice/sessions/{exam['id']}/answers/{blank['id']}/draft",
+            headers=headers,
+            json={"question_id": blank["id"], "text_answers": ["网络层"]},
+        )
+        assert draft.status_code == 200, draft.text
+        changed = client.put(
+            f"/api/v2/practice/sessions/{exam['id']}/answers/{blank['id']}/draft",
+            headers=headers,
+            json={"question_id": blank["id"], "text_answers": ["Transport Layer"]},
+        )
+        assert changed.status_code == 200, changed.text
+        state = client.get(f"/api/v2/practice/sessions/{exam['id']}/questions", headers=headers).json()[0]["answer_state"]
+        assert state["is_answered"] is True
+        assert state["text_answers"] == ["Transport Layer"]
+        assert state["reveal"] is False
+        submitted = client.post(f"/api/v2/practice/sessions/{exam['id']}/submit", headers=headers)
+        assert submitted.status_code == 200, submitted.text
+        exam_result = client.get(f"/api/v2/practice/sessions/{exam['id']}/result", headers=headers).json()[0]
+        assert exam_result["is_correct"] is True
+        assert exam_result["text_answers"] == ["Transport Layer"]
+
+
+def test_blank_draft_can_save_partial_answers_without_locking_question():
+    with TestClient(app) as client:
+        headers = _register(client, "partial-blank@example.com", "partialblank")
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Partial Blank", "visibility": "private"}).json()
+        blank = client.post(
+            f"/api/v2/banks/{bank['id']}/questions",
+            headers=headers,
+            json={
+                "type": "blank",
+                "stem": "TCP 位于 {{1}} 层，HTTP 默认端口是 {{2}}。",
+                "options": [],
+                "blanks": [
+                    {"label": "1", "answers": ["传输层"]},
+                    {"label": "2", "answers": ["80"]},
+                ],
+                "explanation": "TCP 属于传输层，HTTP 默认端口为 80。",
+            },
+        ).json()
+        session = client.post("/api/v2/practice/sessions", headers=headers, json={"bank_id": bank["id"], "mode": "practice"}).json()
+
+        partial = client.put(
+            f"/api/v2/practice/sessions/{session['id']}/answers/{blank['id']}/draft",
+            headers=headers,
+            json={"question_id": blank["id"], "text_answers": ["传输层"]},
+        )
+        assert partial.status_code == 200, partial.text
+        assert partial.json() == {"ok": True, "changed": True}
+
+        restored = client.get(f"/api/v2/practice/sessions/{session['id']}/questions", headers=headers).json()[0]
+        assert restored["answer_state"]["is_answered"] is False
+        assert restored["answer_state"]["text_answers"] == ["传输层"]
+
+        submitted = client.post(
+            f"/api/v2/practice/sessions/{session['id']}/answers",
+            headers=headers,
+            json={"question_id": blank["id"], "text_answers": ["传输层"]},
+        )
+        assert submitted.status_code == 400
+        assert "填空答案数量与空位数量不一致" in submitted.json()["error"]["message"]
+
+
+def test_ai_generation_accepts_blank_and_short_answer_with_type_settings(monkeypatch):
+    with TestClient(app) as client:
+        headers = _register(client, "ai-text-types@example.com", "aitexttypes")
+        client.post(
+            "/api/v2/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True, "response_format_type": "json_schema"},
+        )
+
+        from app.domains.ai_generation import facade as ai_generation
+
+        observed = {}
+
+        def good_ai(*args, **kwargs):
+            observed["user_prompt"] = kwargs.get("user_prompt") or ""
+            return {
+                "questions": [
+                    _blank_question_payload("HTTP 状态码 200 表示 {{1}}"),
+                    _short_answer_question_payload("解释梯度下降的核心思想"),
+                ]
+            }
+
+        monkeypatch.setattr(ai_generation, "_call_openai_compatible", good_ai)
+        type_settings = {
+            "single": {"enabled": False, "count": 0},
+            "multiple": {"enabled": False, "count": 0},
+            "blank": {"enabled": True, "count": 1},
+            "short_answer": {"enabled": True, "count": 1},
+        }
+        created = client.post(
+            "/api/v2/ai/workflows",
+            headers=headers,
+            data={
+                "title": "AI Text Types",
+                "generation_mode": "knowledge_generate",
+                "question_type_settings": json.dumps(type_settings),
+            },
+            files={"file": ("material.txt", b"content", "text/plain")},
+        )
+        assert created.status_code == 200, created.text
+        assert "填空" in observed["user_prompt"]
+        assert "简答" in observed["user_prompt"]
+        workflow = client.get(f"/api/v2/ai/workflows/{created.json()['workflow_id']}", headers=headers).json()
+        assert workflow["question_type_settings"]["blank"] == {"enabled": True, "count": 1}
+        assert workflow["question_type_settings"]["short_answer"] == {"enabled": True, "count": 1}
+        draft = client.get(f"/api/v2/ai/workflows/{created.json()['workflow_id']}/draft", headers=headers).json()
+        assert [question["type"] for question in draft["questions"]] == ["blank", "short_answer"]
+        confirmed = client.post(f"/api/v2/ai/workflows/{created.json()['workflow_id']}/draft/confirm", headers=headers)
+        assert confirmed.status_code == 200, confirmed.text
+        questions = client.get(f"/api/v2/banks/{created.json()['bank_id']}/questions?all=true", headers=headers).json()["items"]
+        assert {question["type"] for question in questions} == {"blank", "short_answer"}
+
+
 def test_question_options_are_limited_to_26_across_manual_json_and_draft_confirm(monkeypatch):
     with TestClient(app) as client:
         headers = _register(client, "option-cap@example.com", "optioncap")
@@ -2657,6 +2963,43 @@ def test_ai_generation_prompt_builder_and_validator_components():
     assert questions[0]["stem"] == "ok"
     assert summary == "校验通过，共 1 道题"
 
+    quota_questions, quota_summary = AIPayloadValidator.validate(
+        {
+            "questions": [
+                _sample_question_payload("单选 1"),
+                _sample_question_payload("单选 2"),
+                _blank_question_payload("填空 {{1}}"),
+            ]
+        },
+        "knowledge_generate",
+        2,
+        {
+            "single": {"enabled": True, "count": 1},
+            "multiple": {"enabled": False, "count": None},
+            "blank": {"enabled": True, "count": 1},
+            "short_answer": {"enabled": False, "count": None},
+        },
+    )
+    assert [question["stem"] for question in quota_questions] == ["单选 1", "填空 {{1}}"]
+    assert quota_summary == "校验通过，共 2 道题"
+
+    try:
+        AIPayloadValidator.validate(
+            {"questions": [_sample_question_payload("单选 1"), _sample_question_payload("单选 2")]},
+            "knowledge_generate",
+            2,
+            {
+                "single": {"enabled": True, "count": 1},
+                "multiple": {"enabled": False, "count": None},
+                "blank": {"enabled": True, "count": 1},
+                "short_answer": {"enabled": False, "count": None},
+            },
+        )
+    except AIOutputValidationError as exc:
+        assert "blank 需要 1 道，实际 0 道" in str(exc)
+    else:
+        raise AssertionError("validator should reject missing fixed type quota")
+
     for payload, expected in [
         ({}, "缺少 questions"),
         ({"questions": []}, "questions 不能为空"),
@@ -2691,6 +3034,73 @@ def test_ai_generation_prompt_builder_and_validator_components():
             assert expected in str(exc)
         else:
             raise AssertionError("validator should reject invalid payload")
+
+
+def test_ai_generation_rejects_zero_and_boolean_question_type_counts():
+    with TestClient(app) as client:
+        headers = _register(client, "ai-count-zero@example.com", "aicountzero")
+        client.post(
+            "/api/v2/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+
+        for count in (0, True):
+            created = client.post(
+                "/api/v2/ai/workflows",
+                headers=headers,
+                data={
+                    "title": "Bad Type Count",
+                    "generation_mode": "knowledge_generate",
+                    "question_type_settings": json.dumps(
+                        {
+                            "single": {"enabled": True, "count": count},
+                            "multiple": {"enabled": False, "count": None},
+                            "blank": {"enabled": False, "count": None},
+                            "short_answer": {"enabled": False, "count": None},
+                        }
+                    ),
+                },
+                files={"file": ("material.txt", b"content", "text/plain")},
+            )
+            assert created.status_code == 422
+            assert "题型数量必须是 1-100" in created.json()["error"]["message"]
+
+
+def test_ai_generation_worker_spawns_configured_worker_processes(monkeypatch):
+    from app.workers import ai_generation_worker
+
+    started: list[tuple[int, str]] = []
+    joined: list[int] = []
+
+    class FakeProcess:
+        def __init__(self, target, args):
+            self.target = target
+            self.args = args
+
+        def start(self):
+            started.append(self.args)
+
+        def join(self):
+            joined.append(self.args[0])
+
+    settings = get_settings()
+    monkeypatch.setattr(settings, "ai_workflow_worker_count", 3)
+    monkeypatch.setattr(ai_generation_worker.multiprocessing, "Process", FakeProcess)
+
+    ai_generation_worker.run_configured_workers(settings)
+
+    assert started == [(1, "ai-generation"), (2, "ai-generation"), (3, "ai-generation")]
+    assert joined == [1, 2, 3]
+
+
+def test_ai_generation_worker_name_is_unique_per_process(monkeypatch):
+    from app.workers import ai_generation_worker
+
+    monkeypatch.setattr(ai_generation_worker.socket, "gethostname", lambda: "worker-host")
+    monkeypatch.setattr(ai_generation_worker.os, "getpid", lambda: 4242)
+
+    assert ai_generation_worker.worker_name("ai-generation", 2) == "ai-generation-2-worker-host-4242"
 
 
 def test_ai_generation_state_and_draft_services_keep_transactions_safe():

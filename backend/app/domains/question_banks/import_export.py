@@ -25,6 +25,7 @@ class QuestionBankImportExportService:
             raise HTTPException(status_code=404, detail="Question bank not found")
         for question in bank.questions:
             _ = question.options
+            _ = question.blanks
         return {
             "version": 1,
             "bank": {

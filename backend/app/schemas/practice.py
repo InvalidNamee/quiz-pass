@@ -7,6 +7,7 @@ class PracticeSessionCreate(BaseModel):
     bank_id: int
     mode: str = Field(default="practice", pattern="^(practice|exam|mistake_review)$")
     question_limit: int | None = Field(default=None, ge=1, le=200)
+    question_type_settings: dict[str, dict[str, bool | int | None]] | None = None
     shuffle_questions: bool = True
     shuffle_options: bool = True
 
@@ -33,7 +34,8 @@ class PracticeSessionOut(BaseModel):
 
 class PracticeAnswerCreate(BaseModel):
     question_id: int
-    selected_option_ids: list[int]
+    selected_option_ids: list[int] = Field(default_factory=list)
+    text_answers: list[str] = Field(default_factory=list)
 
 
 class PracticeAnswerOut(BaseModel):
@@ -42,15 +44,18 @@ class PracticeAnswerOut(BaseModel):
     is_correct: bool | None = None
     correct_option_ids: list[int] = Field(default_factory=list)
     correct_labels: list[str] = Field(default_factory=list)
+    correct_text_answers: list[list[str]] = Field(default_factory=list)
     explanation: str | None
 
 
 class PracticeQuestionAnswerStateOut(BaseModel):
     is_answered: bool = False
     selected_option_ids: list[int] = Field(default_factory=list)
+    text_answers: list[str] = Field(default_factory=list)
     reveal: bool = False
     is_correct: bool | None = None
     correct_labels: list[str] = Field(default_factory=list)
+    correct_text_answers: list[list[str]] = Field(default_factory=list)
     explanation: str | None = None
 
 
@@ -63,11 +68,20 @@ class PracticeQuestionOptionOut(BaseModel):
     model_config = {"from_attributes": True}
 
 
+class PracticeQuestionBlankOut(BaseModel):
+    id: int
+    label: str
+    sort_order: int
+
+    model_config = {"from_attributes": True}
+
+
 class PracticeQuestionOut(BaseModel):
     id: int
     type: str
     stem: str
     options: list[PracticeQuestionOptionOut]
+    blanks: list[PracticeQuestionBlankOut] = Field(default_factory=list)
     answer_state: PracticeQuestionAnswerStateOut = Field(default_factory=PracticeQuestionAnswerStateOut)
 
     model_config = {"from_attributes": True}
@@ -86,8 +100,11 @@ class PracticeResultAnswerOut(BaseModel):
     options: list[PracticeResultOptionOut]
     selected_option_ids: list[int]
     selected_labels: list[str]
+    text_answers: list[str] = Field(default_factory=list)
     correct_option_ids: list[int]
     correct_labels: list[str]
+    correct_text_answers: list[list[str]] = Field(default_factory=list)
+    blanks: list[PracticeQuestionBlankOut] = Field(default_factory=list)
     is_correct: bool
     is_unanswered: bool
     explanation: str | None
@@ -101,8 +118,10 @@ class MistakeRecordOut(BaseModel):
     type: str
     stem: str
     options: list[PracticeResultOptionOut] = Field(default_factory=list)
+    blanks: list[PracticeQuestionBlankOut] = Field(default_factory=list)
     correct_option_ids: list[int] = Field(default_factory=list)
     correct_labels: list[str] = Field(default_factory=list)
+    correct_text_answers: list[list[str]] = Field(default_factory=list)
     explanation: str | None = None
     wrong_count: int
     last_wrong_at: datetime

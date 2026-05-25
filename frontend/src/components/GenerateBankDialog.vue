@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import type { AIProviderConfig, QuestionBankV2 } from '../api/types'
 import { createWorkflow, extendWorkflow } from '../api/v2/aiGeneration'
@@ -10,6 +10,14 @@ import { normalizeTagNames, tagKey, tagLabel, type TagInputValue } from '../feat
 import type { UploadInstance } from 'element-plus'
 
 type CreateMode = 'ai_knowledge' | 'ai_parse' | 'json_import'
+type QuestionTypeKey = 'single' | 'multiple' | 'blank' | 'short_answer'
+const questionTypeLabels: Record<QuestionTypeKey, string> = { single: '单选', multiple: '多选', blank: '填空', short_answer: '简答' }
+const questionTypeRows: Array<{ key: QuestionTypeKey; label: string }> = [
+  { key: 'single', label: questionTypeLabels.single },
+  { key: 'multiple', label: questionTypeLabels.multiple },
+  { key: 'blank', label: questionTypeLabels.blank },
+  { key: 'short_answer', label: questionTypeLabels.short_answer },
+]
 
 const props = defineProps<{
   modelValue: boolean
@@ -25,8 +33,12 @@ const title = ref('')
 const description = ref('')
 const createMode = ref<CreateMode>('ai_knowledge')
 const aiProviderConfigId = ref('')
-const useQuestionCount = ref(true)
-const questionCount = ref(10)
+const questionTypeSettings = reactive<Record<QuestionTypeKey, { enabled: boolean; useCount: boolean; count: number }>>({
+  single: { enabled: true, useCount: true, count: 5 },
+  multiple: { enabled: true, useCount: true, count: 3 },
+  blank: { enabled: true, useCount: false, count: 2 },
+  short_answer: { enabled: false, useCount: false, count: 1 },
+})
 const generateDescription = ref(false)
 const extraInstruction = ref('')
 const inheritContext = ref(true)
@@ -62,6 +74,20 @@ function reset() {
   includeExistingQuestions.value = false
   selectedTags.value = []
   files.value = []
+}
+
+function serializedQuestionTypeSettings() {
+  const payload: Record<QuestionTypeKey, { enabled: boolean; count: number | null }> = {
+    single: { enabled: questionTypeSettings.single.enabled, count: createMode.value === 'ai_knowledge' && questionTypeSettings.single.useCount ? questionTypeSettings.single.count : null },
+    multiple: { enabled: questionTypeSettings.multiple.enabled, count: createMode.value === 'ai_knowledge' && questionTypeSettings.multiple.useCount ? questionTypeSettings.multiple.count : null },
+    blank: { enabled: questionTypeSettings.blank.enabled, count: createMode.value === 'ai_knowledge' && questionTypeSettings.blank.useCount ? questionTypeSettings.blank.count : null },
+    short_answer: { enabled: questionTypeSettings.short_answer.enabled, count: createMode.value === 'ai_knowledge' && questionTypeSettings.short_answer.useCount ? questionTypeSettings.short_answer.count : null },
+  }
+  if (!Object.values(payload).some((item) => item.enabled)) {
+    toast.show('至少启用一种题型', 'error')
+    return null
+  }
+  return JSON.stringify(payload)
 }
 
 function configLabel(config: AIProviderConfig) {
@@ -138,10 +164,10 @@ async function submit() {
       }
       form.set('generation_mode', createMode.value === 'ai_parse' ? 'bank_parse' : 'knowledge_generate')
       if (aiProviderConfigId.value) form.set('ai_provider_config_id', aiProviderConfigId.value)
-      if (createMode.value === 'ai_knowledge') {
-        form.set('question_count_mode', useQuestionCount.value ? 'fixed' : 'adaptive')
-        if (useQuestionCount.value) form.set('question_count', String(questionCount.value))
-      }
+      const typeSettings = serializedQuestionTypeSettings()
+      if (!typeSettings) return
+      form.set('question_type_settings', typeSettings)
+      form.set('question_count_mode', 'adaptive')
       if (extraInstruction.value.trim()) form.set('extra_instruction', extraInstruction.value.trim())
       form.set('inherit_context', String(isExtend.value ? inheritContext.value : false))
       form.set('include_existing_questions', String(isExtend.value ? includeExistingQuestions.value : false))
@@ -195,15 +221,18 @@ watch(() => props.modelValue, (open) => { if (open) load() }, { immediate: true 
               <el-option v-for="config in configs" :key="config.id" :value="String(config.id)" :label="configLabel(config)" />
             </el-select>
           </el-form-item>
-          <template v-if="createMode === 'ai_knowledge'">
-            <el-form-item label="题数">
-              <el-checkbox v-model="useQuestionCount">指定题数</el-checkbox>
-            </el-form-item>
-            <el-form-item v-if="useQuestionCount" label="题目数量">
-              <el-input-number v-model="questionCount" :min="1" :max="100" />
-            </el-form-item>
-          </template>
         </div>
+        <el-form-item label="题型配置">
+          <div class="w-full overflow-hidden rounded-lg border border-slate-200">
+            <div v-for="row in questionTypeRows" :key="row.key" class="grid grid-cols-[96px_1fr_140px] items-center gap-3 border-b border-slate-100 px-3 py-2 last:border-b-0">
+              <el-checkbox v-model="questionTypeSettings[row.key].enabled">{{ row.label }}</el-checkbox>
+              <el-checkbox v-if="createMode === 'ai_knowledge'" v-model="questionTypeSettings[row.key].useCount" :disabled="!questionTypeSettings[row.key].enabled">限定数量</el-checkbox>
+              <span v-else class="text-xs text-slate-500">解析该题型</span>
+              <el-input-number v-if="createMode === 'ai_knowledge'" v-model="questionTypeSettings[row.key].count" size="small" :min="1" :max="100" :disabled="!questionTypeSettings[row.key].enabled || !questionTypeSettings[row.key].useCount" />
+            </div>
+          </div>
+          <p v-if="createMode === 'ai_knowledge'" class="mt-2 text-xs text-slate-500">不勾选限定数量表示该题型由 AI 自适应；不生成某题型请取消左侧勾选。</p>
+        </el-form-item>
         <el-form-item label="额外指令（可选）">
           <el-input v-model="extraInstruction" type="textarea" :rows="3" maxlength="2000" show-word-limit placeholder="例如：题目偏实战场景；解析更详细" />
         </el-form-item>

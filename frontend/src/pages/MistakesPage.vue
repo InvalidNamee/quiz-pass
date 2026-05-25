@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import type { MistakeRecord, Page } from '../api/types'
+import type { MistakeRecord, Page, QuestionType } from '../api/types'
 import { createMistakeSession, listMistakes, resolveMistake } from '../api/v2/practice'
 import { CircleX, Zap, CircleCheck, Lightbulb } from '@lucide/vue'
 import MathText from '../components/MathText.vue'
@@ -47,6 +47,23 @@ function formatTime(value: string) {
 }
 
 onMounted(load)
+
+const typeLabels: Record<QuestionType, string> = {
+  single: '单选',
+  multiple: '多选',
+  blank: '填空',
+  short_answer: '简答',
+}
+
+function correctAnswerText(row: MistakeRecord) {
+  if (row.type === 'single' || row.type === 'multiple') return row.correct_labels.join('、') || '无'
+  if (row.type === 'blank') {
+    return row.correct_text_answers
+      .map((answers, index) => `空 ${index + 1}：${answers.join(' / ')}`)
+      .join('；') || '无'
+  }
+  return '见参考给分点'
+}
 </script>
 
 <template>
@@ -97,12 +114,12 @@ onMounted(load)
 
           <!-- Question Stem -->
           <div class="text-sm font-bold text-slate-800 leading-relaxed">
-            <el-tag size="small" class="!rounded-md mr-1.5" type="info">{{ row.type === 'single' ? '单选' : '多选' }}</el-tag>
+            <el-tag size="small" class="!rounded-md mr-1.5" type="info">{{ typeLabels[row.type] }}</el-tag>
             <MathText :key="`mistake-stem-${row.question_id}`" class="inline" :text="row.stem" />
           </div>
 
           <!-- Option cards -->
-          <div class="grid gap-2.5">
+          <div v-if="row.options.length" class="grid gap-2.5">
             <div
               v-for="option in row.options"
               :key="option.id"
@@ -118,7 +135,7 @@ onMounted(load)
             <div class="flex items-center gap-1.5">
               <span class="text-slate-400">正确答案：</span>
               <span class="text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded font-mono font-bold tracking-wider">
-                {{ row.correct_labels.join('、') || '无' }}
+                {{ correctAnswerText(row) }}
               </span>
             </div>
 

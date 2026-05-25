@@ -57,6 +57,7 @@ class DraftService:
                     explanation=question.get("explanation"),
                     difficulty=question.get("difficulty"),
                     options_json=json_dumps(question["options"]),
+                    blanks_json=json_dumps(question.get("blanks") or []),
                     validation_status="valid",
                 )
             )
@@ -81,6 +82,7 @@ class DraftService:
                     "explanation": question.explanation,
                     "difficulty": question.difficulty,
                     "options": json.loads(question.options_json),
+                    "blanks": json.loads(question.blanks_json or "[]"),
                     "validation_status": question.validation_status,
                     "validation_message": question.validation_message,
                 }
@@ -119,6 +121,7 @@ class DraftService:
                     explanation=question.get("explanation"),
                     difficulty=question.get("difficulty"),
                     options_json=json_dumps(question["options"]),
+                    blanks_json=json_dumps(question.get("blanks") or []),
                     validation_status="valid",
                 )
             )

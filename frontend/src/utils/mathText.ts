@@ -11,6 +11,13 @@ function escapeHtml(value: string) {
     .replaceAll("'", '&#039;')
 }
 
+function renderTextWithBlankPlaceholders(value: string) {
+  return escapeHtml(value).replace(/\{\{([^{}]+)\}\}/g, (_match, label: string) => {
+    const safeLabel = escapeHtml(String(label).trim())
+    return `<span style="display:inline-flex;align-items:center;min-width:4.5em;height:1.7em;margin:0 0.2em;padding:0 0.75em;border:1px solid #cbd5e1;border-bottom-color:#64748b;border-radius:999px;background:#f8fafc;color:#64748b;font-size:0.9em;font-weight:700;vertical-align:baseline;">空 ${safeLabel}</span>`
+  })
+}
+
 function findNextDelimiter(text: string, start: number) {
   const candidates = [
     { open: '\\(', close: '\\)', display: false },
@@ -53,7 +60,7 @@ function tokenizeMathText(text: string): MathToken[] {
 
 export function renderMathTextToHtml(text: string) {
   return tokenizeMathText(text).map((token) => {
-    if (token.type === 'text') return escapeHtml(token.value)
+    if (token.type === 'text') return renderTextWithBlankPlaceholders(token.value)
     try {
       return katex.renderToString(token.value, {
         displayMode: token.display,

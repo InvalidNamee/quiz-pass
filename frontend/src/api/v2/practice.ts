@@ -1,7 +1,7 @@
 import { api } from '../http'
-import type { Page, PracticeSession, MistakeRecord } from '../types'
+import type { Page, PracticeSession, MistakeRecord, QuestionTypeSettings } from '../types'
 
-export function createSession(data: { bank_id: number; mode: string; question_limit?: number }) {
+export function createSession(data: { bank_id: number; mode: string; question_limit?: number; question_type_settings?: QuestionTypeSettings }) {
   return api<PracticeSession>('/api/v2/practice/sessions', { method: 'POST', body: JSON.stringify(data) })
 }
 
@@ -18,17 +18,17 @@ export function getSessionQuestions(sessionId: number, shuffleOptions?: boolean)
   return api<any[]>(`/api/v2/practice/sessions/${sessionId}/questions${q}`)
 }
 
-export function answerQuestion(sessionId: number, questionId: number, selectedOptionIds: number[]) {
+export function answerQuestion(sessionId: number, questionId: number, selectedOptionIds: number[], textAnswers: string[] = []) {
   return api<any>(`/api/v2/practice/sessions/${sessionId}/answers`, {
     method: 'POST',
-    body: JSON.stringify({ question_id: questionId, selected_option_ids: selectedOptionIds }),
+    body: JSON.stringify({ question_id: questionId, selected_option_ids: selectedOptionIds, text_answers: textAnswers }),
   })
 }
 
-export function saveAnswerDraft(sessionId: number, questionId: number, selectedOptionIds: number[]) {
+export function saveAnswerDraft(sessionId: number, questionId: number, selectedOptionIds: number[], textAnswers: string[] = []) {
   return api<{ ok: boolean; changed: boolean }>(`/api/v2/practice/sessions/${sessionId}/answers/${questionId}/draft`, {
     method: 'PUT',
-    body: JSON.stringify({ question_id: questionId, selected_option_ids: selectedOptionIds }),
+    body: JSON.stringify({ question_id: questionId, selected_option_ids: selectedOptionIds, text_answers: textAnswers }),
   })
 }
 

@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRoute } from 'vue-router'
-import type { PracticeSession } from '../api/types'
+import type { PracticeSession, QuestionType } from '../api/types'
 import { getResult, getSession } from '../api/v2/practice'
 import { Lightbulb, CircleCheck, CircleX } from '@lucide/vue'
 import MathText from '../components/MathText.vue'
@@ -9,13 +9,16 @@ import MathText from '../components/MathText.vue'
 type ResultOption = { id: number; label: string; content: string }
 type Result = {
   question_id: number
-  type: 'single' | 'multiple'
+  type: QuestionType
   stem: string
   options: ResultOption[]
+  blanks: Array<{ id: number; label: string; sort_order: number }>
   selected_option_ids: number[]
   selected_labels: string[]
+  text_answers: string[]
   correct_option_ids: number[]
   correct_labels: string[]
+  correct_text_answers: string[][]
   is_correct: boolean
   is_unanswered: boolean
   explanation: string | null
@@ -35,6 +38,33 @@ onMounted(async () => {
     loading.value = false
   }
 })
+
+const typeLabels: Record<QuestionType, string> = {
+  single: '单选题',
+  multiple: '多选题',
+  blank: '填空题',
+  short_answer: '简答题',
+}
+
+function isChoice(row: Result) {
+  return row.type === 'single' || row.type === 'multiple'
+}
+
+function selectedAnswerText(row: Result) {
+  if (row.is_unanswered) return '未作答'
+  if (isChoice(row)) return row.selected_labels.join('、') || '无'
+  return row.text_answers.map((answer) => answer || '未填写').join('；') || '无'
+}
+
+function correctAnswerText(row: Result) {
+  if (isChoice(row)) return row.correct_labels.join('、') || '无'
+  if (row.type === 'blank') {
+    return row.correct_text_answers
+      .map((answers, index) => `空 ${index + 1}：${answers.join(' / ')}`)
+      .join('；') || '无'
+  }
+  return '见参考给分点'
+}
 </script>
 
 <template>
@@ -85,7 +115,7 @@ onMounted(async () => {
               <span class="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">
                 {{ index + 1 }}
               </span>
-              <el-tag size="small" class="!rounded-md" type="info">{{ row.type === 'single' ? '单选题' : '多选题' }}</el-tag>
+              <el-tag size="small" class="!rounded-md" type="info">{{ typeLabels[row.type] }}</el-tag>
             </div>
 
             <span v-if="row.is_unanswered" class="result-status-pill is-unanswered">未作答</span>
@@ -99,7 +129,7 @@ onMounted(async () => {
           </div>
 
           <!-- Option lists -->
-          <div class="grid gap-2 bg-slate-50/40 p-3.5 rounded-xl border border-slate-100/50">
+          <div v-if="row.options.length" class="grid gap-2 bg-slate-50/40 p-3.5 rounded-xl border border-slate-100/50">
             <div
               v-for="option in row.options"
               :key="option.id"
@@ -125,14 +155,14 @@ onMounted(async () => {
                 class="px-2 py-0.5 rounded font-mono"
                 :class="row.is_correct ? 'text-emerald-600 bg-emerald-50' : 'text-rose-600 bg-rose-50'"
               >
-                {{ row.selected_labels.join('、') || '无' }}
+                {{ selectedAnswerText(row) }}
               </span>
             </div>
 
             <div class="flex items-center gap-1.5">
-              <span class="text-slate-400">正确答案：</span>
+              <span class="text-slate-400">{{ row.type === 'short_answer' ? '参考：' : '正确答案：' }}</span>
               <span class="text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded font-mono font-bold tracking-wider">
-                {{ row.correct_labels.join('、') }}
+                {{ correctAnswerText(row) }}
               </span>
             </div>
           </div>

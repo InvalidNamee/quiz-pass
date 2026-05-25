@@ -1,21 +1,25 @@
 <script setup lang="ts">
 import { Lightbulb, Target, Zap, CircleCheck, CircleX } from '@lucide/vue'
 import MathText from '../MathText.vue'
+import type { QuestionType } from '../../api/types'
 
 type Question = {
   id: number
-  type: 'single' | 'multiple'
+  type: QuestionType
   stem: string
   options: { id: number; label: string; content: string }[]
+  blanks: { id: number; label: string; sort_order: number }[]
 }
 
 const props = defineProps<{
   question: Question
   selectedOptionIds: number[]
+  textAnswers: string[]
   isLocked: boolean
   shouldReveal: boolean
   answerStatus: 'correct' | 'wrong' | null
   correctLabels: string[]
+  correctTextAnswers: string[][]
   explanation: string | null
   showSubmitButton: boolean
   canGoPrev: boolean
@@ -25,10 +29,22 @@ const props = defineProps<{
 const emit = defineEmits<{
   toggle: [optionId: number]
   setSelection: [optionIds: number[]]
+  setTextAnswers: [values: string[]]
   answer: []
   prev: []
   next: []
 }>()
+
+const typeLabels: Record<QuestionType, string> = {
+  single: '单选题',
+  multiple: '多选题',
+  blank: '填空题',
+  short_answer: '简答题',
+}
+
+function isChoiceQuestion() {
+  return props.question.type === 'single' || props.question.type === 'multiple'
+}
 
 function optionClass(optionId: number) {
   const selected = props.selectedOptionIds.includes(optionId)
@@ -49,18 +65,42 @@ function chooseOption(optionId: number) {
     emit('toggle', optionId)
   }
 }
+
+function setTextAnswer(index: number, value: string) {
+  if (props.isLocked) return
+  const next = [...props.textAnswers]
+  next[index] = value
+  emit('setTextAnswers', next)
+}
+
+function canSubmit() {
+  if (props.isLocked) return false
+  if (isChoiceQuestion()) return props.selectedOptionIds.length > 0
+  return props.textAnswers.some((answer) => answer.trim())
+}
+
+function correctTextSummary() {
+  if (props.question.type === 'blank') {
+    return props.correctTextAnswers
+      .map((answers, index) => `空 ${index + 1}：${answers.join(' / ')}`)
+      .join('；')
+  }
+  if (props.question.type === 'short_answer') return '见参考给分点'
+  return ''
+}
+
 </script>
 
 <template>
   <el-card shadow="never" :class="['!rounded-2xl question-panel !border-slate-100 shadow-sm transition-all p-2', answerStatus === 'correct' ? 'is-correct' : answerStatus === 'wrong' ? 'is-wrong' : '']">
     <div class="mb-4 flex items-center gap-2">
-      <el-tag size="small" class="!rounded-md" type="info">{{ question.type === 'single' ? '单选题' : '多选题' }}</el-tag>
+      <el-tag size="small" class="!rounded-md" type="info">{{ typeLabels[question.type] }}</el-tag>
       <el-tag v-if="isLocked" size="small" class="!rounded-md" type="warning">已提交</el-tag>
     </div>
 
     <MathText :key="`stem-${question.id}`" as="h2" class="mb-5 text-[16px] font-extrabold leading-relaxed text-slate-800" :text="question.stem" />
 
-    <div class="grid w-full gap-2.5">
+    <div v-if="isChoiceQuestion()" class="grid w-full gap-2.5">
       <button
         v-for="option in question.options"
         :key="option.id"
@@ -77,8 +117,37 @@ function chooseOption(optionId: number) {
       </button>
     </div>
 
+    <div v-else-if="question.type === 'blank'" class="grid gap-3">
+      <div
+        v-for="(blank, index) in question.blanks"
+        :key="blank.id || blank.label"
+        class="rounded-xl border border-slate-100 bg-slate-50/40 p-3"
+      >
+        <label class="mb-2 block text-xs font-bold text-slate-500">空 {{ index + 1 }}</label>
+        <el-input
+          :model-value="textAnswers[index] ?? ''"
+          :disabled="isLocked"
+          placeholder="输入答案"
+          clearable
+          @update:model-value="setTextAnswer(index, String($event))"
+        />
+      </div>
+    </div>
+
+    <div v-else class="rounded-xl border border-slate-100 bg-slate-50/40 p-3">
+      <label class="mb-2 block text-xs font-bold text-slate-500">作答内容</label>
+      <el-input
+        :model-value="textAnswers[0] ?? ''"
+        type="textarea"
+        :rows="5"
+        :disabled="isLocked"
+        placeholder="写下你的简答内容"
+        @update:model-value="setTextAnswer(0, String($event))"
+      />
+    </div>
+
     <div v-if="showSubmitButton" class="mt-5 flex gap-2 pt-1">
-      <el-button type="primary" :disabled="isLocked || !selectedOptionIds.length" class="!rounded-xl shadow-md shadow-indigo-500/10 active:scale-95 transition-all" @click="emit('answer')"><Zap :size="14" class="mr-1" />提交答案</el-button>
+      <el-button type="primary" :disabled="!canSubmit()" class="!rounded-xl shadow-md shadow-indigo-500/10 active:scale-95 transition-all" @click="emit('answer')"><Zap :size="14" class="mr-1" />提交答案</el-button>
     </div>
 
     <!-- Answer feedback -->
@@ -93,7 +162,7 @@ function chooseOption(optionId: number) {
     <!-- Reveal panel -->
     <div v-if="shouldReveal" class="mt-4 grid gap-2.5 rounded-xl border p-4 text-sm leading-relaxed" :class="answerStatus === 'correct' ? 'reveal-panel is-correct-reveal' : 'reveal-panel is-wrong-reveal'">
       <p class="font-extrabold text-slate-800 text-sm">
-        <Target :size="14" class="mr-1" />正确答案：<span class="text-emerald-600 font-mono tracking-wider font-extrabold">{{ correctLabels.join('、') }}</span>
+        <Target :size="14" class="mr-1" />参考答案：<span class="text-emerald-600 font-mono tracking-wider font-extrabold">{{ isChoiceQuestion() ? correctLabels.join('、') : correctTextSummary() }}</span>
       </p>
       <div v-if="explanation" class="text-slate-500 border-t border-slate-100/50 pt-2 mt-1">
         <span class="font-bold text-slate-800"><Lightbulb :size="14" class="mr-1" />题目解析：</span>

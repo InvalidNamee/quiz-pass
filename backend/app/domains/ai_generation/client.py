@@ -20,7 +20,7 @@ AI_RESPONSE_JSON_SCHEMA = {
                 "type": "object",
                 "additionalProperties": False,
                 "properties": {
-                    "type": {"type": "string", "enum": ["single", "multiple"]},
+                    "type": {"type": "string", "enum": ["single", "multiple", "blank", "short_answer"]},
                     "stem": {"type": "string"},
                     "explanation": {"type": ["string", "null"]},
                     "difficulty": {"type": ["string", "null"]},
@@ -37,8 +37,20 @@ AI_RESPONSE_JSON_SCHEMA = {
                             "required": ["label", "content", "is_correct"],
                         },
                     },
+                    "blanks": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "additionalProperties": False,
+                            "properties": {
+                                "label": {"type": "string"},
+                                "answers": {"type": "array", "items": {"type": "string"}},
+                            },
+                            "required": ["label", "answers"],
+                        },
+                    },
                 },
-                "required": ["type", "stem", "explanation", "difficulty", "options"],
+                "required": ["type", "stem", "explanation", "difficulty", "options", "blanks"],
             },
         },
     },

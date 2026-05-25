@@ -154,6 +154,21 @@ APP_ENV_FILE=.env.docker docker compose --env-file .env.docker logs -f worker
 APP_ENV_FILE=.env.docker docker compose --env-file .env.docker down
 ```
 
+AI generation uses RQ workers. You can increase throughput in either of these
+ways:
+
+```bash
+# Multiple worker processes inside the worker container
+AI_WORKFLOW_WORKER_COUNT=3 APP_ENV_FILE=.env.docker docker compose --env-file .env.docker up -d worker
+
+# Multiple worker containers
+APP_ENV_FILE=.env.docker docker compose --env-file .env.docker up -d --scale worker=3 worker
+```
+
+The effective concurrency is approximately `worker containers *
+AI_WORKFLOW_WORKER_COUNT`, so avoid setting both values high unless the AI
+provider and database can handle the load.
+
 MySQL and Redis data are stored in Docker volumes named `mysql_data` and
 `redis_data`.
 

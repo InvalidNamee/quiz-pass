@@ -193,8 +193,9 @@ Important tables:
   AI compatibility helpers live in `domains/ai_generation/facade.py`, tag
   helpers live in `domains/question_banks/tags.py`, and SMTP delivery lives in
   `infrastructure/email.py`.
-- Background work still uses FastAPI `BackgroundTasks`. For production-scale
-  long-running jobs, introduce a queue such as RQ/Celery/Arq plus Redis.
+- AI workflow execution supports FastAPI `BackgroundTasks` for local development
+  and RQ + Redis for deployment. RQ worker concurrency can be increased with
+  `AI_WORKFLOW_WORKER_COUNT` or Docker Compose `--scale worker=N`.
 - Email delivery is configured through SMTP and logs links in development when
   SMTP is incomplete. Production deployment must verify SMTP credentials and
   sender policy.

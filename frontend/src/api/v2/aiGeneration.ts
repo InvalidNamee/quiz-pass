@@ -1,10 +1,11 @@
 import { api } from '../http'
-import type { Page, AIGenerationDraft } from '../types'
+import type { Page, AIGenerationDraft, QuestionTypeSettings } from '../types'
 
 export type WorkflowListItem = {
   id: number; bank_id: number | null; user_id: number; purpose: string; generation_mode: string
   status: string; source_file_name: string | null; source_text_snapshot: string | null
   bank_title_snapshot: string | null; requested_count: number | null
+  question_type_settings: QuestionTypeSettings | null
   generate_description: string; extra_instruction: string | null
   ai_provider_config_id: number | null; inherit_context: boolean
   include_existing_questions: boolean

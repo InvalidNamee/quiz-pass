@@ -14,17 +14,33 @@ const toast = useToast()
 const sessionId = Number(route.params.sessionId)
 const redirectingToResult = ref(false)
 const {
-  session, questions, currentIndex, selected, answerStatus, answerResults,
+  session, questions, currentIndex, selected, textAnswers, answerStatus, answerResults,
   loading, currentQuestion, totalQuestions,
-  load, toggle, setSelection, submitAnswer, submitAll, saveDraftIfChanged, previousQuestion, nextQuestion, goToQuestion,
+  load, toggle, setSelection, setTextAnswers, submitAnswer, submitAll, saveDraftIfChanged, goToQuestion,
   isLocked, shouldReveal, questionStatus,
 } = usePracticeSession(sessionId)
 
 const navigatorStatuses = computed(() => questions.value.map(q => questionStatus(q.id)))
+const navigatorTypes = computed(() => questions.value.map(q => q.type))
+const navigatorTypeOrder = ['single', 'multiple', 'blank', 'short_answer'] as const
+const navigatorSections = computed(() => navigatorTypeOrder
+  .map((type) => ({
+    type,
+    indexes: questions.value
+      .map((question, index) => ({ question, index }))
+      .filter((item) => item.question.type === type)
+      .map((item) => item.index),
+  }))
+  .filter((section) => section.indexes.length))
+const visualOrder = computed(() => navigatorSections.value.flatMap((section) => section.indexes))
+const currentVisualIndex = computed(() => {
+  const index = visualOrder.value.indexOf(currentIndex.value)
+  return index >= 0 ? index : currentIndex.value
+})
 
 const showSubmitButton = computed(() => {
   if (!currentQuestion.value) return false
-  return currentQuestion.value.type === 'multiple' || session.value?.mode === 'exam'
+  return currentQuestion.value.type !== 'single' || session.value?.mode === 'exam'
 })
 
 async function handleSubmit() {
@@ -49,21 +65,19 @@ async function onKeydown(e: KeyboardEvent) {
   const key = e.key.toLowerCase()
   if (e.key === 'ArrowLeft' || key === 'a') {
     e.preventDefault()
-    await previousQuestion()
+    await moveVisualByOffset(-1)
   }
   else if (e.key === 'ArrowRight' || key === 'd') {
     e.preventDefault()
-    await nextQuestion()
+    await moveVisualByOffset(1)
   }
   else if (e.key === 'ArrowUp' || key === 'w') {
     e.preventDefault()
-    const target = currentIndex.value - 5
-    if (target >= 0) await goToQuestion(target)
+    await moveVisualByRow(-1)
   }
   else if (e.key === 'ArrowDown' || key === 's') {
     e.preventDefault()
-    const target = currentIndex.value + 5
-    if (target < totalQuestions.value) await goToQuestion(target)
+    await moveVisualByRow(1)
   }
   else if (e.key === 'Enter' && showSubmitButton.value) {
     e.preventDefault()
@@ -77,6 +91,38 @@ async function onKeydown(e: KeyboardEvent) {
       if (option) toggle(currentQuestion.value, option.id)
     }
   }
+}
+
+async function moveVisualByOffset(offset: number) {
+  const order = visualOrder.value
+  const position = order.indexOf(currentIndex.value)
+  if (position < 0) return
+  const nextPosition = Math.min(order.length - 1, Math.max(0, position + offset))
+  if (nextPosition !== position) await goToQuestion(order[nextPosition])
+}
+
+async function moveVisualByRow(direction: -1 | 1) {
+  const sections = navigatorSections.value
+  const sectionIndex = sections.findIndex((section) => section.indexes.includes(currentIndex.value))
+  if (sectionIndex < 0) return
+  const section = sections[sectionIndex]
+  const localIndex = section.indexes.indexOf(currentIndex.value)
+  const column = localIndex % 5
+  const sameSectionTarget = localIndex + direction * 5
+  if (sameSectionTarget >= 0 && sameSectionTarget < section.indexes.length) {
+    await goToQuestion(section.indexes[sameSectionTarget])
+    return
+  }
+  const nextSection = sections[sectionIndex + direction]
+  if (!nextSection) return
+  if (direction < 0) {
+    const lastRowStart = Math.floor((nextSection.indexes.length - 1) / 5) * 5
+    const target = Math.min(nextSection.indexes.length - 1, lastRowStart + column)
+    await goToQuestion(nextSection.indexes[target])
+    return
+  }
+  const target = Math.min(column, nextSection.indexes.length - 1)
+  await goToQuestion(nextSection.indexes[target])
 }
 
 async function loadOrRedirectFinishedSession() {
@@ -106,7 +152,7 @@ onBeforeUnmount(() => {
   <section v-loading="loading" class="qp-page" element-loading-text="加载中...">
     <template v-if="questions.length && !redirectingToResult">
       <SessionHeader
-        :current-index="currentIndex"
+        :current-index="currentVisualIndex"
         :total-questions="totalQuestions"
         @submit="handleSubmit"
       />
@@ -116,25 +162,29 @@ onBeforeUnmount(() => {
           v-if="currentQuestion"
           :question="currentQuestion"
           :selected-option-ids="selected[currentQuestion.id] ?? []"
+          :text-answers="textAnswers[currentQuestion.id] ?? []"
           :is-locked="isLocked(currentQuestion.id)"
           :should-reveal="shouldReveal(currentQuestion.id)"
           :answer-status="answerStatus[currentQuestion.id] || null"
           :correct-labels="answerResults[currentQuestion.id]?.correct_labels ?? []"
+          :correct-text-answers="answerResults[currentQuestion.id]?.correct_text_answers ?? []"
           :explanation="answerResults[currentQuestion.id]?.explanation ?? null"
           :show-submit-button="showSubmitButton"
-          :can-go-prev="currentIndex > 0"
-          :can-go-next="currentIndex < totalQuestions - 1"
+          :can-go-prev="currentVisualIndex > 0"
+          :can-go-next="currentVisualIndex < totalQuestions - 1"
           @toggle="toggle(currentQuestion!, $event)"
           @set-selection="setSelection(currentQuestion!, $event)"
+          @set-text-answers="setTextAnswers(currentQuestion!, $event)"
           @answer="submitAnswer()"
-          @prev="previousQuestion()"
-          @next="nextQuestion()"
+          @prev="moveVisualByOffset(-1)"
+          @next="moveVisualByOffset(1)"
         />
 
         <QuestionNavigator
           :total="totalQuestions"
           :current-index="currentIndex"
           :statuses="navigatorStatuses"
+          :types="navigatorTypes"
           @go="goToQuestion"
         />
       </div>

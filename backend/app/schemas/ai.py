@@ -94,6 +94,7 @@ class AIGenerationWorkflowOut(BaseModel):
     source_text_snapshot: str | None = None
     bank_title_snapshot: str | None = None
     requested_count: int | None
+    question_type_settings: dict[str, dict[str, bool | int | None]] | None = None
     generate_description: str
     extra_instruction: str | None
     ai_provider_config_id: int | None = None
@@ -149,6 +150,7 @@ class AIGenerationDraftQuestionOut(BaseModel):
     explanation: str | None
     difficulty: str | None
     options: list[dict]
+    blanks: list[dict] = Field(default_factory=list)
     validation_status: str
     validation_message: str | None
 

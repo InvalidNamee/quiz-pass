@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { ref, watch } from 'vue'
+import BlankAnswerEditor from './BlankAnswerEditor.vue'
 import OptionEditor from './OptionEditor.vue'
 import { cloneQuestionForm, emptyQuestionForm, validateQuestionForm, type QuestionForm } from './questionForm'
 import { useToast } from '../../composables/useToast'
@@ -27,7 +28,22 @@ function close() {
 }
 
 function resetCorrectForType() {
-  form.value.options.forEach((option, index) => { option.is_correct = index === 0 })
+  if (form.value.type === 'single' || form.value.type === 'multiple') {
+    if (!form.value.options.length) {
+      form.value.options = [
+        { label: 'A', content: '', is_correct: true },
+        { label: 'B', content: '', is_correct: false },
+      ]
+    }
+    form.value.options.forEach((option, index) => { option.is_correct = index === 0 })
+    form.value.blanks = []
+  } else if (form.value.type === 'blank') {
+    form.value.options = []
+    if (!form.value.blanks.length) form.value.blanks = [{ label: '1', answers: [''] }]
+  } else {
+    form.value.options = []
+    form.value.blanks = []
+  }
 }
 
 function submit() {
@@ -56,14 +72,17 @@ watch(
         <el-select v-model="form.type" size="small" style="width: 120px" @change="resetCorrectForType">
           <el-option value="single" label="单选" />
           <el-option value="multiple" label="多选" />
+          <el-option value="blank" label="填空" />
+          <el-option value="short_answer" label="简答" />
         </el-select>
       </el-form-item>
       <el-form-item label="题干">
         <el-input v-model="form.stem" type="textarea" :rows="5" placeholder="题目内容" />
       </el-form-item>
-      <OptionEditor :form="form" />
-      <el-form-item label="解析（可选）">
-        <el-input v-model="form.explanation" type="textarea" :rows="4" placeholder="答案解析" />
+      <OptionEditor v-if="form.type === 'single' || form.type === 'multiple'" :form="form" />
+      <BlankAnswerEditor v-if="form.type === 'blank'" :form="form" />
+      <el-form-item :label="form.type === 'short_answer' ? '给分点' : '解析（可选）'">
+        <el-input v-model="form.explanation" type="textarea" :rows="4" :placeholder="form.type === 'short_answer' ? '填写参考给分点' : '答案解析'" />
       </el-form-item>
       <el-alert v-if="form.validation_message" :title="form.validation_message" type="warning" show-icon :closable="false" />
       <div class="flex justify-end gap-2">

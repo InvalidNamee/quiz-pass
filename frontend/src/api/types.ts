@@ -73,25 +73,43 @@ export type QuestionOption = {
   sort_order?: number
 }
 
+export type QuestionType = 'single' | 'multiple' | 'blank' | 'short_answer'
+
+export type QuestionTypeSetting = {
+  enabled: boolean
+  count: number | null
+}
+
+export type QuestionTypeSettings = Record<QuestionType, QuestionTypeSetting>
+
+export type QuestionBlank = {
+  id?: number
+  label: string
+  answers: string[]
+  sort_order?: number
+}
+
 export type Question = {
   id: number
   bank_id: number
-  type: 'single' | 'multiple'
+  type: QuestionType
   stem: string
   explanation: string | null
   difficulty: string | null
   source: string
   generated_model: string | null
   options: QuestionOption[]
+  blanks: QuestionBlank[]
 }
 
 export type AIGenerationDraftQuestion = {
   id: number
-  type: 'single' | 'multiple'
+  type: QuestionType
   stem: string
   explanation: string | null
   difficulty: string | null
   options: Array<{ label: string; content: string; is_correct: boolean }>
+  blanks: Array<{ label: string; answers: string[] }>
   validation_status: string
   validation_message: string | null
 }
@@ -152,11 +170,13 @@ export type MistakeRecord = {
   user_id: number
   bank_id: number
   question_id: number
-  type: 'single' | 'multiple'
+  type: QuestionType
   stem: string
   options: Array<{ id: number; label: string; content: string }>
+  blanks: Array<{ id: number; label: string; sort_order: number }>
   correct_option_ids: number[]
   correct_labels: string[]
+  correct_text_answers: string[][]
   explanation: string | null
   wrong_count: number
   last_wrong_at: string

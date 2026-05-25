@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import type { QuestionBankV2 } from '../api/types'
+import type { QuestionBankV2, QuestionType, QuestionTypeSettings } from '../api/types'
 import { getBank } from '../api/v2/banks'
 import { createSession } from '../api/v2/practice'
 import { useToast } from '../composables/useToast'
@@ -18,10 +18,20 @@ const router = useRouter()
 const toast = useToast()
 const bank = ref<QuestionBankV2 | null>(props.initialBank ?? null)
 const mode = ref('practice')
-const useLimit = ref(false)
-const limit = ref(20)
 const loading = ref(false)
 const starting = ref(false)
+const questionTypeRows: Array<{ key: QuestionType; label: string }> = [
+  { key: 'single', label: '单选' },
+  { key: 'multiple', label: '多选' },
+  { key: 'blank', label: '填空' },
+  { key: 'short_answer', label: '简答' },
+]
+const questionTypes = ref<Record<QuestionType, { enabled: boolean; useCount: boolean; count: number }>>({
+  short_answer: { enabled: true, useCount: false, count: 1 },
+  blank: { enabled: true, useCount: false, count: 5 },
+  multiple: { enabled: true, useCount: false, count: 5 },
+  single: { enabled: true, useCount: false, count: 10 },
+})
 
 const visible = computed({
   get: () => props.modelValue,
@@ -32,6 +42,22 @@ const modeDescriptions: Record<string, string> = {
   practice: '答完即出结果和解析，适合日常练习。',
   exam: '模拟真实考试，交卷后统一阅卷出分。',
   mistake_review: '只练习当前题库中做错的题目，查漏补缺。',
+}
+
+function buildQuestionTypeSettings(): QuestionTypeSettings | null {
+  const payload = {} as QuestionTypeSettings
+  for (const row of questionTypeRows) {
+    const config = questionTypes.value[row.key]
+    payload[row.key] = {
+      enabled: config.enabled,
+      count: config.enabled && config.useCount ? config.count : null,
+    }
+  }
+  if (!Object.values(payload).some((item) => item.enabled)) {
+    toast.show('至少选择一种题型', 'error')
+    return null
+  }
+  return payload
 }
 
 async function load() {
@@ -55,8 +81,10 @@ async function start() {
   starting.value = true
   try {
     const body: Record<string, unknown> = { bank_id: props.bankId, mode: mode.value }
-    if (useLimit.value) body.question_limit = limit.value
-    const session = await createSession(body as { bank_id: number; mode: string; question_limit?: number })
+    const typeSettings = buildQuestionTypeSettings()
+    if (!typeSettings) return
+    body.question_type_settings = typeSettings
+    const session = await createSession(body as { bank_id: number; mode: string; question_type_settings: QuestionTypeSettings })
     visible.value = false
     router.push(`/practice/session/${session.id}`)
   } catch (err) {
@@ -82,9 +110,25 @@ watch(() => props.modelValue, (open) => { if (open) load() }, { immediate: true 
           </el-radio-group>
           <span class="mt-1 text-sm text-slate-500">{{ modeDescriptions[mode] }}</span>
         </el-form-item>
-        <el-form-item><el-checkbox v-model="useLimit">指定题数</el-checkbox></el-form-item>
-        <el-form-item v-if="useLimit" label="题目数量">
-          <el-input-number v-model="limit" :min="1" :max="200" />
+        <el-form-item label="选择题型与题量">
+          <div class="w-full overflow-hidden rounded-lg border border-slate-200">
+            <div
+              v-for="row in questionTypeRows"
+              :key="row.key"
+              class="grid grid-cols-[96px_1fr_132px] items-center gap-3 border-b border-slate-100 px-3 py-2 last:border-b-0"
+            >
+              <el-checkbox v-model="questionTypes[row.key].enabled">{{ row.label }}</el-checkbox>
+              <el-checkbox v-model="questionTypes[row.key].useCount" :disabled="!questionTypes[row.key].enabled">限定数量</el-checkbox>
+              <el-input-number
+                v-model="questionTypes[row.key].count"
+                size="small"
+                :min="1"
+                :max="200"
+                :disabled="!questionTypes[row.key].enabled || !questionTypes[row.key].useCount"
+              />
+            </div>
+          </div>
+          <p class="mt-2 text-xs text-slate-500">不勾选限定数量表示该题型使用全部可用题；不练某题型请取消左侧勾选。</p>
         </el-form-item>
       </el-form>
     </div>

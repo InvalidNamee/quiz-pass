@@ -53,7 +53,7 @@ def answer_question(session_id: int, payload: PracticeAnswerCreate, current_user
 def save_answer_draft(session_id: int, question_id: int, payload: PracticeAnswerCreate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return PracticeSessionService(db).save_answer_draft(
         session_id,
-        PracticeAnswerCreate(question_id=question_id, selected_option_ids=payload.selected_option_ids),
+        PracticeAnswerCreate(question_id=question_id, selected_option_ids=payload.selected_option_ids, text_answers=payload.text_answers),
         current_user,
     )
 
@@ -74,7 +74,7 @@ def list_mistakes(bank_id: int, page: int = 1, page_size: int = 20, resolved: bo
     stmt = service.list_stmt(bank_id, current_user, resolved)
     items, total, page, page_size = paginate(db, stmt, page, page_size)
     question_ids = [item.question_id for item in items]
-    questions = db.scalars(select(Question).options(selectinload(Question.options)).where(Question.id.in_(question_ids))).all() if question_ids else []
+    questions = db.scalars(select(Question).options(selectinload(Question.options), selectinload(Question.blanks)).where(Question.id.in_(question_ids))).all() if question_ids else []
     questions_by_id = {question.id: question for question in questions}
     return page_response([service.to_out(item, questions_by_id[item.question_id]) for item in items if item.question_id in questions_by_id], total, page, page_size)
 

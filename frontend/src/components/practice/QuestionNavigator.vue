@@ -1,11 +1,40 @@
 <script setup lang="ts">
-defineProps<{
+import { computed } from 'vue'
+import type { QuestionType } from '../../api/types'
+
+const props = defineProps<{
   total: number
   currentIndex: number
   statuses: ('correct' | 'wrong' | 'answered' | 'selected' | 'none')[]
+  types?: QuestionType[]
 }>()
 
 const emit = defineEmits<{ go: [index: number] }>()
+
+const typeLabels: Record<QuestionType, string> = {
+  single: '单选',
+  multiple: '多选',
+  blank: '填空',
+  short_answer: '简答',
+}
+
+const typeOrder: QuestionType[] = ['single', 'multiple', 'blank', 'short_answer']
+
+const sections = computed(() => {
+  if (!props.types?.length) {
+    return [{ type: 'single' as QuestionType, label: '题目', items: props.statuses.map((status, index) => ({ status, index, displayNumber: index + 1 })) }]
+  }
+  let displayNumber = 0
+  return typeOrder
+    .map((type) => {
+      const items = props.statuses
+        .map((status, index) => ({ status, index, type: props.types?.[index] }))
+        .filter((item) => item.type === type)
+        .map((item) => ({ ...item, displayNumber: ++displayNumber }))
+      return { type, label: typeLabels[type], items }
+    })
+    .filter((section) => section.items.length)
+})
 
 function getClass(status: string, isCurrent: boolean) {
   return [
@@ -20,16 +49,21 @@ function getClass(status: string, isCurrent: boolean) {
   <div class="sticky top-5 max-h-[calc(100vh-8rem)] rounded-2xl border border-slate-100/80 bg-white/95 p-4 shadow-sm backdrop-blur-md">
     <p class="mb-3 text-center text-xs font-bold text-slate-400 tracking-wider">答题卡</p>
     <el-scrollbar max-height="calc(100vh - 12rem)">
-      <div class="grid grid-cols-5 gap-1.5 pr-1.5">
-        <button
-          v-for="(status, index) in statuses"
-          :key="index"
-          type="button"
-          :class="getClass(status, index === currentIndex)"
-          @click="emit('go', index)"
-        >
-          {{ index + 1 }}
-        </button>
+      <div class="space-y-3 pr-1.5">
+        <section v-for="section in sections" :key="section.type" class="space-y-1.5">
+          <p class="px-1 text-[11px] font-bold text-slate-400">{{ section.label }}</p>
+          <div class="grid grid-cols-5 gap-1.5">
+            <button
+              v-for="item in section.items"
+              :key="item.index"
+              type="button"
+              :class="getClass(item.status, item.index === currentIndex)"
+              @click="emit('go', item.index)"
+            >
+              {{ item.displayNumber }}
+            </button>
+          </div>
+        </section>
       </div>
     </el-scrollbar>
   </div>

@@ -30,6 +30,7 @@ class Settings(BaseSettings):
     redis_url: str = "redis://localhost:6379/0"
     ai_workflow_queue_name: str = "ai-generation"
     ai_workflow_execution_mode: str = "background_tasks"
+    ai_workflow_worker_count: int = 1
 
     model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env", env_file_encoding="utf-8")
 

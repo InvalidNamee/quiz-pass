@@ -42,8 +42,9 @@ def _build_user_prompt(
     generate_description: bool = False,
     generation_mode: str = "knowledge_generate",
     extra_instruction: str | None = None,
+    question_type_settings: dict | None = None,
 ) -> str:
-    return PromptBuilder.build_generation_prompt(text, requested_count, generate_description, generation_mode, extra_instruction)
+    return PromptBuilder.build_generation_prompt(text, requested_count, generate_description, generation_mode, extra_instruction, question_type_settings)
 
 
 def _build_repair_prompt(payload: dict, validation_error: str) -> str:

@@ -150,6 +150,7 @@ class AIGenerationWorkflowService:
         ai_provider_config_id: int | None,
         question_count_mode: str,
         question_count: int | None,
+        question_type_settings: str | None,
         generate_description: bool,
         generation_mode: str,
         extra_instruction: str | None,
@@ -162,7 +163,7 @@ class AIGenerationWorkflowService:
             raise HTTPException(status_code=422, detail="Invalid desired_visibility")
         if desired_visibility == "public" and user.role != "admin":
             raise HTTPException(status_code=403, detail="普通用户只能通过分享生成公开题库")
-        effective_count, normalized_extra_instruction = self._normalize_generation_inputs(question_count_mode, question_count, generation_mode, extra_instruction)
+        effective_count, normalized_extra_instruction, normalized_type_settings = self._normalize_generation_inputs(question_count_mode, question_count, generation_mode, extra_instruction, question_type_settings)
         try:
             parsed_tag_names = json.loads(tag_names) if tag_names else []
         except json.JSONDecodeError as exc:
@@ -202,6 +203,7 @@ class AIGenerationWorkflowService:
             source_text_snapshot=text,
             bank_title_snapshot=title,
             requested_count=effective_count,
+            question_type_settings_json=json.dumps(normalized_type_settings, ensure_ascii=False) if normalized_type_settings else None,
             generate_description="true" if generate_description else "false",
             extra_instruction=normalized_extra_instruction,
             inherit_context=inherit_context,
@@ -237,6 +239,7 @@ class AIGenerationWorkflowService:
         ai_provider_config_id: int | None,
         question_count_mode: str,
         question_count: int | None,
+        question_type_settings: str | None,
         generate_description: bool,
         generation_mode: str,
         extra_instruction: str | None,
@@ -248,7 +251,7 @@ class AIGenerationWorkflowService:
         bank = self.db.get(QuestionBank, bank_id)
         if not QuestionBankPermissionService.can_extend_with_ai(bank, user):
             raise HTTPException(status_code=404, detail="Question bank not found")
-        effective_count, normalized_extra_instruction = self._normalize_generation_inputs(question_count_mode, question_count, generation_mode, extra_instruction)
+        effective_count, normalized_extra_instruction, normalized_type_settings = self._normalize_generation_inputs(question_count_mode, question_count, generation_mode, extra_instruction, question_type_settings)
         config = self.pick_ai_config(user.id, ai_provider_config_id)
         text, source_file_name = await extract_uploaded_sources(file, files)
 
@@ -263,6 +266,7 @@ class AIGenerationWorkflowService:
             source_text_snapshot=text,
             bank_title_snapshot=bank.title,
             requested_count=effective_count,
+            question_type_settings_json=json.dumps(normalized_type_settings, ensure_ascii=False) if normalized_type_settings else None,
             generate_description="true" if generate_description else "false",
             extra_instruction=normalized_extra_instruction,
             inherit_context=inherit_context,
@@ -299,6 +303,7 @@ class AIGenerationWorkflowService:
         ai_provider_config_id: int | None,
         question_count_mode: str | None,
         question_count: int | None,
+        question_type_settings: str | None,
         generate_description: bool | None,
         generation_mode: str | None,
         extra_instruction: str | None,
@@ -324,11 +329,12 @@ class AIGenerationWorkflowService:
         next_mode = generation_mode or original.generation_mode
         next_count_mode = question_count_mode or ("fixed" if original.requested_count else "adaptive")
         next_count = question_count if question_count is not None else original.requested_count
+        next_question_type_settings = question_type_settings if question_type_settings is not None else original.question_type_settings_json
         next_generate_description = bool(generate_description) if generate_description is not None else original.generate_description == "true"
         next_extra_instruction = extra_instruction if extra_instruction is not None else original.extra_instruction
         next_inherit_context = bool(inherit_context) if inherit_context is not None else bool(original.inherit_context)
         next_include_existing_questions = bool(include_existing_questions) if include_existing_questions is not None else bool(original.include_existing_questions)
-        effective_count, normalized_extra_instruction = self._normalize_generation_inputs(next_count_mode, next_count, next_mode, next_extra_instruction)
+        effective_count, normalized_extra_instruction, normalized_type_settings = self._normalize_generation_inputs(next_count_mode, next_count, next_mode, next_extra_instruction, next_question_type_settings)
         config = self.pick_ai_config(user.id, ai_provider_config_id or original.ai_provider_config_id)
 
         source_file_name = original.source_file_name
@@ -385,6 +391,7 @@ class AIGenerationWorkflowService:
             source_text_snapshot=text,
             bank_title_snapshot=bank.title,
             requested_count=effective_count,
+            question_type_settings_json=json.dumps(normalized_type_settings, ensure_ascii=False) if normalized_type_settings else None,
             generate_description="true" if next_generate_description else "false",
             extra_instruction=normalized_extra_instruction,
             inherit_context=next_inherit_context,
@@ -529,6 +536,7 @@ class AIGenerationWorkflowService:
         out = AIGenerationWorkflowOut.model_validate(workflow, from_attributes=True)
         out.workflow_id = workflow.id
         out.workflow_status = workflow.status
+        out.question_type_settings = self.parse_question_type_settings_snapshot(workflow.question_type_settings_json)
         out.retried_by_workflow_id = retried_by_workflow_id
         if job:
             out.job_id = job.id
@@ -582,6 +590,16 @@ class AIGenerationWorkflowService:
             return None
         compact = " ".join(line.strip() for line in message.splitlines() if line.strip())
         return compact[:160] + ("..." if len(compact) > 160 else "")
+
+    @staticmethod
+    def parse_question_type_settings_snapshot(raw: str | None) -> dict | None:
+        if not raw:
+            return None
+        try:
+            data = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+        return data if isinstance(data, dict) else None
 
     def workflow_steps(self, workflow_id: int, user: User) -> list[AIGenerationWorkflowStepOut]:
         workflow = self.get_owned_workflow(workflow_id, user)
@@ -683,7 +701,7 @@ class AIGenerationWorkflowService:
         )
 
     @staticmethod
-    def _normalize_generation_inputs(question_count_mode: str, question_count: int | None, generation_mode: str, extra_instruction: str | None) -> tuple[int | None, str | None]:
+    def _normalize_generation_inputs(question_count_mode: str, question_count: int | None, generation_mode: str, extra_instruction: str | None, question_type_settings: str | None = None) -> tuple[int | None, str | None, dict | None]:
         if generation_mode not in ("knowledge_generate", "bank_parse"):
             raise HTTPException(status_code=422, detail="Invalid generation_mode")
         if question_count_mode not in ("fixed", "adaptive"):
@@ -691,7 +709,45 @@ class AIGenerationWorkflowService:
         normalized_extra_instruction = (extra_instruction or "").strip() or None
         if normalized_extra_instruction and len(normalized_extra_instruction) > 2000:
             raise HTTPException(status_code=422, detail="额外指令不能超过 2000 字")
-        if generation_mode == "knowledge_generate" and question_count_mode == "fixed" and not question_count:
+        normalized_type_settings = AIGenerationWorkflowService._parse_question_type_settings(question_type_settings, generation_mode)
+        if generation_mode == "knowledge_generate" and not normalized_type_settings and question_count_mode == "fixed" and not question_count:
             raise HTTPException(status_code=422, detail="固定题数模式必须指定题数")
-        effective_count = question_count if generation_mode == "knowledge_generate" and question_count_mode == "fixed" else None
-        return effective_count, normalized_extra_instruction
+        if normalized_type_settings:
+            fixed_counts = [
+                config.get("count")
+                for config in normalized_type_settings.values()
+                if config.get("enabled") and isinstance(config.get("count"), int) and config.get("count") > 0
+            ]
+            has_adaptive = any(config.get("enabled") and config.get("count") is None for config in normalized_type_settings.values())
+            effective_count = None if generation_mode != "knowledge_generate" or has_adaptive else sum(fixed_counts) or None
+        else:
+            effective_count = question_count if generation_mode == "knowledge_generate" and question_count_mode == "fixed" else None
+        return effective_count, normalized_extra_instruction, normalized_type_settings
+
+    @staticmethod
+    def _parse_question_type_settings(raw: str | None, generation_mode: str) -> dict | None:
+        if not raw:
+            return None
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=422, detail="question_type_settings 必须是 JSON 对象") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=422, detail="question_type_settings 必须是 JSON 对象")
+        allowed = {"single", "multiple", "blank", "short_answer"}
+        normalized: dict[str, dict] = {}
+        for key in allowed:
+            config = payload.get(key) or {}
+            if not isinstance(config, dict):
+                raise HTTPException(status_code=422, detail="question_type_settings 中每个题型必须是对象")
+            enabled = bool(config.get("enabled"))
+            raw_count = config.get("count")
+            count = None
+            if generation_mode == "knowledge_generate" and enabled and raw_count is not None:
+                if not isinstance(raw_count, int) or isinstance(raw_count, bool) or raw_count < 1 or raw_count > 100:
+                    raise HTTPException(status_code=422, detail="题型数量必须是 1-100 的整数或 null")
+                count = raw_count
+            normalized[key] = {"enabled": enabled, "count": count}
+        if not any(config["enabled"] for config in normalized.values()):
+            raise HTTPException(status_code=422, detail="至少启用一种题型")
+        return normalized

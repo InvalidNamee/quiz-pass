@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import type { AIGenerationDraftQuestion, Question } from '../../api/types'
 import MathText from '../../components/MathText.vue'
-import { optionCountLabel, sourceLabel } from './questionForm'
+import { optionCountLabel, questionTypeLabel, questionTypeTag, sourceLabel } from './questionForm'
 
 type Row = Question | AIGenerationDraftQuestion
 
@@ -36,7 +36,7 @@ function validationStatus(row: Row) {
     <el-table-column type="index" label="#" width="54" />
     <el-table-column label="题型" width="82">
       <template #default="{ row }: { row: Row }">
-        <el-tag :type="row.type === 'single' ? 'primary' : 'warning'" size="small">{{ row.type === 'single' ? '单选' : '多选' }}</el-tag>
+        <el-tag :type="questionTypeTag(row.type)" size="small">{{ questionTypeLabel(row.type) }}</el-tag>
       </template>
     </el-table-column>
     <el-table-column label="题干" min-width="340">

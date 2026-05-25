@@ -62,6 +62,7 @@ services:
       DATABASE_URL: mysql+pymysql://${MYSQL_USER:-quiz}:${MYSQL_PASSWORD:-quiz_pass_password}@mysql:3306/${MYSQL_DATABASE:-quiz_pass}
       REDIS_URL: redis://redis:6379/0
       AI_WORKFLOW_EXECUTION_MODE: rq
+      AI_WORKFLOW_WORKER_COUNT: ${AI_WORKFLOW_WORKER_COUNT:-1}
     depends_on:
       mysql:
         condition: service_healthy
