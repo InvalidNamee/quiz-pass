@@ -76,10 +76,23 @@ export function usePracticeSession(sessionId: number) {
     return values.join('\u0000')
   }
 
+  function normalizeTextAnswers(question: PracticeQuestion, values: string[] = []) {
+    if (question.type === 'blank') {
+      return Array.from({ length: question.blanks.length }, (_, index) => String(values[index] ?? ''))
+    }
+    if (question.type === 'short_answer') return [String(values[0] ?? '')]
+    return values.map((value) => String(value ?? ''))
+  }
+
+  function hasDraftContent(question: PracticeQuestion) {
+    if (question.type === 'single' || question.type === 'multiple') return Boolean(selected.value[question.id]?.length)
+    return normalizeTextAnswers(question, textAnswers.value[question.id] ?? []).some((answer) => answer.trim())
+  }
+
   function answerKey(question: PracticeQuestion) {
     return question.type === 'single' || question.type === 'multiple'
       ? `choice:${selectionKey(selected.value[question.id] ?? [])}`
-      : `text:${textKey(textAnswers.value[question.id] ?? [])}`
+      : `text:${textKey(normalizeTextAnswers(question, textAnswers.value[question.id] ?? []))}`
   }
 
   async function load() {
@@ -102,9 +115,10 @@ export function usePracticeSession(sessionId: number) {
           restored[q.id] = state.selected_option_ids
           lastSyncedSelections.value[q.id] = `choice:${selectionKey(state.selected_option_ids)}`
         }
-        if (state?.text_answers?.length) {
-          restoredText[q.id] = state.text_answers
-          lastSyncedSelections.value[q.id] = `text:${textKey(state.text_answers)}`
+        if (q.type === 'blank' || q.type === 'short_answer') {
+          const normalizedText = normalizeTextAnswers(q, state?.text_answers ?? [])
+          restoredText[q.id] = normalizedText
+          if (state?.text_answers?.length) lastSyncedSelections.value[q.id] = `text:${textKey(normalizedText)}`
         }
         if (state?.is_answered) restoredAnswered[q.id] = true
         if (state?.reveal) {
@@ -116,8 +130,7 @@ export function usePracticeSession(sessionId: number) {
         }
       })
 
-      const firstUnanswered = questions.value.findIndex((q) => !q.answer_state?.is_answered)
-      currentIndex.value = firstUnanswered >= 0 ? firstUnanswered : 0
+      currentIndex.value = 0
       selected.value = restored
       textAnswers.value = restoredText
       answered.value = restoredAnswered
@@ -149,14 +162,16 @@ export function usePracticeSession(sessionId: number) {
 
   function setTextAnswers(question: PracticeQuestion, values: string[]) {
     if (isLocked(question.id)) return
-    textAnswers.value[question.id] = values
+    textAnswers.value[question.id] = normalizeTextAnswers(question, values)
   }
 
   async function submitAnswer() {
     const q = currentQuestion.value
     if (!q || isLocked(q.id)) return
     try {
-      const result = await answerQuestion(sessionId, q.id, selected.value[q.id] ?? [], textAnswers.value[q.id] ?? [])
+      const normalizedText = normalizeTextAnswers(q, textAnswers.value[q.id] ?? [])
+      if (q.type === 'blank' || q.type === 'short_answer') textAnswers.value[q.id] = normalizedText
+      const result = await answerQuestion(sessionId, q.id, selected.value[q.id] ?? [], normalizedText)
       answered.value[q.id] = true
       if (result.reveal && result.is_correct !== null) answerStatus.value[q.id] = result.is_correct ? 'correct' : 'wrong'
       answerResults.value[q.id] = result
@@ -168,25 +183,31 @@ export function usePracticeSession(sessionId: number) {
     }
   }
 
-  async function submitAll() {
-    await saveDraftIfChanged(currentQuestion.value)
-    await submitSession(sessionId)
+  async function submitAll(options: { commit_drafts?: boolean } = {}) {
+    if (options.commit_drafts ?? true) await saveDraftIfChanged(currentQuestion.value)
+    await submitSession(sessionId, { commit_drafts: options.commit_drafts ?? true })
   }
 
   async function saveDraftIfChanged(question = currentQuestion.value) {
     if (!question || session.value?.status === 'submitted' || isLocked(question.id)) return
     const values = selected.value[question.id] ?? []
     const key = answerKey(question)
-    if (key === 'choice:' && !lastSyncedSelections.value[question.id]) return
-    if (key === 'text:' && !lastSyncedSelections.value[question.id]) return
+    if (!hasDraftContent(question) && !lastSyncedSelections.value[question.id]) return
     if (lastSyncedSelections.value[question.id] === key || draftSaving.value[question.id]) return
     try {
       draftSaving.value[question.id] = true
-      await saveAnswerDraft(sessionId, question.id, values, textAnswers.value[question.id] ?? [])
+      const normalizedText = normalizeTextAnswers(question, textAnswers.value[question.id] ?? [])
+      if (question.type === 'blank' || question.type === 'short_answer') textAnswers.value[question.id] = normalizedText
+      await saveAnswerDraft(sessionId, question.id, values, normalizedText)
       lastSyncedSelections.value[question.id] = key
+      return true
     } catch (error) {
-      toast.show(error instanceof Error ? error.message : '答案草稿保存失败', 'error')
-      throw error
+      const message = error instanceof Error ? error.message : '答案草稿保存失败'
+      if (message.includes('会话已提交') && session.value) {
+        session.value = { ...session.value, status: 'submitted' }
+      }
+      toast.show(message, 'error')
+      return false
     } finally {
       draftSaving.value[question.id] = false
     }
@@ -208,10 +229,14 @@ export function usePracticeSession(sessionId: number) {
     currentIndex.value = index
   }
 
+  function setCurrentIndex(index: number) {
+    currentIndex.value = Math.min(Math.max(index, 0), Math.max(questions.value.length - 1, 0))
+  }
+
   return {
     session, questions, currentIndex, selected, textAnswers, answerStatus, answerResults, answered,
     loading, currentQuestion, totalQuestions,
-    load, toggle, setSelection, setTextAnswers, submitAnswer, submitAll, saveDraftIfChanged, previousQuestion, nextQuestion, goToQuestion,
+    load, toggle, setSelection, setTextAnswers, submitAnswer, submitAll, saveDraftIfChanged, previousQuestion, nextQuestion, goToQuestion, setCurrentIndex,
     isLocked, shouldReveal, hasSelection, questionStatus,
   }
 }

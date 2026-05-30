@@ -12,6 +12,10 @@ class PracticeSessionCreate(BaseModel):
     shuffle_options: bool = True
 
 
+class PracticeSessionSubmit(BaseModel):
+    commit_drafts: bool = True
+
+
 class PracticeSessionOut(BaseModel):
     id: int
     user_id: int
@@ -25,6 +29,9 @@ class PracticeSessionOut(BaseModel):
     answered_count: int = 0
     correct_count: int
     score: float
+    mistake_source_type: str | None = None
+    mistake_source_id: int | None = None
+    unresolved_mistake_attempt_count: int = 0
     started_at: datetime
     submitted_at: datetime | None
     last_answered_at: datetime | None = None
@@ -125,6 +132,31 @@ class MistakeRecordOut(BaseModel):
     explanation: str | None = None
     wrong_count: int
     last_wrong_at: datetime
+    resolved_at: datetime | None
+
+    model_config = {"from_attributes": True}
+
+
+class MistakeAttemptOut(BaseModel):
+    id: int
+    user_id: int
+    bank_id: int
+    question_id: int
+    practice_session_id: int
+    practice_answer_id: int | None
+    type: str
+    stem: str
+    options: list[PracticeResultOptionOut] = Field(default_factory=list)
+    blanks: list[PracticeQuestionBlankOut] = Field(default_factory=list)
+    selected_option_ids: list[int] = Field(default_factory=list)
+    selected_labels: list[str] = Field(default_factory=list)
+    text_answers: list[str] = Field(default_factory=list)
+    correct_option_ids: list[int] = Field(default_factory=list)
+    correct_labels: list[str] = Field(default_factory=list)
+    correct_text_answers: list[list[str]] = Field(default_factory=list)
+    explanation: str | None = None
+    is_resolved: bool
+    wrong_at: datetime
     resolved_at: datetime | None
 
     model_config = {"from_attributes": True}

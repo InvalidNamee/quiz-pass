@@ -166,7 +166,7 @@ async function saveAIContext() {
 
 function continuePractice() {
   if (!bank.value?.resumable_session) return
-  router.push(`/practice/session/${bank.value.resumable_session.id}`)
+  router.push(`/practice/session/${bank.value.resumable_session.id}?resume=1`)
 }
 
 onMounted(load)

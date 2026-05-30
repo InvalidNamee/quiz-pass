@@ -22,7 +22,7 @@ from app.main import app  # noqa: E402
 from app.models.audit import AuditEvent  # noqa: E402
 from app.models.ai_workflow import AIGenerationDraft, AIGenerationWorkflow, AIGenerationWorkflowStep, AIGenerationDraftQuestion  # noqa: E402
 from app.models.import_job import ImportJob  # noqa: E402
-from app.models.practice import MistakeRecord, PracticeAnswer, PracticeSession, PracticeSessionQuestion  # noqa: E402
+from app.models.practice import MistakeAttempt, MistakeRecord, PracticeAnswer, PracticeSession, PracticeSessionQuestion  # noqa: E402
 from app.models.question import Question, QuestionOption  # noqa: E402
 from app.models.question_bank import QuestionBank, QuestionBankFavorite, question_bank_tag_links  # noqa: E402
 from app.models.user import EmailAuthToken, User  # noqa: E402
@@ -153,6 +153,9 @@ def test_database_model_removes_workflow_job_cycle_and_uses_cascades():
     assert _fk_ondelete(PracticeSessionQuestion, "session_id") == "CASCADE"
     assert _fk_ondelete(PracticeAnswer, "session_id") == "CASCADE"
     assert _fk_ondelete(MistakeRecord, "bank_id") == "CASCADE"
+    assert _fk_ondelete(MistakeAttempt, "bank_id") == "CASCADE"
+    assert _fk_ondelete(MistakeAttempt, "practice_session_id") == "CASCADE"
+    assert _fk_ondelete(MistakeAttempt, "practice_answer_id") == "SET NULL"
     assert _fk_ondelete(AIGenerationWorkflow, "bank_id") == "SET NULL"
     assert AIGenerationWorkflow.__table__.c.bank_id.nullable is True
     assert "ai_context" in QuestionBank.__table__.c
@@ -1434,6 +1437,121 @@ def test_v2_practice_session_answers_results_and_mistakes_use_domain_services():
         assert mistakes["items"][0]["stem"] == "Domain answer?"
 
 
+def test_mistake_attempts_are_concrete_and_resolve_individually():
+    with TestClient(app) as client:
+        headers = _register(client, "attempts@example.com", "attempts")
+        other_headers = _register(client, "attempts-other@example.com", "attemptsother")
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Attempt Bank", "visibility": "private"}).json()
+        question = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_sample_question_payload("Concrete wrong?")).json()
+
+        for _ in range(2):
+            session = client.post("/api/v2/practice/sessions", headers=headers, json={"bank_id": bank["id"], "mode": "practice"}).json()
+            answer = client.post(
+                f"/api/v2/practice/sessions/{session['id']}/answers",
+                headers=headers,
+                json={"question_id": question["id"], "selected_option_ids": [question["options"][1]["id"]]},
+            )
+            assert answer.status_code == 200, answer.text
+
+        attempts = client.get(f"/api/v2/banks/{bank['id']}/mistake-attempts", headers=headers).json()
+        assert attempts["total"] == 2
+        first_attempt = attempts["items"][0]
+        assert first_attempt["question_id"] == question["id"]
+        assert first_attempt["stem"] == "Concrete wrong?"
+        assert first_attempt["selected_labels"] == ["B"]
+        assert first_attempt["correct_labels"] == ["A"]
+        assert first_attempt["wrong_at"] is not None
+        assert client.get(f"/api/v2/banks/{bank['id']}/mistake-attempts", headers=other_headers).status_code == 404
+
+        summary = client.get(f"/api/v2/banks/{bank['id']}/mistakes", headers=headers).json()
+        assert summary["total"] == 1
+        assert summary["items"][0]["wrong_count"] == 2
+
+        legacy_resolve = client.post(f"/api/v2/banks/{bank['id']}/mistakes/{question['id']}/resolve", headers=headers)
+        assert legacy_resolve.status_code == 410, legacy_resolve.text
+        assert client.get(f"/api/v2/banks/{bank['id']}/mistake-attempts", headers=headers).json()["total"] == 2
+
+        resolved = client.post(f"/api/v2/banks/{bank['id']}/mistake-attempts/{first_attempt['id']}/resolve", headers=headers)
+        assert resolved.status_code == 200, resolved.text
+        unresolved = client.get(f"/api/v2/banks/{bank['id']}/mistake-attempts", headers=headers).json()
+        assert unresolved["total"] == 1
+        assert unresolved["items"][0]["id"] != first_attempt["id"]
+
+        second_attempt_id = unresolved["items"][0]["id"]
+        assert client.post(f"/api/v2/banks/{bank['id']}/mistake-attempts/{second_attempt_id}/resolve", headers=headers).status_code == 200
+        assert client.get(f"/api/v2/banks/{bank['id']}/mistake-attempts", headers=headers).json()["total"] == 0
+        assert client.get(f"/api/v2/banks/{bank['id']}/mistakes?resolved=false", headers=headers).json()["total"] == 0
+
+
+def test_mistake_practice_sessions_are_source_scoped_and_resumable():
+    with TestClient(app) as client:
+        headers = _register(client, "attempt-practice@example.com", "attemptpractice")
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Attempt Practice", "visibility": "private"}).json()
+        first = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_sample_question_payload("Wrong one?")).json()
+        second = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_sample_question_payload("Wrong two?")).json()
+
+        first_session = client.post("/api/v2/practice/sessions", headers=headers, json={"bank_id": bank["id"], "mode": "practice", "shuffle_questions": False}).json()
+        client.post(
+            f"/api/v2/practice/sessions/{first_session['id']}/answers",
+            headers=headers,
+            json={"question_id": first["id"], "selected_option_ids": [first["options"][1]["id"]]},
+        )
+
+        second_session = client.post("/api/v2/practice/sessions", headers=headers, json={"bank_id": bank["id"], "mode": "practice", "shuffle_questions": False}).json()
+        client.post(
+            f"/api/v2/practice/sessions/{second_session['id']}/answers",
+            headers=headers,
+            json={"question_id": second["id"], "selected_option_ids": [second["options"][1]["id"]]},
+        )
+
+        bank_review = client.post(f"/api/v2/banks/{bank['id']}/mistakes/practice-sessions", headers=headers)
+        assert bank_review.status_code == 200, bank_review.text
+        bank_review_data = bank_review.json()
+        assert bank_review_data["mode"] == "mistake_review"
+        assert bank_review_data["mistake_source_type"] == "bank"
+        assert bank_review_data["mistake_source_id"] == bank["id"]
+        assert bank_review_data["total_questions"] == 2
+
+        same_bank_review = client.post(f"/api/v2/banks/{bank['id']}/mistakes/practice-sessions", headers=headers).json()
+        assert same_bank_review["id"] == bank_review_data["id"]
+
+        record_review = client.post(f"/api/v2/practice/sessions/{first_session['id']}/mistake-practice-sessions", headers=headers)
+        assert record_review.status_code == 200, record_review.text
+        record_review_data = record_review.json()
+        assert record_review_data["mistake_source_type"] == "practice_session"
+        assert record_review_data["mistake_source_id"] == first_session["id"]
+        assert record_review_data["total_questions"] == 1
+        record_questions = client.get(f"/api/v2/practice/sessions/{record_review_data['id']}/questions", headers=headers).json()
+        assert [item["id"] for item in record_questions] == [first["id"]]
+
+        same_record_review = client.post(f"/api/v2/practice/sessions/{first_session['id']}/mistake-practice-sessions", headers=headers).json()
+        assert same_record_review["id"] == record_review_data["id"]
+
+
+def test_delete_session_removes_attempts_and_rebuilds_mistake_summary():
+    with TestClient(app) as client:
+        headers = _register(client, "delete-attempts@example.com", "deleteattempts")
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Delete Attempts", "visibility": "private"}).json()
+        question = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_sample_question_payload("Delete wrong?")).json()
+        sessions = []
+        for _ in range(2):
+            session = client.post("/api/v2/practice/sessions", headers=headers, json={"bank_id": bank["id"], "mode": "practice"}).json()
+            sessions.append(session)
+            client.post(
+                f"/api/v2/practice/sessions/{session['id']}/answers",
+                headers=headers,
+                json={"question_id": question["id"], "selected_option_ids": [question["options"][1]["id"]]},
+            )
+
+        assert client.get(f"/api/v2/banks/{bank['id']}/mistake-attempts", headers=headers).json()["total"] == 2
+        assert client.delete(f"/api/v2/practice/sessions/{sessions[0]['id']}", headers=headers).status_code == 200
+        attempts_after_delete = client.get(f"/api/v2/banks/{bank['id']}/mistake-attempts", headers=headers).json()
+        assert attempts_after_delete["total"] == 1
+        summary = client.get(f"/api/v2/banks/{bank['id']}/mistakes", headers=headers).json()
+        assert summary["total"] == 1
+        assert summary["items"][0]["wrong_count"] == 1
+
+
 def test_v2_ai_workflow_create_draft_confirm_is_workflow_centred(monkeypatch):
     with TestClient(app) as client:
         headers = _register(client, "v2-ai@example.com", "v2ai")
@@ -2661,7 +2779,7 @@ def test_blank_and_short_answer_crud_json_and_practice_flow():
             json={"question_id": short_question["id"], "text_answers": ["利用链式法则反向传播误差"]},
         )
         assert short_answer.status_code == 200, short_answer.text
-        assert short_answer.json()["is_correct"] is True
+        assert short_answer.json()["is_correct"] is False
         assert short_answer.json()["correct_text_answers"] == []
 
         result = client.get(f"/api/v2/practice/sessions/{session['id']}/result", headers=headers).json()
@@ -2671,7 +2789,7 @@ def test_blank_and_short_answer_crud_json_and_practice_flow():
         assert blank_result["correct_text_answers"] == [["传输层", "Transport Layer"]]
         assert blank_result["is_correct"] is True
         assert short_result["text_answers"] == ["利用链式法则反向传播误差"]
-        assert short_result["is_correct"] is True
+        assert short_result["is_correct"] is False
 
 
 def test_practice_session_can_select_counts_per_question_type():
@@ -2809,15 +2927,102 @@ def test_blank_draft_can_save_partial_answers_without_locking_question():
 
         restored = client.get(f"/api/v2/practice/sessions/{session['id']}/questions", headers=headers).json()[0]
         assert restored["answer_state"]["is_answered"] is False
-        assert restored["answer_state"]["text_answers"] == ["传输层"]
+        assert restored["answer_state"]["text_answers"] == ["传输层", ""]
 
         submitted = client.post(
             f"/api/v2/practice/sessions/{session['id']}/answers",
             headers=headers,
             json={"question_id": blank["id"], "text_answers": ["传输层"]},
         )
-        assert submitted.status_code == 400
-        assert "填空答案数量与空位数量不一致" in submitted.json()["error"]["message"]
+        assert submitted.status_code == 200, submitted.text
+        assert submitted.json()["is_correct"] is False
+        result = client.get(f"/api/v2/practice/sessions/{session['id']}/result", headers=headers).json()[0]
+        assert result["text_answers"] == ["传输层", ""]
+        assert result["is_correct"] is False
+
+
+def test_blank_and_short_answer_can_submit_empty_as_wrong_answers():
+    with TestClient(app) as client:
+        headers = _register(client, "empty-text-answer@example.com", "emptytextanswer")
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Empty Text Answers", "visibility": "private"}).json()
+        blank = client.post(
+            f"/api/v2/banks/{bank['id']}/questions",
+            headers=headers,
+            json={
+                "type": "blank",
+                "stem": "{{1}} 使用 {{2}} 端口。",
+                "options": [],
+                "blanks": [
+                    {"label": "1", "answers": ["HTTP"]},
+                    {"label": "2", "answers": ["80"]},
+                ],
+                "explanation": "HTTP 默认 80 端口。",
+            },
+        ).json()
+        short = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_short_answer_question_payload()).json()
+        session = client.post("/api/v2/practice/sessions", headers=headers, json={"bank_id": bank["id"], "mode": "practice", "shuffle_questions": False}).json()
+
+        blank_answer = client.post(
+            f"/api/v2/practice/sessions/{session['id']}/answers",
+            headers=headers,
+            json={"question_id": blank["id"], "text_answers": ["", ""]},
+        )
+        assert blank_answer.status_code == 200, blank_answer.text
+        assert blank_answer.json()["is_correct"] is False
+
+        short_answer = client.post(
+            f"/api/v2/practice/sessions/{session['id']}/answers",
+            headers=headers,
+            json={"question_id": short["id"], "text_answers": []},
+        )
+        assert short_answer.status_code == 200, short_answer.text
+        assert short_answer.json()["is_correct"] is False
+
+        result = client.get(f"/api/v2/practice/sessions/{session['id']}/result", headers=headers).json()
+        blank_result = next(item for item in result if item["question_id"] == blank["id"])
+        short_result = next(item for item in result if item["question_id"] == short["id"])
+        assert blank_result["text_answers"] == ["", ""]
+        assert blank_result["is_unanswered"] is False
+        assert short_result["text_answers"] == [""]
+        assert short_result["is_unanswered"] is False
+
+
+def test_exam_submit_can_ignore_unlocked_drafts_and_user_can_delete_session():
+    with TestClient(app) as client:
+        headers = _register(client, "commit-drafts@example.com", "commitdrafts")
+        other_headers = _register(client, "commit-drafts-other@example.com", "commitdraftsother")
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Commit Drafts", "visibility": "private"}).json()
+        question = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_sample_question_payload("考试缓存题")).json()
+
+        ignored = client.post("/api/v2/practice/sessions", headers=headers, json={"bank_id": bank["id"], "mode": "exam"}).json()
+        saved = client.put(
+            f"/api/v2/practice/sessions/{ignored['id']}/answers/{question['id']}/draft",
+            headers=headers,
+            json={"question_id": question["id"], "selected_option_ids": [question["options"][0]["id"]]},
+        )
+        assert saved.status_code == 200, saved.text
+        submitted = client.post(f"/api/v2/practice/sessions/{ignored['id']}/submit", headers=headers, json={"commit_drafts": False})
+        assert submitted.status_code == 200, submitted.text
+        assert submitted.json()["answered_count"] == 0
+        ignored_result = client.get(f"/api/v2/practice/sessions/{ignored['id']}/result", headers=headers).json()[0]
+        assert ignored_result["is_unanswered"] is True
+        assert ignored_result["selected_option_ids"] == []
+
+        counted = client.post("/api/v2/practice/sessions", headers=headers, json={"bank_id": bank["id"], "mode": "exam"}).json()
+        client.put(
+            f"/api/v2/practice/sessions/{counted['id']}/answers/{question['id']}/draft",
+            headers=headers,
+            json={"question_id": question["id"], "selected_option_ids": [question["options"][0]["id"]]},
+        )
+        counted_submit = client.post(f"/api/v2/practice/sessions/{counted['id']}/submit", headers=headers, json={"commit_drafts": True})
+        assert counted_submit.status_code == 200, counted_submit.text
+        assert counted_submit.json()["answered_count"] == 1
+
+        assert client.delete(f"/api/v2/practice/sessions/{counted['id']}", headers=other_headers).status_code == 404
+        deleted = client.delete(f"/api/v2/practice/sessions/{counted['id']}", headers=headers)
+        assert deleted.status_code == 200, deleted.text
+        assert deleted.json() == {"ok": True}
+        assert client.get(f"/api/v2/practice/sessions/{counted['id']}", headers=headers).status_code == 404
 
 
 def test_ai_generation_accepts_blank_and_short_answer_with_type_settings(monkeypatch):

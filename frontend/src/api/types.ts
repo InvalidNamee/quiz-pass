@@ -138,6 +138,9 @@ export type PracticeSession = {
   answered_count: number
   correct_count: number
   score: number
+  mistake_source_type: string | null
+  mistake_source_id: number | null
+  unresolved_mistake_attempt_count: number
   started_at: string
   submitted_at: string | null
   last_answered_at: string | null
@@ -180,6 +183,29 @@ export type MistakeRecord = {
   explanation: string | null
   wrong_count: number
   last_wrong_at: string
+  resolved_at: string | null
+}
+
+export type MistakeAttempt = {
+  id: number
+  user_id: number
+  bank_id: number
+  question_id: number
+  practice_session_id: number
+  practice_answer_id: number | null
+  type: QuestionType
+  stem: string
+  options: Array<{ id: number; label: string; content: string }>
+  blanks: Array<{ id: number; label: string; sort_order: number }>
+  selected_option_ids: number[]
+  selected_labels: string[]
+  text_answers: string[]
+  correct_option_ids: number[]
+  correct_labels: string[]
+  correct_text_answers: string[][]
+  explanation: string | null
+  is_resolved: boolean
+  wrong_at: string
   resolved_at: string | null
 }
 

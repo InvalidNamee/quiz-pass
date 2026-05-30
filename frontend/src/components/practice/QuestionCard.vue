@@ -76,7 +76,7 @@ function setTextAnswer(index: number, value: string) {
 function canSubmit() {
   if (props.isLocked) return false
   if (isChoiceQuestion()) return props.selectedOptionIds.length > 0
-  return props.textAnswers.some((answer) => answer.trim())
+  return true
 }
 
 function correctTextSummary() {

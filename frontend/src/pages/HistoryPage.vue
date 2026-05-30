@@ -1,12 +1,16 @@
 <script setup lang="ts">
 import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { listHistory } from '../api/v2/practice'
+import { ElMessageBox } from 'element-plus'
+import { CircleX, Trash2 } from '@lucide/vue'
+import { createMistakeSessionFromPracticeSession, deleteSession, listHistory } from '../api/v2/practice'
 import type { Page, PracticeSession } from '../api/types'
 import { practiceProgressColor, practiceProgressPercent, practiceProgressText, practiceProgressType } from '../utils/practiceProgress'
 import { formatDateTime } from '../utils/dateTime'
+import { useToast } from '../composables/useToast'
 
 const route = useRoute(); const router = useRouter()
+const toast = useToast()
 const sessions = ref<PracticeSession[]>([])
 const mode = ref(''); const status = ref('')
 const pageInfo = ref<Page<PracticeSession> | null>(null)
@@ -30,6 +34,34 @@ async function load() {
 }
 function applyFilters(page = 1) { const q: Record<string, string> = {}; if (page > 1) q.page = String(page); if (mode.value) q.mode = mode.value; if (status.value) q.status = status.value; router.push({ query: q }) }
 function goPage(p: number) { applyFilters(p) }
+function openSession(row: PracticeSession) {
+  router.push(row.status === 'in_progress' ? `/practice/session/${row.id}?resume=1` : `/practice/result/${row.id}`)
+}
+
+async function removeSession(row: PracticeSession) {
+  try {
+    await ElMessageBox.confirm('删除后该练习记录将从历史列表中移除，题库和正式题目不会被删除。', '删除练习记录', {
+      confirmButtonText: '删除',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
+    await deleteSession(row.id)
+    toast.show('练习记录已删除', 'success')
+    await load()
+  } catch (error) {
+    if (error === 'cancel' || error === 'close') return
+    toast.show(error instanceof Error ? error.message : '删除练习记录失败', 'error')
+  }
+}
+
+async function startMistakePractice(row: PracticeSession) {
+  try {
+    const session = await createMistakeSessionFromPracticeSession(row.id)
+    router.push(`/practice/session/${session.id}?resume=1`)
+  } catch (error) {
+    toast.show(error instanceof Error ? error.message : '创建错题练习失败', 'error')
+  }
+}
 
 onMounted(load); watch(() => route.fullPath, load)
 </script>
@@ -59,7 +91,7 @@ onMounted(load); watch(() => route.fullPath, load)
       size="small"
       highlight-current-row
       class="cursor-pointer border border-slate-100 !rounded-2xl shadow-sm"
-      @row-click="(row: PracticeSession) => router.push(row.status === 'in_progress' ? `/practice/session/${row.id}` : `/practice/result/${row.id}`)"
+      @row-click="openSession"
     >
       <el-table-column label="题库" min-width="160">
         <template #default="{ row }: { row: PracticeSession }">{{ row.bank_title || `题库 #${row.bank_id}` }}</template>
@@ -91,6 +123,26 @@ onMounted(load); watch(() => route.fullPath, load)
       </el-table-column>
       <el-table-column label="最后作答" width="190">
         <template #default="{ row }: { row: PracticeSession }">{{ formatDateTime(lastActivity(row), '无') }}</template>
+      </el-table-column>
+      <el-table-column label="操作" width="180" align="left" header-align="left">
+        <template #default="{ row }: { row: PracticeSession }">
+          <div class="qp-icon-actions">
+            <el-tooltip v-if="row.unresolved_mistake_attempt_count > 0" content="错题练习" placement="top">
+              <el-button
+                size="small"
+                class="qp-icon-button is-amber"
+                @click.stop="startMistakePractice(row)"
+              >
+                <CircleX :size="16" />
+              </el-button>
+            </el-tooltip>
+            <el-tooltip content="删除记录" placement="top">
+              <el-button size="small" class="qp-icon-button is-red" @click.stop="removeSession(row)">
+                <Trash2 :size="16" />
+              </el-button>
+            </el-tooltip>
+          </div>
+        </template>
       </el-table-column>
     </el-table>
 

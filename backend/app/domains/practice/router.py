@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session, selectinload
 
@@ -10,6 +10,7 @@ from app.models.question import Question
 from app.models.user import User
 from app.schemas.common import Page, page_response
 from app.schemas.practice import (
+    MistakeAttemptOut,
     MistakeRecordOut,
     PracticeAnswerCreate,
     PracticeAnswerOut,
@@ -17,6 +18,7 @@ from app.schemas.practice import (
     PracticeResultAnswerOut,
     PracticeSessionCreate,
     PracticeSessionOut,
+    PracticeSessionSubmit,
 )
 from app.utils.pagination import paginate
 
@@ -59,8 +61,14 @@ def save_answer_draft(session_id: int, question_id: int, payload: PracticeAnswer
 
 
 @router.post("/practice/sessions/{session_id}/submit", response_model=PracticeSessionOut)
-def submit_session(session_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return PracticeSessionService(db).submit_session(session_id, current_user)
+def submit_session(session_id: int, payload: PracticeSessionSubmit | None = None, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return PracticeSessionService(db).submit_session(session_id, current_user, commit_drafts=payload.commit_drafts if payload else True)
+
+
+@router.delete("/practice/sessions/{session_id}")
+def delete_session(session_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    PracticeSessionService(db).delete_session(session_id, current_user)
+    return {"ok": True}
 
 
 @router.get("/practice/sessions/{session_id}/result", response_model=list[PracticeResultAnswerOut])
@@ -79,15 +87,33 @@ def list_mistakes(bank_id: int, page: int = 1, page_size: int = 20, resolved: bo
     return page_response([service.to_out(item, questions_by_id[item.question_id]) for item in items if item.question_id in questions_by_id], total, page, page_size)
 
 
+@router.get("/banks/{bank_id}/mistake-attempts", response_model=Page[MistakeAttemptOut])
+def list_mistake_attempts(bank_id: int, page: int = 1, page_size: int = 20, resolved: bool | None = False, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    service = MistakeService(db)
+    stmt = service.attempt_list_stmt(bank_id, current_user, resolved)
+    items, total, page, page_size = paginate(db, stmt, page, page_size)
+    return page_response([service.attempt_to_out(item) for item in items], total, page, page_size)
+
+
 @router.post("/banks/{bank_id}/mistakes/practice-sessions", response_model=PracticeSessionOut)
 def create_mistake_session(bank_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    return PracticeSessionService(db).create_session(PracticeSessionCreate(bank_id=bank_id, mode="mistake_review"), current_user)
+    return PracticeSessionService(db).create_mistake_review_session(bank_id, current_user, "bank", bank_id)
+
+
+@router.post("/practice/sessions/{session_id}/mistake-practice-sessions", response_model=PracticeSessionOut)
+def create_session_mistake_session(session_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return PracticeSessionService(db).create_mistake_review_session_from_practice_session(session_id, current_user)
+
+
+@router.post("/banks/{bank_id}/mistake-attempts/{attempt_id}/resolve")
+def resolve_mistake_attempt(bank_id: int, attempt_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    MistakeService(db).resolve_attempt(bank_id, attempt_id, current_user)
+    return {"ok": True}
 
 
 @router.post("/banks/{bank_id}/mistakes/{question_id}/resolve")
 def resolve_mistake(bank_id: int, question_id: int, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    MistakeService(db).resolve(bank_id, question_id, current_user)
-    return {"ok": True}
+    raise HTTPException(status_code=410, detail="旧错题订正接口已废弃，请使用具体错题记录订正")
 
 
 @router.get("/history/sessions", response_model=Page[PracticeSessionOut])

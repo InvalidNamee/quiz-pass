@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, onBeforeUnmount, computed, ref } from 'vue'
+import { onMounted, onBeforeUnmount, computed, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessageBox } from 'element-plus'
 import { usePracticeSession } from '../composables/usePracticeSession'
@@ -13,10 +13,13 @@ const router = useRouter()
 const toast = useToast()
 const sessionId = Number(route.params.sessionId)
 const redirectingToResult = ref(false)
+const submitDialogVisible = ref(false)
+const commitCachedAnswers = ref(true)
+const submittingSession = ref(false)
 const {
   session, questions, currentIndex, selected, textAnswers, answerStatus, answerResults,
   loading, currentQuestion, totalQuestions,
-  load, toggle, setSelection, setTextAnswers, submitAnswer, submitAll, saveDraftIfChanged, goToQuestion,
+  load, toggle, setSelection, setTextAnswers, submitAnswer, submitAll, saveDraftIfChanged, goToQuestion, setCurrentIndex,
   isLocked, shouldReveal, questionStatus,
 } = usePracticeSession(sessionId)
 
@@ -44,17 +47,20 @@ const showSubmitButton = computed(() => {
 })
 
 async function handleSubmit() {
+  commitCachedAnswers.value = true
+  submitDialogVisible.value = true
+}
+
+async function confirmSubmit() {
   try {
-    await ElMessageBox.confirm('提交后将结算本次练习，已作答题目不能再修改。确定提交试卷吗？', '提交试卷', {
-      confirmButtonText: '提交试卷',
-      cancelButtonText: '继续作答',
-      type: 'warning',
-    })
-    await submitAll()
+    submittingSession.value = true
+    await submitAll({ commit_drafts: commitCachedAnswers.value })
+    submitDialogVisible.value = false
     router.push(`/practice/result/${sessionId}`)
   } catch (err) {
-    if (err === 'cancel' || err === 'close') return
     toast.show(err instanceof Error ? err.message : '提交失败', 'error')
+  } finally {
+    submittingSession.value = false
   }
 }
 
@@ -135,6 +141,13 @@ async function loadOrRedirectFinishedSession() {
         type: 'info',
       }).catch(() => undefined)
       router.replace(`/practice/result/${sessionId}`)
+      return
+    }
+    if (route.query.resume === '1') {
+      const firstUnansweredVisual = visualOrder.value.find((index) => !questions.value[index]?.answer_state?.is_answered)
+      setCurrentIndex(firstUnansweredVisual ?? visualOrder.value[0] ?? 0)
+    } else {
+      setCurrentIndex(0)
     }
   } catch (err) {
     toast.show(err instanceof Error ? err.message : '加载练习失败', 'error')
@@ -142,6 +155,15 @@ async function loadOrRedirectFinishedSession() {
 }
 
 onMounted(() => { void loadOrRedirectFinishedSession(); document.addEventListener('keydown', onKeydown) })
+watch(() => session.value?.status, async (status) => {
+  if (status !== 'submitted' || redirectingToResult.value) return
+  redirectingToResult.value = true
+  await ElMessageBox.alert('本次练习已经结束，将为你打开结果页。', '练习已结束', {
+    confirmButtonText: '查看结果',
+    type: 'info',
+  }).catch(() => undefined)
+  router.replace(`/practice/result/${sessionId}`)
+})
 onBeforeUnmount(() => {
   void saveDraftIfChanged()
   document.removeEventListener('keydown', onKeydown)
@@ -188,6 +210,20 @@ onBeforeUnmount(() => {
           @go="goToQuestion"
         />
       </div>
+
+      <el-dialog v-model="submitDialogVisible" title="提交试卷" width="460px" append-to-body>
+        <div class="grid gap-3 text-sm leading-relaxed text-slate-600">
+          <p class="m-0">提交后将结算本次练习，已锁定或已提交的题目不能再修改。</p>
+          <el-radio-group v-model="commitCachedAnswers" class="grid gap-2">
+            <el-radio :value="true" border>提交当前已缓存答案并计分</el-radio>
+            <el-radio :value="false" border>不提交未锁定缓存，按未作答处理</el-radio>
+          </el-radio-group>
+        </div>
+        <template #footer>
+          <el-button @click="submitDialogVisible = false">继续作答</el-button>
+          <el-button type="primary" :loading="submittingSession" @click="confirmSubmit">提交试卷</el-button>
+        </template>
+      </el-dialog>
     </template>
   </section>
 </template>

@@ -78,7 +78,7 @@ function openPractice(bank: QuestionBankV2) {
 
 function continuePractice(bank: QuestionBankV2) {
   if (!bank.resumable_session) return
-  router.push(`/practice/session/${bank.resumable_session.id}`)
+  router.push(`/practice/session/${bank.resumable_session.id}?resume=1`)
 }
 
 async function loadRecentPractice() {

@@ -277,7 +277,10 @@ class QuestionBankQueryService:
                 .join(PracticeSession, PracticeSession.id == PracticeAnswer.session_id)
                 .where(
                     PracticeAnswer.session_id.in_(session_ids),
-                    or_(PracticeSession.mode == "exam", PracticeAnswer.is_submitted.is_(True)),
+                    or_(
+                        PracticeAnswer.is_submitted.is_(True),
+                        and_(PracticeSession.mode == "exam", PracticeSession.status == "in_progress"),
+                    ),
                 )
                 .group_by(PracticeAnswer.session_id)
             ).all()

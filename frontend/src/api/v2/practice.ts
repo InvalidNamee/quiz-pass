@@ -1,5 +1,5 @@
 import { api } from '../http'
-import type { Page, PracticeSession, MistakeRecord, QuestionTypeSettings } from '../types'
+import type { Page, PracticeSession, MistakeAttempt, MistakeRecord, QuestionTypeSettings } from '../types'
 
 export function createSession(data: { bank_id: number; mode: string; question_limit?: number; question_type_settings?: QuestionTypeSettings }) {
   return api<PracticeSession>('/api/v2/practice/sessions', { method: 'POST', body: JSON.stringify(data) })
@@ -32,8 +32,15 @@ export function saveAnswerDraft(sessionId: number, questionId: number, selectedO
   })
 }
 
-export function submitSession(sessionId: number) {
-  return api<PracticeSession>(`/api/v2/practice/sessions/${sessionId}/submit`, { method: 'POST' })
+export function submitSession(sessionId: number, options: { commit_drafts?: boolean } = {}) {
+  return api<PracticeSession>(`/api/v2/practice/sessions/${sessionId}/submit`, {
+    method: 'POST',
+    body: JSON.stringify({ commit_drafts: options.commit_drafts ?? true }),
+  })
+}
+
+export function deleteSession(sessionId: number) {
+  return api<{ ok: boolean }>(`/api/v2/practice/sessions/${sessionId}`, { method: 'DELETE' })
 }
 
 export function getResult(sessionId: number) {
@@ -47,12 +54,23 @@ export function listMistakes(bankId: number, resolved?: boolean, params: { page?
   return api<Page<MistakeRecord>>(`/api/v2/banks/${bankId}/mistakes?${q}`)
 }
 
+export function listMistakeAttempts(bankId: number, resolved: boolean | undefined = false, params: { page?: number; page_size?: number } = {}) {
+  const q = new URLSearchParams()
+  if (resolved !== undefined) q.set('resolved', String(resolved))
+  Object.entries(params).forEach(([k, v]) => { if (v !== undefined) q.set(k, String(v)) })
+  return api<Page<MistakeAttempt>>(`/api/v2/banks/${bankId}/mistake-attempts?${q}`)
+}
+
 export function createMistakeSession(bankId: number) {
   return api<PracticeSession>(`/api/v2/banks/${bankId}/mistakes/practice-sessions`, { method: 'POST' })
 }
 
-export function resolveMistake(bankId: number, questionId: number) {
-  return api(`/api/v2/banks/${bankId}/mistakes/${questionId}/resolve`, { method: 'POST' })
+export function createMistakeSessionFromPracticeSession(sessionId: number) {
+  return api<PracticeSession>(`/api/v2/practice/sessions/${sessionId}/mistake-practice-sessions`, { method: 'POST' })
+}
+
+export function resolveMistakeAttempt(bankId: number, attemptId: number) {
+  return api(`/api/v2/banks/${bankId}/mistake-attempts/${attemptId}/resolve`, { method: 'POST' })
 }
 
 export function listHistory(params: { page?: number; page_size?: number; bank_id?: number; mode?: string; status?: string }) {
