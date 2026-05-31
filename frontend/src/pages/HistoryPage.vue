@@ -56,9 +56,15 @@ async function removeSession(row: PracticeSession) {
 
 async function startMistakePractice(row: PracticeSession) {
   try {
+    await ElMessageBox.confirm('将根据这条练习记录中尚未订正的错题创建或恢复错题练习。', '开始错题练习', {
+      confirmButtonText: '开始练习',
+      cancelButtonText: '取消',
+      type: 'warning',
+    })
     const session = await createMistakeSessionFromPracticeSession(row.id)
     router.push(`/practice/session/${session.id}?resume=1`)
   } catch (error) {
+    if (error === 'cancel' || error === 'close') return
     toast.show(error instanceof Error ? error.message : '创建错题练习失败', 'error')
   }
 }
