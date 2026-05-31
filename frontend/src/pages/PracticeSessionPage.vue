@@ -147,7 +147,7 @@ async function loadOrRedirectFinishedSession() {
       const firstUnansweredVisual = visualOrder.value.find((index) => !questions.value[index]?.answer_state?.is_answered)
       setCurrentIndex(firstUnansweredVisual ?? visualOrder.value[0] ?? 0)
     } else {
-      setCurrentIndex(0)
+      setCurrentIndex(visualOrder.value[0] ?? 0)
     }
   } catch (err) {
     toast.show(err instanceof Error ? err.message : '加载练习失败', 'error')
