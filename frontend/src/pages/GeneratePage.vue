@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import GenerateBankDialog from '../components/GenerateBankDialog.vue'
+import { isUtilityWindowSupported } from '../features/utility-windows/utilityWindow'
+import { openBankGenerateWindow } from '../features/utility-windows/openUtilityFlows'
 
 const route = useRoute()
 const router = useRouter()
@@ -12,6 +14,12 @@ function close() {
   if (extendBankId.value) router.replace(`/banks/${extendBankId.value}`)
   else router.replace('/banks')
 }
+
+onMounted(async () => {
+  if (!isUtilityWindowSupported()) return
+  await openBankGenerateWindow({ extendBankId: extendBankId.value }).catch(() => undefined)
+  close()
+})
 </script>
 
 <template>

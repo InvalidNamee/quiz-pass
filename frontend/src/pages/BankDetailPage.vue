@@ -10,9 +10,14 @@ import UserAvatar from '../components/UserAvatar.vue'
 import PracticeSetupDialog from '../components/PracticeSetupDialog.vue'
 import GenerateBankDialog from '../components/GenerateBankDialog.vue'
 import { isUnstableBankStatus, isUnstableWorkflowStatus } from '../utils/generationStatus'
-import { Bot, CircleCheck, CircleX, Download, FileText, Pencil, Plus, Rocket, Settings, Share2, Star, Trash2, Zap } from '@lucide/vue'
+import { Bot, CircleCheck, CircleX, Download, FileText, HardDriveDownload, Pencil, Plus, Rocket, Settings, Share2, Star, Trash2, Zap } from '@lucide/vue'
 import { normalizeTagNames, tagKey, tagLabel, type TagInputValue } from '../features/tags/tagUtils'
 import { ElMessageBox } from 'element-plus'
+import { getLocalBankByRemoteId } from '../local/banks'
+import { isDesktopRuntime } from '../local/db'
+import { openLocalDownloadWindow } from '../features/local/openLocalWindow'
+import { isUtilityWindowSupported } from '../features/utility-windows/utilityWindow'
+import { openBankEditWindow, openBankGenerateWindow, openPracticeSetupWindow } from '../features/utility-windows/openUtilityFlows'
 
 const route = useRoute()
 const router = useRouter()
@@ -32,6 +37,7 @@ const canManage = computed(() => bank.value?.permissions.can_manage ?? false)
 const saving = ref(false)
 const deleting = ref(false)
 const exporting = ref(false)
+const localDownloadedAt = ref<string | null>(null)
 const practiceDialogVisible = ref(false)
 const generateDialogVisible = ref(false)
 const aiContext = ref('')
@@ -73,6 +79,12 @@ async function load(silent = false) {
     }
     editTags.value = bank.value.tags || []
     aiContext.value = bank.value.ai_context || ''
+    if (isDesktopRuntime()) {
+      const local = await getLocalBankByRemoteId(bank.value.id)
+      localDownloadedAt.value = local?.downloaded_at || null
+    } else {
+      localDownloadedAt.value = null
+    }
   } finally { if (!silent) loading.value = false }
 }
 
@@ -129,6 +141,44 @@ async function exportJson() {
   } finally { exporting.value = false }
 }
 
+function openLocalDownload() {
+  if (!bank.value) return
+  openLocalDownloadWindow({
+    remoteBankId: bank.value.id,
+    title: bank.value.title,
+    alreadyDownloaded: Boolean(localDownloadedAt.value),
+  }).catch((err) => {
+    toast.show(err instanceof Error ? err.message : '打开本地下载窗口失败', 'error')
+  })
+}
+
+function openPracticeSetup() {
+  if (!bank.value) return
+  if (isUtilityWindowSupported()) {
+    openPracticeSetupWindow({ bank: bank.value }).catch((err) => toast.show(err instanceof Error ? err.message : '打开练习窗口失败', 'error'))
+    return
+  }
+  practiceDialogVisible.value = true
+}
+
+function openGenerate() {
+  if (!bank.value) return
+  if (isUtilityWindowSupported()) {
+    openBankGenerateWindow({ extendBankId: bank.value.id, title: bank.value.title }).catch((err) => toast.show(err instanceof Error ? err.message : '打开扩展题库窗口失败', 'error'))
+    return
+  }
+  generateDialogVisible.value = true
+}
+
+function openEdit() {
+  if (!bank.value) return
+  if (isUtilityWindowSupported()) {
+    openBankEditWindow({ bankId: bank.value.id, title: bank.value.title }).catch((err) => toast.show(err instanceof Error ? err.message : '打开编辑窗口失败', 'error'))
+    return
+  }
+  editing.value = true
+}
+
 async function handleShare() {
   if (!bank.value) return
   ElMessageBox.confirm(
@@ -169,9 +219,28 @@ function continuePractice() {
   router.push(`/practice/session/${bank.value.resumable_session.id}?resume=1`)
 }
 
-onMounted(load)
+function handleLocalBankDownloaded(event: Event) {
+  const detail = (event as CustomEvent<{ remoteBankId: number; downloadedAt: string }>).detail
+  if (!bank.value || detail?.remoteBankId !== bank.value.id) return
+  localDownloadedAt.value = detail.downloadedAt
+}
+
+function handleUtilityCompleted(event: Event) {
+  const detail = (event as CustomEvent<{ kind?: string }>).detail
+  if (detail?.kind === 'bank-generate' || detail?.kind === 'bank-edit') void load()
+}
+
+onMounted(() => {
+  window.addEventListener('quiz-pass:local-bank-downloaded', handleLocalBankDownloaded)
+  window.addEventListener('quiz-pass:utility-window-completed', handleUtilityCompleted)
+  void load()
+})
 watch(bank, syncPolling, { deep: true })
-onBeforeUnmount(stopPolling)
+onBeforeUnmount(() => {
+  window.removeEventListener('quiz-pass:local-bank-downloaded', handleLocalBankDownloaded)
+  window.removeEventListener('quiz-pass:utility-window-completed', handleUtilityCompleted)
+  stopPolling()
+})
 </script>
 
 <template>
@@ -239,7 +308,7 @@ onBeforeUnmount(stopPolling)
           <el-button
             v-if="bank.permissions.can_practice"
             class="!rounded-xl active:scale-95 transition-all"
-            @click="practiceDialogVisible = true"
+            @click="openPracticeSetup"
           >
             <Rocket :size="14" class="mr-1" />开始练习
           </el-button>
@@ -249,6 +318,18 @@ onBeforeUnmount(stopPolling)
           </RouterLink>
 
           <el-button v-if="bank.permissions.can_export" :loading="exporting" class="!rounded-xl active:scale-95 transition-all" @click="exportJson"><Download :size="14" class="mr-1" />导出 JSON</el-button>
+          <el-tooltip :disabled="isDesktopRuntime()" content="请在 Quiz Pass 桌面客户端中下载本地副本">
+            <span>
+              <el-button
+                v-if="bank.permissions.can_read"
+                :disabled="!isDesktopRuntime()"
+                class="!rounded-xl active:scale-95 transition-all"
+                @click="openLocalDownload"
+              >
+                <HardDriveDownload :size="14" class="mr-1" />{{ localDownloadedAt ? '更新本地副本' : '下载到本机' }}
+              </el-button>
+            </span>
+          </el-tooltip>
           <el-button v-if="bank.permissions.can_share" class="!rounded-xl active:scale-95 transition-all" @click="handleShare"><Share2 :size="14" class="mr-1" />共享题库</el-button>
 
           <RouterLink :to="`/banks/${bank.id}/workflows`">
@@ -259,7 +340,7 @@ onBeforeUnmount(stopPolling)
             <el-button class="!rounded-xl active:scale-95 transition-all"><Settings :size="14" class="mr-1" />题目管理</el-button>
           </RouterLink>
 
-          <el-button v-if="canManage" class="!rounded-xl active:scale-95 transition-all" @click="generateDialogVisible = true"><Plus :size="14" class="mr-1" />扩展题目</el-button>
+          <el-button v-if="canManage" class="!rounded-xl active:scale-95 transition-all" @click="openGenerate"><Plus :size="14" class="mr-1" />扩展题目</el-button>
 
           <RouterLink
             v-if="canManage && bank.active_workflow && bank.active_workflow.status === 'draft_ready'"
@@ -274,7 +355,7 @@ onBeforeUnmount(stopPolling)
       <div v-if="canManage" class="qp-section space-y-3.5 shadow-sm border border-slate-100/80">
         <h2 class="qp-section-title !mb-0 text-slate-800">题库管理</h2>
         <div class="flex flex-wrap gap-2 pt-1">
-          <el-button class="!rounded-xl active:scale-95 transition-all" @click="editing = true">
+          <el-button class="!rounded-xl active:scale-95 transition-all" @click="openEdit">
             <Pencil :size="14" class="mr-1" />编辑基本信息
           </el-button>
           <el-button type="danger" plain class="!rounded-xl active:scale-95 transition-all" @click="deleteModal = true"><Trash2 :size="14" class="mr-1" />删除题库</el-button>

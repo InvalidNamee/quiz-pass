@@ -2,6 +2,8 @@
 import { ref } from 'vue'
 import { listTags } from '../api/v2/banks'
 import type { QuestionBankTag } from '../api/types'
+import { isUtilityWindowSupported } from '../features/utility-windows/utilityWindow'
+import { openTagFilterWindow } from '../features/utility-windows/openUtilityFlows'
 
 const props = defineProps<{ modelValue: QuestionBankTag[] }>()
 const emit = defineEmits<{ 'update:modelValue': [value: QuestionBankTag[]] }>()
@@ -10,12 +12,30 @@ const dialogVisible = ref(false)
 const allTags = ref<QuestionBankTag[]>([])
 const selectedTagIds = ref<number[]>([])
 const tagKeyword = ref('')
+let pendingWindowListener: ((event: Event) => void) | null = null
 
 async function loadTagOptions() {
   allTags.value = (await listTags({ keyword: tagKeyword.value.trim() || undefined, page_size: 200 })).items
 }
 
 async function openDialog() {
+  if (isUtilityWindowSupported()) {
+    if (pendingWindowListener) window.removeEventListener('quiz-pass:utility-window-completed', pendingWindowListener)
+    try {
+      const opened = await openTagFilterWindow({ selectedTags: props.modelValue })
+      pendingWindowListener = (event: Event) => {
+        const detail = (event as CustomEvent<{ kind?: string; requestId?: string; action?: string; result?: { tags?: QuestionBankTag[] } }>).detail
+        if (detail?.kind !== 'tag-filter' || detail.requestId !== opened.requestId || detail.action !== 'tags-selected') return
+        emit('update:modelValue', detail.result?.tags || [])
+        window.removeEventListener('quiz-pass:utility-window-completed', pendingWindowListener!)
+        pendingWindowListener = null
+      }
+      window.addEventListener('quiz-pass:utility-window-completed', pendingWindowListener)
+      return
+    } catch {
+      // Fall through to the browser dialog fallback.
+    }
+  }
   tagKeyword.value = ''
   await loadTagOptions()
   selectedTagIds.value = props.modelValue.map(t => t.id)

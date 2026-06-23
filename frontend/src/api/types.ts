@@ -102,6 +102,39 @@ export type Question = {
   blanks: QuestionBlank[]
 }
 
+export type BankDownloadPackage = {
+  version: number
+  bank: {
+    id: number
+    title: string
+    description: string | null
+    ai_context: string | null
+    visibility: string
+    generation_status: string
+    source_bank_id: number | null
+    is_shared_copy: boolean
+    owner: BankOwner
+    question_count: number
+    favorite_count: number
+    created_at: string
+    updated_at: string
+  }
+  tags: QuestionBankTag[]
+  questions: Array<Question & {
+    options: Array<QuestionOption & { id: number; is_correct: boolean; sort_order: number }>
+    blanks: Array<QuestionBlank & { id: number; sort_order: number }>
+    created_at: string
+    updated_at: string
+  }>
+  content_hash: string
+  exported_at: string
+}
+
+export type OfflinePracticeSyncResult = {
+  synced: Array<{ client_session_id: string; remote_session_id: number }>
+  failed: Array<{ client_session_id: string; code: string; message: string }>
+}
+
 export type AIGenerationDraftQuestion = {
   id: number
   type: QuestionType

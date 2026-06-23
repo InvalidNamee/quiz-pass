@@ -7,6 +7,8 @@ import { useToast } from '../composables/useToast'
 import SessionHeader from '../components/practice/SessionHeader.vue'
 import QuestionCard from '../components/practice/QuestionCard.vue'
 import QuestionNavigator from '../components/practice/QuestionNavigator.vue'
+import { isUtilityWindowSupported } from '../features/utility-windows/utilityWindow'
+import { openSubmitPracticeWindow } from '../features/utility-windows/openUtilityFlows'
 
 const route = useRoute()
 const router = useRouter()
@@ -48,13 +50,17 @@ const showSubmitButton = computed(() => {
 
 async function handleSubmit() {
   commitCachedAnswers.value = true
+  if (isUtilityWindowSupported()) {
+    await openSubmitPracticeWindow({ sessionId }).catch((err) => toast.show(err instanceof Error ? err.message : '打开提交窗口失败', 'error'))
+    return
+  }
   submitDialogVisible.value = true
 }
 
-async function confirmSubmit() {
+async function confirmSubmit(commitDrafts = commitCachedAnswers.value) {
   try {
     submittingSession.value = true
-    await submitAll({ commit_drafts: commitCachedAnswers.value })
+    await submitAll({ commit_drafts: commitDrafts })
     submitDialogVisible.value = false
     router.push(`/practice/result/${sessionId}`)
   } catch (err) {
@@ -62,6 +68,13 @@ async function confirmSubmit() {
   } finally {
     submittingSession.value = false
   }
+}
+
+function handleUtilityCompleted(event: Event) {
+  const detail = (event as CustomEvent<{ kind?: string; action?: string; result?: { sessionId?: number; commitDrafts?: boolean } }>).detail
+  if (detail?.kind !== 'submit-practice' || detail.action !== 'submit-choice') return
+  if (detail.result?.sessionId !== sessionId) return
+  void confirmSubmit(Boolean(detail.result.commitDrafts))
 }
 
 async function onKeydown(e: KeyboardEvent) {
@@ -154,7 +167,11 @@ async function loadOrRedirectFinishedSession() {
   }
 }
 
-onMounted(() => { void loadOrRedirectFinishedSession(); document.addEventListener('keydown', onKeydown) })
+onMounted(() => {
+  void loadOrRedirectFinishedSession()
+  document.addEventListener('keydown', onKeydown)
+  window.addEventListener('quiz-pass:utility-window-completed', handleUtilityCompleted)
+})
 watch(() => session.value?.status, async (status) => {
   if (status !== 'submitted' || redirectingToResult.value) return
   redirectingToResult.value = true
@@ -167,6 +184,7 @@ watch(() => session.value?.status, async (status) => {
 onBeforeUnmount(() => {
   void saveDraftIfChanged()
   document.removeEventListener('keydown', onKeydown)
+  window.removeEventListener('quiz-pass:utility-window-completed', handleUtilityCompleted)
 })
 </script>
 

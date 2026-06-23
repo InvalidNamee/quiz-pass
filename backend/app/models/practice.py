@@ -8,6 +8,7 @@ from app.db.base import Base
 
 class PracticeSession(Base):
     __tablename__ = "practice_sessions"
+    __table_args__ = (UniqueConstraint("user_id", "offline_device_id", "offline_client_session_id", name="uq_practice_session_offline_client"),)
 
     id: Mapped[int] = mapped_column(primary_key=True)
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id"), index=True)
@@ -19,6 +20,9 @@ class PracticeSession(Base):
     score: Mapped[float] = mapped_column(Float, default=0)
     mistake_source_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     mistake_source_id: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    offline_device_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    offline_client_session_id: Mapped[str | None] = mapped_column(String(128), nullable=True, index=True)
+    offline_synced_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     started_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     submitted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 

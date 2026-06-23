@@ -394,6 +394,108 @@ def test_recent_practice_banks_returns_distinct_readable_banks_by_latest_activit
         assert client.get("/api/v2/banks/recent-practice?page_size=6", headers=other_headers).json() == []
 
 
+def test_bank_download_package_contains_full_readable_bank_content():
+    with TestClient(app) as client:
+        owner_headers = _register(client, "download-owner@example.com", "downloadowner")
+        reader_headers = _register(client, "download-reader@example.com", "downloadreader")
+        bank = client.post(
+            "/api/v2/banks",
+            headers=owner_headers,
+            json={"title": "Download Bank", "description": "本地题库", "visibility": "private", "tag_names": ["离线"]},
+        ).json()
+        single = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=owner_headers, json=_sample_question_payload("下载单选")).json()
+        blank = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=owner_headers, json=_blank_question_payload()).json()
+        short = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=owner_headers, json=_short_answer_question_payload()).json()
+
+        package = client.get(f"/api/v2/banks/{bank['id']}/download-package", headers=owner_headers)
+        assert package.status_code == 200, package.text
+        payload = package.json()
+        assert payload["version"] == 1
+        assert payload["bank"]["id"] == bank["id"]
+        assert payload["bank"]["title"] == "Download Bank"
+        assert payload["bank"]["description"] == "本地题库"
+        assert payload["tags"] == [{"id": payload["tags"][0]["id"], "name": "离线"}]
+        assert payload["content_hash"]
+        assert payload["exported_at"]
+        questions = {question["id"]: question for question in payload["questions"]}
+        assert set(questions) == {single["id"], blank["id"], short["id"]}
+        assert questions[single["id"]]["options"][0]["is_correct"] is True
+        assert questions[blank["id"]]["blanks"][0]["answers"] == ["传输层", "Transport Layer"]
+        assert questions[short["id"]]["type"] == "short_answer"
+
+        hidden = client.get(f"/api/v2/banks/{bank['id']}/download-package", headers=reader_headers)
+        assert hidden.status_code == 404
+
+
+def test_offline_practice_sync_imports_full_session_and_is_idempotent():
+    with TestClient(app) as client:
+        headers = _register(client, "offline-sync@example.com", "offlinesync")
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Offline Sync", "visibility": "private"}).json()
+        single = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_sample_question_payload("离线单选")).json()
+        blank = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_blank_question_payload()).json()
+
+        payload = {
+            "device_id": "device-a",
+            "sessions": [
+                {
+                    "client_session_id": "local-session-1",
+                    "remote_bank_id": bank["id"],
+                    "mode": "practice",
+                    "status": "submitted",
+                    "question_order": [single["id"], blank["id"]],
+                    "answers": [
+                        {
+                            "question_id": single["id"],
+                            "selected_option_ids": [single["options"][1]["id"]],
+                            "text_answers": [],
+                            "is_submitted": True,
+                            "answered_at": "2026-06-17T10:00:00Z",
+                        },
+                        {
+                            "question_id": blank["id"],
+                            "selected_option_ids": [],
+                            "text_answers": ["传输层"],
+                            "is_submitted": True,
+                            "answered_at": "2026-06-17T10:01:00Z",
+                        },
+                    ],
+                    "started_at": "2026-06-17T09:59:00Z",
+                    "submitted_at": "2026-06-17T10:02:00Z",
+                }
+            ],
+        }
+
+        first_sync = client.post("/api/v2/offline/practice-sync", headers=headers, json=payload)
+        assert first_sync.status_code == 200, first_sync.text
+        first_body = first_sync.json()
+        assert first_body["failed"] == []
+        assert first_body["synced"][0]["client_session_id"] == "local-session-1"
+        remote_session_id = first_body["synced"][0]["remote_session_id"]
+
+        history = client.get("/api/v2/history/sessions", headers=headers).json()["items"]
+        synced_history = next(item for item in history if item["id"] == remote_session_id)
+        assert synced_history["status"] == "submitted"
+        assert synced_history["correct_count"] == 1
+        assert synced_history["score"] == 50
+
+        result = client.get(f"/api/v2/practice/sessions/{remote_session_id}/result", headers=headers).json()
+        assert [item["question_id"] for item in result] == [single["id"], blank["id"]]
+        assert result[0]["selected_labels"] == ["B"]
+        assert result[0]["is_correct"] is False
+        assert result[1]["text_answers"] == ["传输层"]
+        assert result[1]["is_correct"] is True
+
+        mistakes = client.get(f"/api/v2/banks/{bank['id']}/mistake-attempts", headers=headers).json()
+        assert mistakes["total"] == 1
+        assert mistakes["items"][0]["practice_session_id"] == remote_session_id
+
+        second_sync = client.post("/api/v2/offline/practice-sync", headers=headers, json=payload)
+        assert second_sync.status_code == 200, second_sync.text
+        assert second_sync.json()["synced"][0]["remote_session_id"] == remote_session_id
+        assert client.get("/api/v2/history/sessions", headers=headers).json()["total"] == 1
+        assert client.get(f"/api/v2/banks/{bank['id']}/mistake-attempts", headers=headers).json()["total"] == 1
+
+
 def test_refresh_token_can_refresh_access_but_not_access_api():
     with TestClient(app) as client:
         response = client.post(

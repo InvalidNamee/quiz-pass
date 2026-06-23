@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import type { AIProviderConfig } from '../api/types'
 import {
   deleteAIConfig,
@@ -10,6 +10,8 @@ import {
 import { Link, Star, Pencil, Trash2 } from '@lucide/vue'
 import { useToast } from '../composables/useToast'
 import AIConfigDialog from '../components/AIConfigDialog.vue'
+import { isUtilityWindowSupported } from '../features/utility-windows/utilityWindow'
+import { openAIConfigWindow } from '../features/utility-windows/openUtilityFlows'
 
 const configs = ref<AIProviderConfig[]>([])
 const formVisible = ref(false)
@@ -29,9 +31,17 @@ const toast = useToast()
 async function load() { configs.value = await listAIConfigs() }
 
 function openAdd() {
+  if (isUtilityWindowSupported()) {
+    openAIConfigWindow().catch((err) => toast.show(err instanceof Error ? err.message : '打开 AI 配置窗口失败', 'error'))
+    return
+  }
   editingId.value = null; form.value = { name: '', api_base_url: '', api_key: '', model: '', response_format_type: 'json_object', is_default: false }; formVisible.value = true
 }
 function openEdit(item: AIProviderConfig) {
+  if (isUtilityWindowSupported()) {
+    openAIConfigWindow({ configId: item.id, initialConfig: item }).catch((err) => toast.show(err instanceof Error ? err.message : '打开 AI 配置窗口失败', 'error'))
+    return
+  }
   editingId.value = item.id; form.value = { name: item.name, api_base_url: item.api_base_url, api_key: '', model: item.model, response_format_type: item.response_format_type, is_default: item.is_default }; formVisible.value = true
 }
 
@@ -68,7 +78,18 @@ async function remove(id: number) {
   }
 }
 
-onMounted(load)
+function handleUtilityCompleted(event: Event) {
+  const detail = (event as CustomEvent<{ kind?: string }>).detail
+  if (detail?.kind === 'ai-config') void load()
+}
+
+onMounted(() => {
+  window.addEventListener('quiz-pass:utility-window-completed', handleUtilityCompleted)
+  void load()
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('quiz-pass:utility-window-completed', handleUtilityCompleted)
+})
 </script>
 
 <template>

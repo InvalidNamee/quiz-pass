@@ -13,6 +13,8 @@ import { Rocket, Star, Zap, Share2, Trash2, Plus } from '@lucide/vue'
 import { isUnstableBankStatus, isUnstableWorkflowStatus } from '../utils/generationStatus'
 import { useToast } from '../composables/useToast'
 import { practiceProgressColor, practiceProgressPercent, practiceProgressText, practiceProgressType } from '../utils/practiceProgress'
+import { isUtilityWindowSupported } from '../features/utility-windows/utilityWindow'
+import { openBankGenerateWindow, openPracticeSetupWindow } from '../features/utility-windows/openUtilityFlows'
 
 const props = defineProps<{
   title: string; subtitle: string
@@ -84,8 +86,20 @@ function applySearch() {
 }
 
 function openPractice(bank: QuestionBankV2) {
+  if (isUtilityWindowSupported()) {
+    openPracticeSetupWindow({ bank }).catch((err) => toast.show(err instanceof Error ? err.message : '打开练习窗口失败', 'error'))
+    return
+  }
   selectedPracticeBank.value = bank
   practiceDialogVisible.value = true
+}
+
+function openCreateBank() {
+  if (isUtilityWindowSupported()) {
+    openBankGenerateWindow().catch((err) => toast.show(err instanceof Error ? err.message : '打开新建题库窗口失败', 'error'))
+    return
+  }
+  createDialogVisible.value = true
 }
 
 function continuePractice(bank: QuestionBankV2) {
@@ -127,13 +141,24 @@ function handleDelete(bank: QuestionBankV2) {
   }).catch(() => {})
 }
 
-onMounted(load)
+function handleUtilityCompleted(event: Event) {
+  const detail = (event as CustomEvent<{ kind?: string }>).detail
+  if (detail?.kind === 'bank-generate') void load()
+}
+
+onMounted(() => {
+  window.addEventListener('quiz-pass:utility-window-completed', handleUtilityCompleted)
+  void load()
+})
 watch(() => route.fullPath, () => { void load() })
   watch(viewMode, (v) => {
     localStorage.setItem('qp-view-mode', v)
   })
 watch(banks, syncPolling, { deep: true })
-onBeforeUnmount(stopPolling)
+onBeforeUnmount(() => {
+  window.removeEventListener('quiz-pass:utility-window-completed', handleUtilityCompleted)
+  stopPolling()
+})
 </script>
 
 <template>
@@ -149,7 +174,7 @@ onBeforeUnmount(stopPolling)
           size="small"
           type="primary"
           class="!rounded-xl !bg-gradient-to-r !from-indigo-500 !to-purple-500 !border-none !h-9 shadow-md shadow-indigo-500/10 active:scale-95 transition-all"
-          @click="createDialogVisible = true"
+          @click="openCreateBank"
         >
           <Plus :size="14" class="mr-1" />新建题库
         </el-button>

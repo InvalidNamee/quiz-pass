@@ -3,6 +3,8 @@ import { ref } from 'vue'
 import { searchUsers } from '../api/v2/users'
 import type { UserPublic } from '../api/types'
 import UserAvatar from './UserAvatar.vue'
+import { isUtilityWindowSupported } from '../features/utility-windows/utilityWindow'
+import { openAuthorFilterWindow } from '../features/utility-windows/openUtilityFlows'
 
 const props = defineProps<{ modelValue: UserPublic | null }>()
 const emit = defineEmits<{ 'update:modelValue': [value: UserPublic | null] }>()
@@ -11,6 +13,7 @@ const dialogVisible = ref(false)
 const keyword = ref('')
 const searchResults = ref<UserPublic[]>([])
 const selectedUserId = ref<number | null>(null)
+let pendingWindowListener: ((event: Event) => void) | null = null
 
 async function search() {
   const k = keyword.value.trim()
@@ -24,6 +27,25 @@ async function search() {
 }
 
 function openDialog() {
+  if (isUtilityWindowSupported()) {
+    if (pendingWindowListener) window.removeEventListener('quiz-pass:utility-window-completed', pendingWindowListener)
+    openAuthorFilterWindow({ selectedUser: props.modelValue }).then((opened) => {
+      pendingWindowListener = (event: Event) => {
+        const detail = (event as CustomEvent<{ kind?: string; requestId?: string; action?: string; result?: { user?: UserPublic | null } }>).detail
+        if (detail?.kind !== 'author-filter' || detail.requestId !== opened.requestId || detail.action !== 'author-selected') return
+        emit('update:modelValue', detail.result?.user ?? null)
+        window.removeEventListener('quiz-pass:utility-window-completed', pendingWindowListener!)
+        pendingWindowListener = null
+      }
+      window.addEventListener('quiz-pass:utility-window-completed', pendingWindowListener)
+    }).catch(() => {
+      keyword.value = ''
+      searchResults.value = []
+      selectedUserId.value = props.modelValue?.id ?? null
+      dialogVisible.value = true
+    })
+    return
+  }
   keyword.value = ''
   searchResults.value = []
   selectedUserId.value = props.modelValue?.id ?? null

@@ -1,5 +1,5 @@
-import { api } from '../http'
-import type { Page, Question, QuestionBankV2, QuestionBankTag } from '../types'
+import { api, apiUrl } from '../http'
+import type { BankDownloadPackage, Page, Question, QuestionBankV2, QuestionBankTag } from '../types'
 
 type BankListParams = { page?: number; page_size?: number; keyword?: string; owner_id?: number; owner?: string; tag_ids?: string; visibility?: string; generation_status?: string }
 
@@ -16,6 +16,10 @@ export function listRecentPracticeBanks(pageSize = 6) {
 
 export function getBank(bankId: number) {
   return api<QuestionBankV2>(`/api/v2/banks/${bankId}`)
+}
+
+export function downloadBankPackage(bankId: number) {
+  return api<BankDownloadPackage>(`/api/v2/banks/${bankId}/download-package`)
 }
 
 export function createBank(data: { title: string; visibility?: string; tag_names?: string[] }) {
@@ -55,7 +59,7 @@ export function importJsonToBank(bankId: number, form: FormData) {
 }
 
 export function exportBankUrl(bankId: number) {
-  return `/api/v2/banks/${bankId}/export-json`
+  return apiUrl(`/api/v2/banks/${bankId}/export-json`)
 }
 
 export function listTags(params: { keyword?: string; ids?: string; page_size?: number }) {

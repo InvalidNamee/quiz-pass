@@ -23,6 +23,7 @@ const props = defineProps<{
   modelValue: boolean
   extendBankId?: number | null
   initialBank?: QuestionBankV2 | null
+  navigateOnSubmit?: boolean
 }>()
 
 const emit = defineEmits<{ 'update:modelValue': [value: boolean]; submitted: [] }>()
@@ -181,7 +182,7 @@ async function submit() {
     reset()
     visible.value = false
     emit('submitted')
-    router.push('/banks/generation-jobs')
+    if (props.navigateOnSubmit !== false) router.push('/banks/generation-jobs')
   } catch (err) {
     toast.show(err instanceof Error ? err.message : '提交失败', 'error')
   } finally {

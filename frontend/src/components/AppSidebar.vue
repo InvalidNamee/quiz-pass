@@ -57,6 +57,16 @@ function handleSelect(index: string) {
         </div>
       </el-menu-item>
 
+      <el-menu-item index="/local/banks">
+        <div class="flex items-center gap-2.5">
+          <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 7a2 2 0 012-2h12a2 2 0 012 2v10a2 2 0 01-2 2H6a2 2 0 01-2-2V7z" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 9h8M8 13h5" />
+          </svg>
+          <span>本地题库</span>
+        </div>
+      </el-menu-item>
+
       <el-menu-item index="/banks/public">
         <div class="flex items-center gap-2.5">
           <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -81,6 +91,16 @@ function handleSelect(index: string) {
             <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
           <span>练习记录</span>
+        </div>
+      </el-menu-item>
+
+      <el-menu-item index="/local/history">
+        <div class="flex items-center gap-2.5">
+          <svg class="h-4 w-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h10M4 18h7" />
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 14v4l3-2-3-2z" />
+          </svg>
+          <span>本地记录</span>
         </div>
       </el-menu-item>
 

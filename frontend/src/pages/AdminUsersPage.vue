@@ -1,11 +1,13 @@
 <script setup lang="ts">
-import { onMounted, ref, watch } from 'vue'
+import { onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { Page, UserMe } from '../api/types'
 import { listAdminUsers, resetAdminPassword, updateAdminUser } from '../api/v2/users'
 import { useAuthStore } from '../stores/auth'
 import { useToast } from '../composables/useToast'
 import { KeyRound, Pencil, UserCheck, UserX } from '@lucide/vue'
+import { isUtilityWindowSupported } from '../features/utility-windows/utilityWindow'
+import { openAdminPasswordResultWindow, openAdminUserEditWindow } from '../features/utility-windows/openUtilityFlows'
 
 const route = useRoute()
 const router = useRouter()
@@ -52,6 +54,10 @@ function applyFilters(page = 1) {
 }
 
 function startEdit(user: UserMe) {
+  if (isUtilityWindowSupported()) {
+    openAdminUserEditWindow({ user }).catch((err) => toast.show(err instanceof Error ? err.message : '打开编辑窗口失败', 'error'))
+    return
+  }
   editingUser.value = user
   editForm.value = {
     display_name: user.display_name || '',
@@ -103,7 +109,11 @@ async function resetPassword(user: UserMe) {
   resettingUserId.value = user.id
   try {
     const data = await resetAdminPassword(user.id)
-    temporaryPassword.value = data.temporary_password
+    if (isUtilityWindowSupported()) {
+      await openAdminPasswordResultWindow({ userId: user.id, temporaryPassword: data.temporary_password })
+    } else {
+      temporaryPassword.value = data.temporary_password
+    }
     toast.show('密码已重置', 'success')
   } catch (err) {
     toast.show(err instanceof Error ? err.message : '重置失败', 'error')
@@ -112,8 +122,19 @@ async function resetPassword(user: UserMe) {
   }
 }
 
-onMounted(load)
+function handleUtilityCompleted(event: Event) {
+  const detail = (event as CustomEvent<{ kind?: string }>).detail
+  if (detail?.kind === 'admin-user-edit') void load()
+}
+
+onMounted(() => {
+  window.addEventListener('quiz-pass:utility-window-completed', handleUtilityCompleted)
+  void load()
+})
 watch(() => route.fullPath, load)
+onBeforeUnmount(() => {
+  window.removeEventListener('quiz-pass:utility-window-completed', handleUtilityCompleted)
+})
 </script>
 
 <template>

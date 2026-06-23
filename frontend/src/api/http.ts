@@ -1,4 +1,24 @@
-export const API_BASE = import.meta.env.VITE_API_BASE_URL ?? ''
+function isDesktopRuntime() {
+  return Boolean((window as unknown as { __TAURI_INTERNALS__?: unknown }).__TAURI_INTERNALS__)
+}
+
+function resolveApiBase() {
+  const configured = String(import.meta.env.VITE_API_BASE_URL ?? '').trim()
+  if (configured) return configured.replace(/\/$/, '')
+  const stored = localStorage.getItem('api_base_url')?.trim()
+  if (stored) return stored.replace(/\/$/, '')
+  if (isDesktopRuntime() || !window.location.protocol.startsWith('http')) {
+    return 'http://127.0.0.1:8000'
+  }
+  return ''
+}
+
+export const API_BASE = resolveApiBase()
+
+export function apiUrl(path: string) {
+  if (/^https?:\/\//i.test(path)) return path
+  return API_BASE ? `${API_BASE}${path}` : path
+}
 
 type TokenResponse = {
   access_token: string
@@ -12,7 +32,7 @@ async function refreshAccessToken() {
   const refreshToken = localStorage.getItem('refresh_token')
   if (!refreshToken) return null
   if (!refreshPromise) {
-    refreshPromise = fetch(`${API_BASE}/api/v2/auth/refresh`, {
+    refreshPromise = fetch(apiUrl('/api/v2/auth/refresh'), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ refresh_token: refreshToken }),
@@ -48,7 +68,13 @@ async function requestWithAuth<T>(path: string, options: RequestInit = {}, allow
   }
   if (token) headers.set('Authorization', `Bearer ${token}`)
 
-  const response = await fetch(`${API_BASE}${path}`, { ...options, headers })
+  let response: Response
+  try {
+    response = await fetch(apiUrl(path), { ...options, headers })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    throw new Error(`无法连接后端 API（${apiUrl(path)}）：${message}`)
+  }
   if (response.status === 401 && allowRefresh && !path.includes('/auth/refresh')) {
     const nextToken = await refreshAccessToken()
     if (nextToken) {

@@ -10,6 +10,8 @@ import WorkflowDetailDrawer from '../components/WorkflowDetailDrawer.vue'
 import { Ban, Eye, FileCheck2, ExternalLink, RotateCcw } from '@lucide/vue'
 import { useToast } from '../composables/useToast'
 import { isUnstableWorkflowStatus } from '../utils/generationStatus'
+import { isUtilityWindowSupported } from '../features/utility-windows/utilityWindow'
+import { openWorkflowRetryWindow } from '../features/utility-windows/openUtilityFlows'
 
 const route = useRoute()
 const router = useRouter()
@@ -118,6 +120,10 @@ function applyRetryTypeSettings(row: WorkflowListItem) {
 }
 
 async function openRetry(row: WorkflowListItem) {
+  if (isUtilityWindowSupported()) {
+    openWorkflowRetryWindow({ workflowId: row.id }).catch((err) => toast.show(err instanceof Error ? err.message : '打开重新生成窗口失败', 'error'))
+    return
+  }
   retryTarget.value = row
   if (!configs.value.length) configs.value = await listAIConfigs()
   retryForm.value = {
@@ -135,6 +141,11 @@ async function openRetry(row: WorkflowListItem) {
   applyRetryTypeSettings(row)
   retryFiles.value = []
   retryDialogVisible.value = true
+}
+
+function handleUtilityCompleted(event: Event) {
+  const detail = (event as CustomEvent<{ kind?: string }>).detail
+  if (detail?.kind === 'workflow-retry') void load()
 }
 
 function retryQuestionTypeSettingsJson() {
@@ -214,10 +225,16 @@ async function cancelRow(row: WorkflowListItem) {
   }
 }
 
-onMounted(load)
+onMounted(() => {
+  window.addEventListener('quiz-pass:utility-window-completed', handleUtilityCompleted)
+  void load()
+})
 watch(() => route.fullPath, () => { void load() })
 watch(jobs, syncPolling, { deep: true })
-onBeforeUnmount(stopPolling)
+onBeforeUnmount(() => {
+  window.removeEventListener('quiz-pass:utility-window-completed', handleUtilityCompleted)
+  stopPolling()
+})
 </script>
 
 <template>

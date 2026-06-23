@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import { useRouter } from 'vue-router'
 import { useToast } from '../composables/useToast'
@@ -10,6 +10,8 @@ import PracticeSetupDialog from '../components/PracticeSetupDialog.vue'
 import { listRecentPracticeBanks } from '../api/v2/banks'
 import type { QuestionBankV2 } from '../api/types'
 import { practiceLastActivity, practiceProgressColor, practiceProgressPercent, practiceProgressText, practiceProgressType } from '../utils/practiceProgress'
+import { isUtilityWindowSupported } from '../features/utility-windows/utilityWindow'
+import { openAIConfigWindow, openBankGenerateWindow, openPracticeSetupWindow } from '../features/utility-windows/openUtilityFlows'
 
 const auth = useAuthStore()
 const router = useRouter()
@@ -72,8 +74,28 @@ function formatTime(value: string | null) {
 }
 
 function openPractice(bank: QuestionBankV2) {
+  if (isUtilityWindowSupported()) {
+    openPracticeSetupWindow({ bank }).catch((err) => toast.show(err instanceof Error ? err.message : '打开练习窗口失败', 'error'))
+    return
+  }
   selectedPracticeBank.value = bank
   practiceDialogVisible.value = true
+}
+
+function openCreateBank() {
+  if (isUtilityWindowSupported()) {
+    openBankGenerateWindow().catch((err) => toast.show(err instanceof Error ? err.message : '打开新建题库窗口失败', 'error'))
+    return
+  }
+  createDialogVisible.value = true
+}
+
+function openAddAIConfig() {
+  if (isUtilityWindowSupported()) {
+    openAIConfigWindow().catch((err) => toast.show(err instanceof Error ? err.message : '打开 AI 配置窗口失败', 'error'))
+    return
+  }
+  aiConfigVisible.value = true
 }
 
 function continuePractice(bank: QuestionBankV2) {
@@ -92,7 +114,18 @@ async function loadRecentPractice() {
   }
 }
 
-onMounted(loadRecentPractice)
+function handleUtilityCompleted(event: Event) {
+  const detail = (event as CustomEvent<{ kind?: string }>).detail
+  if (detail?.kind === 'bank-generate') void loadRecentPractice()
+}
+
+onMounted(() => {
+  window.addEventListener('quiz-pass:utility-window-completed', handleUtilityCompleted)
+  void loadRecentPractice()
+})
+onBeforeUnmount(() => {
+  window.removeEventListener('quiz-pass:utility-window-completed', handleUtilityCompleted)
+})
 </script>
 
 <template>
@@ -116,14 +149,14 @@ onMounted(loadRecentPractice)
           <el-button
             type="default"
             class="!rounded-xl !h-10 !px-4.5 !bg-white/15 !border-white/20 !text-white hover:!bg-white/25 active:scale-95 transition-all shadow-inner font-bold"
-            @click="createDialogVisible = true"
+            @click="openCreateBank"
           >
             <Plus :size="16" class="mr-1" />新建题库
           </el-button>
           <el-button
             type="default"
             class="!rounded-xl !h-10 !px-4.5 !bg-white/15 !border-white/20 !text-white hover:!bg-white/25 active:scale-95 transition-all shadow-inner font-bold"
-            @click="aiConfigVisible = true"
+            @click="openAddAIConfig"
           >
             <Settings :size="16" class="mr-1" />添加 AI 配置
           </el-button>

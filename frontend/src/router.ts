@@ -24,6 +24,14 @@ import HistoryPage from './pages/HistoryPage.vue'
 import UserPublicPage from './pages/UserPublicPage.vue'
 import AdminUsersPage from './pages/AdminUsersPage.vue'
 import FavoritesPage from './pages/FavoritesPage.vue'
+import LocalBanksPage from './pages/LocalBanksPage.vue'
+import LocalBankDetailPage from './pages/LocalBankDetailPage.vue'
+import LocalPracticeSessionPage from './pages/LocalPracticeSessionPage.vue'
+import LocalPracticeResultPage from './pages/LocalPracticeResultPage.vue'
+import LocalHistoryPage from './pages/LocalHistoryPage.vue'
+import LocalPracticeSetupWindow from './pages/local-windows/LocalPracticeSetupWindow.vue'
+import LocalDownloadWindow from './pages/local-windows/LocalDownloadWindow.vue'
+import UtilityWindowPage from './pages/utility-windows/UtilityWindowPage.vue'
 
 export const router = createRouter({
   history: createWebHistory(),
@@ -40,6 +48,14 @@ export const router = createRouter({
     { path: '/banks', component: BanksPage, meta: { auth: true } },
     { path: '/banks/public', component: PublicBanksPage, meta: { auth: true } },
     { path: '/favorites', component: FavoritesPage, meta: { auth: true } },
+    { path: '/local/banks', component: LocalBanksPage, meta: { auth: true } },
+    { path: '/local/banks/:localBankId', component: LocalBankDetailPage, meta: { auth: true } },
+    { path: '/local/practice/session/:localSessionId', component: LocalPracticeSessionPage, meta: { auth: true } },
+    { path: '/local/practice/result/:localSessionId', component: LocalPracticeResultPage, meta: { auth: true } },
+    { path: '/local/history', component: LocalHistoryPage, meta: { auth: true } },
+    { path: '/local/windows/practice-setup', component: LocalPracticeSetupWindow, meta: { auth: true, utilityWindow: true } },
+    { path: '/local/windows/download', component: LocalDownloadWindow, meta: { auth: true, utilityWindow: true } },
+    { path: '/index.html', component: UtilityWindowPage, meta: { auth: true, utilityWindow: true } },
     { path: '/banks/generate', component: GeneratePage, meta: { auth: true } },
     { path: '/banks/:bankId/generate', component: GeneratePage, meta: { auth: true } },
     { path: '/banks/generation-jobs', component: GenerationJobsPage, meta: { auth: true } },

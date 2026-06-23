@@ -10,9 +10,10 @@ const props = defineProps<{
   modelValue: boolean
   bankId: number | null
   initialBank?: QuestionBankV2 | null
+  navigateOnStart?: boolean
 }>()
 
-const emit = defineEmits<{ 'update:modelValue': [value: boolean] }>()
+const emit = defineEmits<{ 'update:modelValue': [value: boolean]; started: [sessionId: number] }>()
 
 const router = useRouter()
 const toast = useToast()
@@ -86,7 +87,8 @@ async function start() {
     body.question_type_settings = typeSettings
     const session = await createSession(body as { bank_id: number; mode: string; question_type_settings: QuestionTypeSettings })
     visible.value = false
-    router.push(`/practice/session/${session.id}`)
+    emit('started', session.id)
+    if (props.navigateOnStart !== false) router.push(`/practice/session/${session.id}`)
   } catch (err) {
     toast.show(err instanceof Error ? err.message : '开始练习失败', 'error')
   } finally {
