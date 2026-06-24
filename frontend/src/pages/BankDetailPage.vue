@@ -247,7 +247,7 @@ onBeforeUnmount(() => {
   <section v-loading="loading" class="qp-page space-y-5" element-loading-text="加载中...">
     <template v-if="bank">
       <!-- Main Bank Info Card -->
-      <div class="qp-section !p-6 shadow-sm border border-slate-100/80">
+      <div class="qp-section">
         <div class="flex flex-wrap items-start justify-between gap-4">
           <div class="min-w-0 flex-1">
             <div class="flex flex-wrap items-center gap-2">
@@ -258,7 +258,7 @@ onBeforeUnmount(() => {
               >
                 <Star :size="24" :fill="bank.is_favorited ? '#f59e0b' : 'none'" :stroke="bank.is_favorited ? '#f59e0b' : '#94a3b8'" />
               </button>
-              <h1 class="text-xl font-extrabold text-slate-800 tracking-tight">{{ bank.title }}</h1>
+              <h1 class="qp-page-title">{{ bank.title }}</h1>
 
               <el-tag size="small" class="!rounded-md" :type="bank.visibility === 'public' ? 'success' : 'info'">
                 {{ bank.visibility === 'public' ? '公开' : '私有' }}
@@ -275,14 +275,14 @@ onBeforeUnmount(() => {
 
             <div class="mt-4 flex items-center">
               <RouterLink class="inline-flex items-center gap-2.5 text-xs font-semibold text-slate-500 hover:text-indigo-600 transition-colors" :to="`/users/${bank.owner.id}`">
-                <UserAvatar :src="bank.owner.avatar_url" :name="bank.owner.display_name || bank.owner.username" :size="26" class="ring-2 ring-indigo-500/10 shadow-sm" />
+                <UserAvatar :src="bank.owner.avatar_url" :name="bank.owner.display_name || bank.owner.username" :size="26" class="ring-1 ring-slate-200" />
                 <span>{{ bank.owner.display_name || bank.owner.username }}</span>
               </RouterLink>
             </div>
           </div>
         </div>
 
-        <el-descriptions :column="4" border class="mt-5 !rounded-xl overflow-hidden border-slate-100" size="small">
+        <el-descriptions :column="4" border class="mt-4 overflow-hidden" size="small">
           <el-descriptions-item label="题目数量"><span class="font-bold text-slate-800">{{ bank.stats.question_count }} 题</span></el-descriptions-item>
           <el-descriptions-item label="收藏人数"><span class="text-slate-600">{{ bank.stats.favorite_count }} 次</span></el-descriptions-item>
           <el-descriptions-item label="生成状态"><span class="text-slate-600">{{ bank.generation_status }}</span></el-descriptions-item>
@@ -291,7 +291,7 @@ onBeforeUnmount(() => {
       </div>
 
       <!-- Practice and Actions Card -->
-      <div class="qp-section space-y-3.5 shadow-sm border border-slate-100/80">
+      <div class="qp-section space-y-3">
         <h2 class="qp-section-title !mb-0 flex items-center gap-1.5 text-slate-800">
           <span>练习与内容</span>
         </h2>
@@ -299,7 +299,6 @@ onBeforeUnmount(() => {
           <el-button
             v-if="bank.resumable_session"
             type="primary"
-            class="!rounded-xl !bg-gradient-to-r !from-indigo-500 !to-indigo-600 !border-none shadow-md shadow-indigo-500/10 active:scale-95 transition-all"
             @click="continuePractice"
           >
             <Zap :size="14" class="mr-1" />继续练习
@@ -307,63 +306,61 @@ onBeforeUnmount(() => {
 
           <el-button
             v-if="bank.permissions.can_practice"
-            class="!rounded-xl active:scale-95 transition-all"
             @click="openPracticeSetup"
           >
             <Rocket :size="14" class="mr-1" />开始练习
           </el-button>
 
           <RouterLink v-if="bank.permissions.can_view_mistakes" :to="`/banks/${bank.id}/mistakes`">
-            <el-button class="!rounded-xl active:scale-95 transition-all"><CircleX :size="14" class="mr-1" />我的错题</el-button>
+            <el-button><CircleX :size="14" class="mr-1" />我的错题</el-button>
           </RouterLink>
 
-          <el-button v-if="bank.permissions.can_export" :loading="exporting" class="!rounded-xl active:scale-95 transition-all" @click="exportJson"><Download :size="14" class="mr-1" />导出 JSON</el-button>
+          <el-button v-if="bank.permissions.can_export" :loading="exporting" @click="exportJson"><Download :size="14" class="mr-1" />导出 JSON</el-button>
           <el-tooltip :disabled="isDesktopRuntime()" content="请在 Quiz Pass 桌面客户端中下载本地副本">
             <span>
               <el-button
                 v-if="bank.permissions.can_read"
                 :disabled="!isDesktopRuntime()"
-                class="!rounded-xl active:scale-95 transition-all"
                 @click="openLocalDownload"
               >
                 <HardDriveDownload :size="14" class="mr-1" />{{ localDownloadedAt ? '更新本地副本' : '下载到本机' }}
               </el-button>
             </span>
           </el-tooltip>
-          <el-button v-if="bank.permissions.can_share" class="!rounded-xl active:scale-95 transition-all" @click="handleShare"><Share2 :size="14" class="mr-1" />共享题库</el-button>
+          <el-button v-if="bank.permissions.can_share" @click="handleShare"><Share2 :size="14" class="mr-1" />共享题库</el-button>
 
           <RouterLink :to="`/banks/${bank.id}/workflows`">
-            <el-button class="!rounded-xl active:scale-95 transition-all"><FileText :size="14" class="mr-1" />生成日志</el-button>
+            <el-button><FileText :size="14" class="mr-1" />生成日志</el-button>
           </RouterLink>
 
           <RouterLink v-if="canManage" :to="`/banks/${bank.id}/questions`">
-            <el-button class="!rounded-xl active:scale-95 transition-all"><Settings :size="14" class="mr-1" />题目管理</el-button>
+            <el-button><Settings :size="14" class="mr-1" />题目管理</el-button>
           </RouterLink>
 
-          <el-button v-if="canManage" class="!rounded-xl active:scale-95 transition-all" @click="openGenerate"><Plus :size="14" class="mr-1" />扩展题目</el-button>
+          <el-button v-if="canManage" @click="openGenerate"><Plus :size="14" class="mr-1" />扩展题目</el-button>
 
           <RouterLink
             v-if="canManage && bank.active_workflow && bank.active_workflow.status === 'draft_ready'"
             :to="`/ai-generation/workflows/${bank.active_workflow.id}/draft`"
           >
-            <el-button type="warning" class="!rounded-xl shadow-md shadow-amber-500/10 active:scale-95 transition-all"><CircleCheck :size="14" class="mr-1" />确认草稿</el-button>
+            <el-button type="warning"><CircleCheck :size="14" class="mr-1" />确认草稿</el-button>
           </RouterLink>
         </div>
       </div>
 
       <!-- Bank Management Panel Card -->
-      <div v-if="canManage" class="qp-section space-y-3.5 shadow-sm border border-slate-100/80">
+      <div v-if="canManage" class="qp-section space-y-3">
         <h2 class="qp-section-title !mb-0 text-slate-800">题库管理</h2>
         <div class="flex flex-wrap gap-2 pt-1">
-          <el-button class="!rounded-xl active:scale-95 transition-all" @click="openEdit">
+          <el-button @click="openEdit">
             <Pencil :size="14" class="mr-1" />编辑基本信息
           </el-button>
-          <el-button type="danger" plain class="!rounded-xl active:scale-95 transition-all" @click="deleteModal = true"><Trash2 :size="14" class="mr-1" />删除题库</el-button>
+          <el-button type="danger" plain @click="deleteModal = true"><Trash2 :size="14" class="mr-1" />删除题库</el-button>
         </div>
       </div>
 
       <!-- AI Background Prompt Context -->
-      <div v-if="canManage" class="qp-section space-y-3.5 shadow-sm border border-slate-100/80">
+      <div v-if="canManage" class="qp-section space-y-3">
         <div class="flex items-center justify-between gap-2">
           <h2 class="qp-section-title !mb-0 flex items-center gap-1.5 text-slate-800">
             <Bot :size="17" class="text-indigo-500" />AI 命题背景知识
@@ -371,7 +368,6 @@ onBeforeUnmount(() => {
           <el-button
             size="small"
             type="primary"
-            class="!rounded-lg !px-4 shadow-sm active:scale-95 transition-all"
             :loading="savingAIContext"
             @click="saveAIContext"
           >
@@ -408,7 +404,6 @@ onBeforeUnmount(() => {
           <el-button @click="editing = false">取消</el-button>
           <el-button
             type="primary"
-            class="!rounded-xl shadow-md shadow-indigo-500/10 active:scale-95 transition-all"
             :loading="saving"
             @click="saveEdit"
           >

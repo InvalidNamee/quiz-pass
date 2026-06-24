@@ -3,7 +3,7 @@ import json
 from datetime import UTC, datetime
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.domains.offline.schemas import (
@@ -22,7 +22,7 @@ from app.domains.offline.schemas import (
 )
 from app.domains.practice.services import MistakeService, PracticeSessionService
 from app.domains.question_banks.permissions import QuestionBankPermissionService
-from app.models.practice import PracticeAnswer, PracticeSession, PracticeSessionQuestion
+from app.models.practice import MistakeAttempt, PracticeAnswer, PracticeSession, PracticeSessionQuestion
 from app.models.question import Question, QuestionBlank, QuestionOption
 from app.models.question_bank import QuestionBank
 from app.models.user import User
@@ -165,7 +165,7 @@ class OfflinePracticeSyncService:
                 PracticeSession.offline_client_session_id == payload.client_session_id,
             )
         )
-        if existing:
+        if existing and existing.status == "submitted":
             return existing
 
         bank = self.db.get(QuestionBank, payload.remote_bank_id)
@@ -178,20 +178,27 @@ class OfflinePracticeSyncService:
         if missing_question_ids:
             raise HTTPException(status_code=422, detail=f"题目不属于当前题库：{missing_question_ids[:5]}")
 
-        session = PracticeSession(
+        session = existing or PracticeSession(
             user_id=user.id,
             bank_id=payload.remote_bank_id,
-            mode=payload.mode,
-            status=payload.status,
-            total_questions=len(payload.question_order),
-            started_at=payload.started_at,
-            submitted_at=payload.submitted_at if payload.status == "submitted" else None,
             offline_device_id=device_id,
             offline_client_session_id=payload.client_session_id,
-            offline_synced_at=datetime.now(UTC),
         )
-        self.db.add(session)
-        self.db.flush()
+        if not existing:
+            self.db.add(session)
+            self.db.flush()
+        else:
+            self._clear_synced_session(session, user.id)
+
+        session.bank_id = payload.remote_bank_id
+        session.mode = payload.mode
+        session.status = payload.status
+        session.total_questions = len(payload.question_order)
+        session.correct_count = 0
+        session.score = 0
+        session.started_at = payload.started_at
+        session.submitted_at = payload.submitted_at if payload.status == "submitted" else None
+        session.offline_synced_at = datetime.now(UTC)
 
         for index, question_id in enumerate(payload.question_order):
             self.db.add(PracticeSessionQuestion(session_id=session.id, question_id=question_id, sort_order=index))
@@ -237,6 +244,22 @@ class OfflinePracticeSyncService:
                 self.mistakes.record_wrong_answer(user.id, session, question, options, blanks, answer)
         self.db.flush()
         return session
+
+    def _clear_synced_session(self, session: PracticeSession, user_id: int) -> None:
+        affected_question_ids = set(
+            self.db.scalars(
+                select(MistakeAttempt.question_id).where(
+                    MistakeAttempt.user_id == user_id,
+                    MistakeAttempt.practice_session_id == session.id,
+                )
+            ).all()
+        )
+        self.db.execute(delete(MistakeAttempt).where(MistakeAttempt.practice_session_id == session.id))
+        self.db.execute(delete(PracticeAnswer).where(PracticeAnswer.session_id == session.id))
+        self.db.execute(delete(PracticeSessionQuestion).where(PracticeSessionQuestion.session_id == session.id))
+        self.db.flush()
+        for question_id in affected_question_ids:
+            self.mistakes.rebuild_mistake_summary(user_id, session.bank_id, question_id)
 
     def _questions_by_id(self, bank_id: int, question_ids: list[int]) -> dict[int, Question]:
         if not question_ids:

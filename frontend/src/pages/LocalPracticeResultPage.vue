@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRoute, RouterLink } from 'vue-router'
-import { CircleCheck, CircleX, Lightbulb } from '@lucide/vue'
+import { CircleCheck, CircleX, Lightbulb, RefreshCw } from '@lucide/vue'
 import { getLocalResult, getLocalSession, syncPendingLocalSessions, typeLabel } from '../local/practice'
 import type { LocalPracticeResult, LocalPracticeSession } from '../local/types'
 import { useToast } from '../composables/useToast'
@@ -45,7 +45,10 @@ async function syncNow() {
   syncing.value = true
   try {
     const result = await syncPendingLocalSessions()
-    toast.show(result.failed.length ? `同步完成，${result.failed.length} 条失败` : '同步完成', result.failed.length ? 'info' : 'success')
+    toast.show(
+      result.failed.length ? `同步完成，上传 ${result.synced.length} 条、下载 ${result.downloaded} 条，${result.failed.length} 条失败` : `同步完成，上传 ${result.synced.length} 条、下载 ${result.downloaded} 条`,
+      result.failed.length ? 'info' : 'success',
+    )
     await load()
   } catch (error) {
     toast.show(error instanceof Error ? error.message : '同步失败', 'error')
@@ -66,7 +69,7 @@ onMounted(load)
       </div>
       <div class="flex gap-2">
         <RouterLink to="/local/history"><el-button>本地历史</el-button></RouterLink>
-        <el-button type="primary" :loading="syncing" @click="syncNow">同步到服务器</el-button>
+        <el-button type="primary" :loading="syncing" @click="syncNow"><RefreshCw :size="14" class="mr-1" />同步到服务器</el-button>
       </div>
     </div>
 

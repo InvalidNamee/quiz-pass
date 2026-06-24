@@ -1,7 +1,8 @@
 import { api } from '../api/http'
 import type { OfflinePracticeSyncResult, QuestionType } from '../api/types'
+import { getResult, getSessionQuestions, listHistory } from '../api/v2/practice'
 import { getLocalDb } from './db'
-import { getLocalBank, getLocalQuestions } from './banks'
+import { getLocalBank, getLocalQuestions, listLocalBanks } from './banks'
 import type { LocalBlank, LocalOption, LocalPracticeAnswerResult, LocalPracticeQuestion, LocalPracticeResult, LocalPracticeSession, LocalQuestion } from './types'
 
 type SessionRow = {
@@ -150,7 +151,7 @@ async function orderedQuestionsForSession(sessionId: number) {
   if (!rows.length) return []
   const session = await getLocalSession(sessionId)
   if (!session) return []
-  const questions = await getLocalQuestions(session.local_bank_id)
+  const questions = await getLocalQuestions(session.local_bank_id, { includeInactive: true })
   const byId = new Map(questions.map((question) => [question.id, question]))
   return rows.map((row) => byId.get(row.local_question_id)).filter(Boolean) as LocalQuestion[]
 }
@@ -314,10 +315,15 @@ export async function listLocalHistory() {
   return rows.map(rowToSession)
 }
 
-export async function syncPendingLocalSessions() {
+type LocalSyncResult = OfflinePracticeSyncResult & {
+  downloaded: number
+  skipped: number
+}
+
+export async function syncPendingLocalSessions(): Promise<LocalSyncResult> {
   const db = await getLocalDb()
   const sessions = await db.select<SessionRow[]>("SELECT * FROM local_practice_sessions WHERE sync_status != 'synced' ORDER BY started_at ASC")
-  if (!sessions.length) return { synced: [], failed: [] } satisfies OfflinePracticeSyncResult
+  let uploadResult: OfflinePracticeSyncResult = { synced: [], failed: [] }
   const payloadSessions = []
   for (const session of sessions) {
     const orderRows = await db.select<SessionQuestionRow[]>('SELECT local_question_id, sort_order FROM local_session_questions WHERE session_id = $1 ORDER BY sort_order ASC', [session.id])
@@ -344,22 +350,118 @@ export async function syncPendingLocalSessions() {
       submitted_at: session.submitted_at,
     })
   }
-  const deviceId = await getDeviceId()
-  const result = await api<OfflinePracticeSyncResult>('/api/v2/offline/practice-sync', {
-    method: 'POST',
-    body: JSON.stringify({ device_id: deviceId, sessions: payloadSessions }),
-  })
-  const syncedByClient = new Map(result.synced.map((item) => [item.client_session_id, item.remote_session_id]))
-  const failedByClient = new Map(result.failed.map((item) => [item.client_session_id, item.message]))
-  for (const session of sessions) {
-    const remoteId = syncedByClient.get(session.client_session_id)
-    if (remoteId) {
-      await db.execute("UPDATE local_practice_sessions SET sync_status = 'synced', sync_error = NULL, remote_session_id = $1, synced_at = $2 WHERE id = $3", [remoteId, nowIso(), session.id])
-    } else if (failedByClient.has(session.client_session_id)) {
-      await db.execute("UPDATE local_practice_sessions SET sync_status = 'failed', sync_error = $1 WHERE id = $2", [failedByClient.get(session.client_session_id), session.id])
+  if (payloadSessions.length) {
+    const deviceId = await getDeviceId()
+    uploadResult = await api<OfflinePracticeSyncResult>('/api/v2/offline/practice-sync', {
+      method: 'POST',
+      body: JSON.stringify({ device_id: deviceId, sessions: payloadSessions }),
+    })
+    const syncedByClient = new Map(uploadResult.synced.map((item) => [item.client_session_id, item.remote_session_id]))
+    const failedByClient = new Map(uploadResult.failed.map((item) => [item.client_session_id, item.message]))
+    for (const session of sessions) {
+      const remoteId = syncedByClient.get(session.client_session_id)
+      if (remoteId) {
+        await db.execute("UPDATE local_practice_sessions SET sync_status = 'synced', sync_error = NULL, remote_session_id = $1, synced_at = $2 WHERE id = $3", [remoteId, nowIso(), session.id])
+      } else if (failedByClient.has(session.client_session_id)) {
+        await db.execute("UPDATE local_practice_sessions SET sync_status = 'failed', sync_error = $1 WHERE id = $2", [failedByClient.get(session.client_session_id), session.id])
+      }
     }
   }
-  return result
+  const pullResult = await pullRemotePracticeSessions()
+  return { ...uploadResult, downloaded: pullResult.downloaded, skipped: pullResult.skipped }
+}
+
+async function pullRemotePracticeSessions() {
+  const db = await getLocalDb()
+  const banks = await listLocalBanks()
+  let downloaded = 0
+  let skipped = 0
+  for (const bank of banks) {
+    const localQuestions = await getLocalQuestions(bank.id, { includeInactive: true })
+    const byRemoteQuestionId = new Map(localQuestions.map((question) => [question.remote_question_id, question]))
+    let page = 1
+    while (true) {
+      const remotePage = await listHistory({ page, page_size: 100, bank_id: bank.remote_bank_id })
+      for (const remoteSession of remotePage.items) {
+        const exists = await db.select<SessionRow[]>('SELECT * FROM local_practice_sessions WHERE remote_session_id = $1 LIMIT 1', [remoteSession.id])
+        if (exists.length) {
+          skipped += 1
+          continue
+        }
+        const imported = await importRemoteSession(bank.id, remoteSession, byRemoteQuestionId)
+        if (imported) downloaded += 1
+        else skipped += 1
+      }
+      if (page >= remotePage.total_pages) break
+      page += 1
+    }
+  }
+  return { downloaded, skipped }
+}
+
+async function importRemoteSession(localBankId: number, remoteSession: Awaited<ReturnType<typeof listHistory>>['items'][number], byRemoteQuestionId: Map<number, LocalQuestion>) {
+  const db = await getLocalDb()
+  const remoteRows = remoteSession.status === 'submitted'
+    ? await getResult(remoteSession.id)
+    : await getSessionQuestions(remoteSession.id)
+  const ordered = remoteRows
+    .map((row) => {
+      const remoteQuestionId = 'question_id' in row ? Number(row.question_id) : Number(row.id)
+      const question = byRemoteQuestionId.get(remoteQuestionId)
+      return question ? { row, question } : null
+    })
+    .filter(Boolean) as Array<{ row: any; question: LocalQuestion }>
+  if (!ordered.length || ordered.length !== remoteRows.length) return false
+
+  await db.execute('BEGIN')
+  try {
+    await db.execute(
+      `INSERT INTO local_practice_sessions (client_session_id, local_bank_id, remote_bank_id, mode, status, total_questions, correct_count, score, started_at, submitted_at, sync_status, sync_error, remote_session_id, synced_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 'synced', NULL, $11, $12)`,
+      [
+        `remote-${remoteSession.id}`,
+        localBankId,
+        remoteSession.bank_id,
+        remoteSession.mode,
+        remoteSession.status,
+        remoteSession.total_questions,
+        remoteSession.correct_count,
+        remoteSession.score,
+        remoteSession.started_at,
+        remoteSession.submitted_at,
+        remoteSession.id,
+        nowIso(),
+      ],
+    )
+    const sessionRows = await db.select<Array<{ id: number }>>('SELECT id FROM local_practice_sessions WHERE remote_session_id = $1 ORDER BY id DESC LIMIT 1', [remoteSession.id])
+    const localSessionId = sessionRows[0]?.id
+    if (!localSessionId) throw new Error('远端练习记录导入失败')
+    for (const [index, item] of ordered.entries()) {
+      await db.execute('INSERT INTO local_session_questions (session_id, local_question_id, sort_order) VALUES ($1, $2, $3)', [localSessionId, item.question.id, index])
+      const answerState = 'answer_state' in item.row ? item.row.answer_state : item.row
+      const isSubmitted = remoteSession.status === 'submitted'
+        ? !Boolean(item.row.is_unanswered)
+        : Boolean(answerState?.is_answered)
+      if (!isSubmitted) continue
+      await db.execute(
+        `INSERT INTO local_answers (session_id, local_question_id, selected_option_ids_json, text_answers_json, is_correct, is_submitted, answered_at)
+         VALUES ($1, $2, $3, $4, $5, 1, $6)`,
+        [
+          localSessionId,
+          item.question.id,
+          JSON.stringify(answerState?.selected_option_ids || []),
+          JSON.stringify(answerState?.text_answers || []),
+          answerState?.is_correct ? 1 : 0,
+          remoteSession.last_answered_at || remoteSession.submitted_at || remoteSession.started_at,
+        ],
+      )
+    }
+    await db.execute('COMMIT')
+    return true
+  } catch (error) {
+    await db.execute('ROLLBACK')
+    throw error
+  }
 }
 
 async function getDeviceId() {

@@ -76,10 +76,10 @@ function selectedAnswerText(row: MistakeAttempt) {
 </script>
 
 <template>
-  <section class="qp-page space-y-6">
+  <section class="qp-page">
     <div class="qp-titlebar">
       <div>
-        <h1 class="qp-title !text-xl !font-bold bg-gradient-to-r from-slate-900 to-indigo-950 bg-clip-text text-transparent"><CircleX :size="20" class="mr-1.5" />我的错题</h1>
+        <h1 class="qp-title flex items-center gap-2"><CircleX :size="20" />我的错题</h1>
         <p class="qp-subtitle">目前共有 {{ pageInfo?.total ?? mistakes.length }} 道错题待订正</p>
       </div>
       <el-tooltip content="错题专项练习" placement="top">
@@ -94,17 +94,16 @@ function selectedAnswerText(row: MistakeAttempt) {
       </el-tooltip>
     </div>
 
-    <div v-loading="loading" class="space-y-4">
+    <div v-loading="loading" class="grid gap-3">
       <template v-if="mistakes.length">
         <div
           v-for="(row, index) in mistakes"
           :key="row.id"
-          class="relative rounded-2xl border border-slate-100/80 bg-white p-5 shadow-sm transition-all hover:shadow-md flex flex-col gap-3.5 border-l-4 border-l-rose-500"
+          class="flex flex-col gap-3 rounded-md border border-l-4 border-slate-200 border-l-rose-400 bg-white p-4"
         >
-          <!-- Metadata block with badges -->
-          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-50 pb-3">
+          <div class="flex flex-wrap items-center justify-between gap-3 border-b border-slate-100 pb-3">
             <div class="flex items-center gap-2">
-              <span class="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">
+              <span class="flex h-6 w-6 items-center justify-center rounded-md bg-slate-100 text-xs font-bold text-slate-500">
                 {{ ((pageInfo?.page || 1) - 1) * (pageInfo?.page_size || mistakes.length) + index + 1 }}
               </span>
               <el-tag size="small" class="!rounded-md" type="danger">本次错误 #{{ row.id }}</el-tag>
@@ -124,26 +123,23 @@ function selectedAnswerText(row: MistakeAttempt) {
             </el-tooltip>
           </div>
 
-          <!-- Question Stem -->
           <div class="text-sm font-bold text-slate-800 leading-relaxed">
             <el-tag size="small" class="!rounded-md mr-1.5" type="info">{{ typeLabels[row.type] }}</el-tag>
             <MathText :key="`mistake-stem-${row.question_id}`" class="inline" :text="row.stem" />
           </div>
 
-          <!-- Option cards -->
           <div v-if="row.options.length" class="grid gap-2.5">
             <div
               v-for="option in row.options"
               :key="option.id"
-              class="flex items-start gap-2.5 rounded-xl border border-slate-100 bg-slate-50/30 p-3.5 text-xs text-slate-600 leading-relaxed shadow-sm"
+              class="flex items-start gap-2.5 rounded-md border border-slate-200 bg-slate-50/40 p-3 text-xs text-slate-600 leading-relaxed"
             >
               <span class="font-extrabold text-slate-700 select-none">{{ option.label }}.</span>
               <MathText :key="`mistake-option-${row.question_id}-${option.id}`" class="inline min-w-0 flex-1" :text="option.content" />
             </div>
           </div>
 
-          <!-- Correct Summary -->
-          <div class="flex flex-wrap gap-x-6 gap-y-2 text-xs font-semibold py-1 px-1 border-t border-slate-50 mt-1">
+          <div class="flex flex-wrap gap-x-5 gap-y-2 border-t border-slate-100 px-1 py-1 text-xs font-semibold">
             <div class="flex items-center gap-1.5">
               <span class="text-slate-400">你的选择：</span>
               <span class="text-rose-700 bg-rose-50 px-2.5 py-0.5 rounded font-semibold">
@@ -151,7 +147,7 @@ function selectedAnswerText(row: MistakeAttempt) {
               </span>
             </div>
 
-            <span class="text-slate-300 select-none">|</span>
+            <span class="text-slate-300 select-none">/</span>
             <div class="flex items-center gap-1.5">
               <span class="text-slate-400">正确答案：</span>
               <span class="text-emerald-700 bg-emerald-50 px-2.5 py-0.5 rounded font-mono font-bold tracking-wider">
@@ -159,14 +155,13 @@ function selectedAnswerText(row: MistakeAttempt) {
               </span>
             </div>
 
-            <span class="text-slate-300 select-none">|</span>
+            <span class="text-slate-300 select-none">/</span>
             <span class="text-slate-400">题目编号：#{{ row.question_id }}</span>
           </div>
 
-          <!-- Polished analysis block -->
           <div
             v-if="row.explanation"
-            class="rounded-xl border border-indigo-50/50 bg-indigo-50/30 p-3.5 text-xs text-indigo-950 leading-relaxed shadow-inner"
+            class="rounded-md border border-indigo-100 bg-indigo-50/40 p-3 text-xs text-indigo-950 leading-relaxed"
           >
             <div class="font-extrabold text-indigo-900 mb-1.5 flex items-center gap-1">
               <span><Lightbulb :size="14" class="mr-1" />题目解析：</span>
@@ -175,7 +170,7 @@ function selectedAnswerText(row: MistakeAttempt) {
           </div>
         </div>
       </template>
-      <el-empty v-else description="您非常棒，题库暂无错题记录！" class="bg-white rounded-2xl border border-slate-100 shadow-sm" />
+      <el-empty v-else description="您非常棒，题库暂无错题记录！" class="rounded-md border border-slate-200 bg-white" />
     </div>
 
     <el-pagination

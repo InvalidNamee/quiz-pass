@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { RouterLink } from 'vue-router'
-import { RefreshCw, HardDrive, Wifi } from '@lucide/vue'
+import { RefreshCw, HardDrive } from '@lucide/vue'
 import { listLocalBanks } from '../local/banks'
 import { syncPendingLocalSessions } from '../local/practice'
 import type { LocalBank } from '../local/types'
@@ -29,7 +29,10 @@ async function syncNow() {
   try {
     const result = await syncPendingLocalSessions()
     const failed = result.failed.length
-    toast.show(failed ? `同步完成，${failed} 条记录失败` : `同步完成，${result.synced.length} 条记录已上传`, failed ? 'info' : 'success')
+    toast.show(
+      failed ? `同步完成，上传 ${result.synced.length} 条、下载 ${result.downloaded} 条，${failed} 条失败` : `同步完成，上传 ${result.synced.length} 条、下载 ${result.downloaded} 条`,
+      failed ? 'info' : 'success',
+    )
   } catch (error) {
     toast.show(error instanceof Error ? error.message : '同步失败，稍后可重试', 'error')
   } finally {
@@ -49,7 +52,7 @@ onMounted(load)
       </div>
       <div class="flex gap-2">
         <el-button :loading="loading" @click="load"><RefreshCw :size="14" class="mr-1" />刷新</el-button>
-        <el-button type="primary" :loading="syncing" @click="syncNow"><Wifi :size="14" class="mr-1" />立即同步</el-button>
+        <el-button type="primary" :loading="syncing" @click="syncNow"><RefreshCw :size="14" class="mr-1" />立即同步</el-button>
       </div>
     </div>
 

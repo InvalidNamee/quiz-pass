@@ -58,7 +58,7 @@ function validationStatus(row: Row) {
         <el-tag size="small" :type="validationStatus(row) === 'valid' ? 'success' : 'danger'">{{ validationStatus(row) }}</el-tag>
       </template>
     </el-table-column>
-    <el-table-column label="操作" width="116" align="right" fixed="right">
+    <el-table-column label="操作" width="116" align="left" header-align="left" fixed="right">
       <template #default="{ row, $index }: { row: Row; $index: number }">
         <slot name="actions" :row="row" :index="$index" />
       </template>

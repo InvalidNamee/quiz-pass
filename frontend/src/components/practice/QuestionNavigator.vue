@@ -46,7 +46,7 @@ function getClass(status: string, isCurrent: boolean) {
 </script>
 
 <template>
-  <div class="sticky top-5 max-h-[calc(100vh-8rem)] rounded-2xl border border-slate-100/80 bg-white/95 p-4 shadow-sm backdrop-blur-md">
+  <div class="sticky top-5 max-h-[calc(100vh-8rem)] rounded-md border border-slate-200 bg-white p-3">
     <p class="mb-3 text-center text-xs font-bold text-slate-400 tracking-wider">答题卡</p>
     <el-scrollbar max-height="calc(100vh - 12rem)">
       <div class="space-y-3 pr-1.5">
@@ -80,7 +80,7 @@ function getClass(status: string, isCurrent: boolean) {
 
   height: 34px;
   width: 100%;
-  border-radius: 9999px !important;
+  border-radius: 6px !important;
   border: 1px solid rgba(226, 232, 240, 0.8);
   background: #fff;
   color: #64748b;
@@ -90,7 +90,7 @@ function getClass(status: string, isCurrent: boolean) {
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: border-color 0.15s ease, background-color 0.15s ease, color 0.15s ease;
 }
 .navigator-cell:hover {
   border-color: #a5b4fc;

@@ -14,15 +14,17 @@ results, and manage bank-scoped mistakes.
 
 Core product principles:
 
-- Question banks are user-owned resources. Public banks are readable by other
-  users, but management stays with the owner or admin.
-- Mistakes are currently scoped by `user_id + bank_id + question_id`, but the
-  next mistake-system revision should move user-facing review to concrete wrong
-  answer records so mistakes can be resumed from a specific practice history
-  item.
+- Question banks are user-owned source resources. Ordinary users do not publish
+  mutable source banks directly; public exposure is done by creating a static
+  shared copy. Management stays with the source owner or admin.
+- Mistakes shown to users are concrete wrong attempts tied to a specific
+  practice session/answer. The older aggregate mistake row remains as a summary
+  cache, not the main review object.
 - AI output is never inserted directly into formal questions. It goes through
   extraction, model generation/parsing, validation, optional repair, draft
   creation, user editing, and explicit confirmation.
+- The desktop client is local-first for downloaded banks: users can practice
+  against local SQLite and later sync complete sessions back to the server.
 - Public workflow logs must be useful but redacted: no source text, source file
   name, extra instruction, full error message, or AI config ID.
 
@@ -61,7 +63,8 @@ Important backend rules:
 
 ### Frontend
 
-Frontend is Vue 3 + TypeScript + Vite + Element Plus + Tailwind utilities.
+Frontend is Vue 3 + TypeScript + Vite + Element Plus + Tailwind utilities. It
+also includes a Tauri v2 desktop shell for local-first downloaded-bank practice.
 
 Current UI direction:
 
@@ -70,6 +73,11 @@ Current UI direction:
 - Prefer dense desktop-style layouts: tables, thin borders, dividers, compact
   controls, and plain buttons.
 - Use Element Plus components as the UI baseline.
+- Logged-in main pages should use the same compact baseline as the local-bank
+  pages: `qp-page`, `qp-titlebar`, `qp-section`, shallow borders, little/no
+  shadow, and linear information layout.
+- Sidebar navigation is grouped by learning-first categories:
+  `学习`, `题库`, `AI`, and admin-only `管理`.
 
 Main frontend structure:
 
@@ -77,7 +85,12 @@ Main frontend structure:
 - `frontend/src/pages`: route pages.
 - `frontend/src/components`: shared UI components including bank creation,
   workflow table, MathText, practice controls, avatar/sidebar.
+- `frontend/src/local`: local SQLite data access and local practice engine for
+  downloaded banks.
+- `frontend/src/features/utility-windows`: Tauri child-window infrastructure
+  for large form flows; browser fallback still uses Element Plus dialogs.
 - `frontend/src/stores/auth.ts`: auth state, token refresh, current user.
+- `frontend/src-tauri`: Tauri app shell, capabilities, icons, and Rust entry.
 
 Notable pages:
 
@@ -88,6 +101,9 @@ Notable pages:
 - `/banks/generation-jobs`: current user's full workflow queue.
 - `/ai-generation/workflows/:workflowId/draft`: editable AI draft confirmation.
 - `/practice/session/:sessionId`, `/practice/result/:sessionId`: practice flow.
+- `/local/banks`, `/local/banks/:localBankId`, `/local/history`,
+  `/local/practice/session/:localSessionId`, `/local/practice/result/:localSessionId`:
+  downloaded-bank local practice flow.
 
 ## Data Model Highlights
 
@@ -98,20 +114,26 @@ Important tables:
 - `user_ai_provider_configs`: user-owned OpenAI-compatible configs, encrypted
   API keys, response format preference.
 - `question_banks`: owner, visibility, desired visibility, stats, AI context,
-  last model snapshots.
+  last model snapshots, `source_bank_id`, and `is_shared_copy`.
 - `question_bank_tags` and `question_bank_tag_links`: global tag table and
   many-to-many bank links.
 - `questions`, `question_options`, and `question_blanks`: formal bank content
   for single choice, multiple choice, blank, and short answer questions.
 - `practice_sessions`, `practice_session_questions`, `practice_answers`:
-  practice recovery, draft answer saving, submission, scoring.
-- `mistake_records`: bank-scoped mistake records.
+  practice recovery, draft answer saving, submission, scoring, offline sync
+  identity, and mistake-review source context.
+- `mistake_attempts`: concrete wrong attempts tied to a session answer.
+- `mistake_records`: aggregate mistake summary/cache.
 - `ai_generation_workflows`: AI workflow source of truth.
 - `ai_generation_workflow_steps`: node logs for extract/build/generate/validate/
   repair/write/fail/confirm.
 - `ai_generation_drafts` and `ai_generation_draft_questions`: editable draft
   before formal import.
 - `import_jobs`: thin queue/compat projection for workflows.
+- Tauri local SQLite tables mirror downloaded banks and local sessions:
+  `local_banks`, `local_questions`, `local_options`, `local_blanks`,
+  `local_practice_sessions`, `local_session_questions`, `local_answers`,
+  `local_mistake_attempts`, and sync metadata.
 
 ## Completed Capabilities
 
@@ -138,12 +160,16 @@ Important tables:
 ### Question Banks and Questions
 
 - Bank CRUD with owner/admin management permissions.
-- Public/private visibility, favorites for both public and own private banks.
+- Ordinary user publishing is implemented through static shared copies; admins
+  can still manage visibility directly for operations.
+- Favorites for readable banks.
 - Bank tags with independent tag table and multi-tag OR filtering by numeric ID.
 - JSON import/export.
 - Question CRUD with single/multiple/blank/short-answer validation.
 - Owner/admin can manage all questions; non-owner public readers can view/export/
   practice/mistakes but cannot manage.
+- Bank lists support table and dense grid views, visible primary actions, latest
+  practice progress, and resume buttons from DTO state without per-row calls.
 
 ### AI Workflow
 
@@ -170,16 +196,34 @@ Important tables:
 - Practice, exam, and mistake sessions.
 - Normal practice gives immediate feedback and locks submitted questions.
 - Exam mode saves answers but does not reveal correctness until final submit.
+- Exam final submit accepts a `commit_drafts` choice, so cached unlocked answers
+  can either be counted or ignored as unanswered.
 - Users can leave and resume in-progress sessions. The current practice page
-  resumes at the first unanswered question; product feedback now asks for newly
-  entered sessions to start at the first question unless the user explicitly
-  chooses a continue/resume flow.
+  starts direct entries at the first question and uses `?resume=1` for explicit
+  continue/resume behavior.
 - Result page includes question content, options, user selection, correct labels,
   explanation, and unanswered state.
-- Mistake page is bank-scoped and displays full question detail, correct labels,
-  explanation, wrong count, and last wrong time. The current record shape is
-  aggregated by question, which makes some "mark resolved" and review-from-
-  history flows ambiguous.
+- Blank answers allow empty strings and score wrong rather than validation
+  failing; short-answer questions are currently stored but scored wrong.
+- Users can delete their own practice records.
+- Mistake page is bank-scoped but backed by concrete wrong attempts. Each card
+  has the question snapshot, user answer, correct answer, explanation, wrong
+  time, and source session. Resolving one attempt removes only that attempt.
+- Mistake-practice sessions can start from a bank's unresolved attempts or from
+  a specific practice record's unresolved attempts, and unfinished
+  mistake-practice sessions can be resumed.
+
+### Desktop Local Practice
+
+- Tauri desktop shell is present under `frontend/src-tauri`.
+- Users can download readable banks as local packages.
+- Local SQLite stores downloaded bank snapshots, local sessions, local answers,
+  and local mistake attempts.
+- Local practice/result/history pages exist and reuse the same four question
+  types and scoring semantics.
+- `/api/v2/banks/{bank_id}/download-package` downloads readable bank packages.
+- `/api/v2/offline/practice-sync` uploads local sessions idempotently by
+  `(user_id, device_id, client_session_id)`.
 
 ### Frontend UX
 
@@ -188,23 +232,33 @@ Important tables:
 - WASD/arrow navigation in practice pages.
 - Generation polling for unstable workflow/bank states.
 - Shared workflow table for generation queue and bank workflow logs.
+- Main logged-in pages are now aligned to the local-bank visual language:
+  compact `qp-section`/`qp-titlebar` surfaces, thin borders, reduced shadows,
+  dense tables, and shallow icon buttons.
+- Sidebar navigation is grouped into `学习`, `题库`, `AI`, and admin-only
+  `管理`.
+- Tauri desktop uses independent utility windows for larger form flows such as
+  bank generation, AI config, practice setup, bank edit, filters, admin user
+  edit, and submit-practice choices. These windows render page-style forms, not
+  nested dialogs.
 
 ## Known Issues and Technical Debt
 
-- KaTeX rendering has been renamed to `frontend/src/utils/mathText.ts`.
-- `features/questions` now owns the shared question table/editor/option editor
-  used by question management and AI draft confirmation.
-- `features/tags` now owns tag normalization so tag submission filters
-  `null`/empty/`none` before sending to the backend.
-- Workflow list DTOs now use batch aggregation for jobs, drafts, imported
-  counts, and retry child links; public bank logs remain redacted.
-- The old top-level `backend/app/services` package has been removed:
-  AI compatibility helpers live in `domains/ai_generation/facade.py`, tag
-  helpers live in `domains/question_banks/tags.py`, and SMTP delivery lives in
-  `infrastructure/email.py`.
-- AI workflow execution supports FastAPI `BackgroundTasks` for local development
-  and RQ + Redis for deployment. RQ worker concurrency can be increased with
-  `AI_WORKFLOW_WORKER_COUNT` or Docker Compose `--scale worker=N`.
+- Authentication pages still use their older centered visual treatment. This is
+  acceptable for now because the main UI sync intentionally targeted
+  authenticated product pages.
+- Browser fallback dialogs still exist for Web mode. Desktop/Tauri should prefer
+  utility-window pages for larger form flows.
+- Toast coverage is still uneven in some flows and should continue to use
+  parsed backend error messages plus precise success messages.
+- AI workflow failures need stronger production guardrails: source-size
+  validation, stale-workflow watchdog, RQ failure callbacks/dead-letter
+  guidance, and owner-visible failed JSON payloads.
+- New-bank metadata still needs final product review around durable
+  `ai_context`/background knowledge creation and retry preservation.
+- Option content should allow authoring and rendering multiline text.
+- Learner-facing blank placeholder rendering should hide raw `{{1}}`/`{{2}}`
+  while keeping raw placeholders in editor mode.
 - Email delivery is configured through SMTP and logs links in development when
   SMTP is incomplete. Production deployment must verify SMTP credentials and
   sender policy.
@@ -232,6 +286,26 @@ Important tables:
 - Question editor/table logic lives in `features/questions`.
 - Tag normalization lives in `features/tags`.
 - Keep Element Plus dense layout and remove remaining large-card patterns.
+
+### Done: Main Page UI Sync and Sidebar Classification
+
+- Done: logged-in main pages now share the local-bank visual baseline:
+  `qp-page`, `qp-titlebar`, `qp-section`, thin borders, compact padding, reduced
+  shadow, and dense Element Plus tables.
+- Done: high-traffic pages were aligned: dashboard, bank lists, bank detail,
+  history, generation tasks, AI providers, admin users, public profile bank
+  list, question management, bank workflow logs, mistake page, result page, and
+  practice card/navigator components.
+- Done: sidebar navigation is grouped into `学习`, `题库`, `AI`, and admin-only
+  `管理`, using one lucide icon style.
+- Done: table operation columns are left-aligned and use shared shallow
+  `qp-icon-button` actions.
+- Done: desktop utility-window forms remain page-style instead of nested
+  `el-dialog` windows.
+- Verified in the latest UI sync pass:
+  - `cd frontend && npm run build`
+  - `cd frontend && npm run tauri:build`
+  - `git diff --check`
 
 ### Done: Backend Service Boundary Cleanup
 
@@ -261,6 +335,21 @@ Important tables:
   key environment variables.
 - Remaining: add structured application logging, stale-workflow watchdog, and
   production failure callbacks/dead-letter guidance.
+
+### Partially Done: Desktop Local Practice Migration
+
+- Done: Tauri v2 shell builds from `frontend/src-tauri`.
+- Done: local SQLite schema and services store downloaded bank snapshots,
+  local practice sessions, answers, local mistake attempts, and sync metadata.
+- Done: backend exposes `download-package` and idempotent
+  `/api/v2/offline/practice-sync`.
+- Done: local banks, local bank detail, local practice, local result, and local
+  history pages exist.
+- Done: local practice follows the same four-question-type scoring direction:
+  choice questions, blank exact matching with empty-string support, and short
+  answer scored wrong for now.
+- Remaining: harden offline sync UX, retry/failure states, local record cleanup,
+  and broader manual QA under real disconnect/reconnect conditions.
 
 ### Done: Public Sharing and Bank Ownership Rules
 
@@ -359,143 +448,37 @@ nested detail pages.
 - Remaining: toast coverage is still uneven in some flows and should continue
   to use parsed backend error messages plus precise success messages.
 
-### P1: Practice Stability, Blank Answers, and Session Record Control
+### Done: Practice Stability, Blank Answers, and Session Record Control
 
-These issues were reported after the four-question-type work and should be
-fixed before expanding scoring logic further.
+- Done: direct session entry starts from the first question, while explicit
+  continue/resume links use `?resume=1`.
+- Done: submitted sessions redirect to result when opened through the practice
+  route.
+- Done: blank text answers are normalized to dense arrays so clearing any blank
+  input does not create sparse-array crashes.
+- Done: blank questions can be submitted with empty strings and score wrong
+  instead of returning validation errors.
+- Done: short-answer questions are stored but currently score wrong by default.
+- Done: exam final submit supports `commit_drafts`, letting users decide whether
+  cached unlocked answers count toward the result.
+- Done: draft-save failures should be surfaced as toast messages without
+  destroying local input or navigating away.
+- Done: users can delete their own practice records from history.
 
-Already done:
+### Done: Mistake Records as Concrete Wrong Attempts
 
-- Submitted sessions redirect to result when opened from the practice route.
-- Partial blank draft saving is supported; formal blank submission still needs
-  the white-paper behavior below.
-
-Observed code touchpoints:
-
-- `frontend/src/components/practice/QuestionCard.vue`: blank inputs are rendered
-  directly from `textAnswers[index]` and emit a copied sparse array.
-- `frontend/src/composables/usePracticeSession.ts`: `load()` jumps to the first
-  unanswered question; draft-save errors currently bubble up from navigation
-  helpers and can interrupt the page.
-- `backend/app/domains/practice/services.py`: blank submit requires answer count
-  matching blanks, short answers are currently treated as correct when non-empty,
-  and session submit does not distinguish cached drafts from locked/submitted
-  answers.
-
-Batch 1 should handle pure practice correctness and UX:
-
-- Fix the "second blank backspace can crash" class of bugs:
-  - Always initialize blank `text_answers` to a dense array with one string per
-    blank when questions load.
-  - In `setTextAnswers`, clone to the question blank count and normalize
-    `undefined/null` to `""`.
-  - Add frontend tests or component-level smoke coverage for clearing the second
-    blank, clearing the first blank, and switching questions after clearing.
-- Allow blank questions to be submitted blank:
-  - Backend `answer_question` should accept `blank` text answers with empty
-    strings as long as the number of answers matches the number of blanks.
-  - Empty blank answers score wrong, not validation error.
-  - Frontend submit button for blank questions should be enabled even when all
-    blank inputs are empty.
-  - Exam final submit must treat uncommitted blank fields according to the new
-    "submit cached drafts?" choice described below.
-- Treat short-answer questions as wrong for now:
-  - Change `_is_text_correct()` so `short_answer` returns `False`.
-  - Keep storing the submitted text and explanation/rubric.
-  - Do not call any AI grader yet; that belongs to a later scoring feature.
-- Start practice sessions at the first question by default:
-  - `load()` should set `currentIndex = 0` for direct session entry.
-  - The bank "continue practice" entry can pass a query flag such as
-    `?resume=1` if the desired behavior is to jump to the first unanswered
-    question.
-  - Keep result redirects for submitted sessions.
-- Make draft-save failures non-destructive:
-  - Navigation should not kick the user out because a draft save returned 422.
-  - Show a toast with question number and reason, keep the user on the current
-    question, and keep local input intact.
-  - Add backend error details for invalid draft payloads so the toast is not just
-    "请求参数校验失败".
-- Final submit should ask what to do with cached unlocked answers:
-  - Add an `include_drafts` or `commit_cached_answers` boolean to
-    `POST /api/v2/practice/sessions/{id}/submit`.
-  - If the user chooses yes, save and submit current local answers before
-    scoring.
-  - If the user chooses no, only already-submitted/locked answers count; cached
-    local input is ignored and appears as unanswered.
-  - The confirmation dialog should state this plainly because it changes score.
-- Allow users to delete their own practice records:
-  - Add `DELETE /api/v2/practice/sessions/{session_id}` for the owner.
-  - Deleting a session should delete session questions and answers; it should
-    not delete formal questions or bank-level mistake records unless the new
-    mistake-record design below explicitly links them.
-  - Frontend history page should add a compact delete action with confirmation.
-
-Tests for this batch:
-
-- Blank answer with `["", ""]` submits and scores wrong without 422.
-- Clearing the second blank then switching questions preserves page state.
-- Short-answer non-empty submit is stored and scored wrong.
-- Directly opening `/practice/session/:id` lands on question 1; continuing with
-  `resume=1` can land on the first unanswered question.
-- Submitted sessions redirect to result; deleted sessions are no longer visible
-  in history.
-
-### P1: Mistake Records as Concrete Wrong Attempts
-
-Current state: `mistake_records` aggregates by `user_id + bank_id + question_id`.
-This makes "错题消失不了了" hard to reason about because resolving one question
-does not map to a specific practice history item, and new wrong attempts reset
-the same aggregate record.
-
-Target model:
-
-- Keep a lightweight aggregate for counters if useful, but add a concrete wrong
-  attempt table, for example `mistake_attempts`:
-  - `id`
-  - `user_id`
-  - `bank_id`
-  - `question_id`
-  - `practice_session_id`
-  - `practice_answer_id`
-  - `question_snapshot_json`
-  - `user_answer_json`
-  - `is_resolved`
-  - `wrong_at`
-  - `resolved_at`
-- A wrong attempt belongs to one practice answer/result row.
-- Mistake lists should default to unresolved concrete attempts, not only the
-  aggregate question row.
-- "Mark mastered/resolved" should resolve the selected wrong attempt, or all
-  attempts for that question only when the UI explicitly says so.
-- Mistake practice should be creatable from:
-  - a bank's unresolved mistakes
-  - a specific practice record's wrong attempts
-  - the latest unfinished mistake-practice session for the same source context
-- Mistake practice itself should be resumable through the same session recovery
-  mechanism as normal practice.
-- Time display:
-  - Store all timestamps as UTC-aware datetimes.
-  - Frontend should format `wrong_at/last_wrong_at` with one shared local-time
-    formatter, not raw ISO strings.
-
-Migration path:
-
-- Add `mistake_attempts`.
-- On new wrong answers, write both the aggregate row and the concrete attempt.
-- Keep existing bank mistake page temporarily backed by aggregate rows, but add
-  a new endpoint for concrete attempts.
-- Move the UI to concrete attempts.
-- Once stable, decide whether aggregate `mistake_records` remains as a cached
-  summary or becomes rebuildable derived data.
-
-Tests for this batch:
-
-- User A and user B wrong attempts in the same public bank are isolated.
-- Resolving one wrong attempt removes that card from unresolved view.
-- Starting mistake practice from a history record includes only that record's
-  wrong questions.
-- Resuming an unfinished mistake-practice session returns the same session.
-- Wrong-at timestamps render in browser local time.
+- Done: `mistake_attempts` records concrete wrong attempts with
+  `practice_session_id`, `practice_answer_id`, question snapshot, user answer
+  snapshot, `wrong_at`, and resolution state.
+- Done: new wrong answers write a concrete attempt and update the aggregate
+  `mistake_records` summary/cache.
+- Done: the bank mistake page uses concrete attempts and resolving one card only
+  resolves that attempt.
+- Done: mistake practice can be started from unresolved attempts for a bank or
+  from unresolved attempts belonging to a specific practice record.
+- Done: unfinished mistake-practice sessions are resumable by source context.
+- Done: wrong-at timestamps are formatted through the shared local-time
+  formatter.
 
 ### P1: AI Workflow Failure Visibility, Timeout Recovery, and Payload Debugging
 
@@ -673,22 +656,16 @@ Tests:
 - Fallback accept marks correct; fallback reject marks wrong.
 - Timeout/invalid JSON marks wrong and does not break submission.
 
-### P2: Records, Deletion, and Audit
+### P2: Records Retention and Audit
 
-After the P1 practice/mistake fixes, add user-level record controls:
+Practice record deletion exists. The remaining work is policy and observability:
 
-- Users can delete their own practice history records.
-- Deleting a practice record should:
-  - remove `practice_session_questions` and `practice_answers`
-  - either cascade linked concrete `mistake_attempts` or mark them deleted,
-    depending on whether the mistake page should still show historical wrongs
-  - not modify the formal question bank
-- Add audit entries for:
-  - session deletion
-  - workflow forced failure by watchdog
-  - local model fallback scoring if enabled
-
-Keep this separate from P1 because it touches data retention semantics.
+- Decide whether deleted practice records should hard-delete linked concrete
+  `mistake_attempts`, soft-delete them, or keep a redacted audit trail.
+- Add audit entries for session deletion, workflow forced failure by watchdog,
+  and local model fallback scoring if enabled.
+- Document retention expectations for local SQLite records versus synced server
+  records.
 
 ## Verification Commands
 
@@ -702,4 +679,5 @@ cd backend
 
 cd ../frontend
 npm run build
+npm run tauri:build
 ```

@@ -110,7 +110,7 @@ watch(() => props.modelValue, (open) => {
 </script>
 
 <template>
-  <el-dialog v-model="visible" :title="isEdit ? '编辑配置' : '添加配置'" width="460px" class="!rounded-2xl shadow-xl">
+  <el-dialog v-model="visible" :title="isEdit ? '编辑配置' : '添加配置'" width="460px">
     <el-form label-position="top" size="default">
       <el-form-item label="配置名称">
         <el-input v-model="form.name" placeholder="输入配置名称（可选）" autocomplete="off" />
@@ -147,8 +147,8 @@ watch(() => props.modelValue, (open) => {
       </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="visible = false" class="!rounded-xl !h-9">取消</el-button>
-      <el-button type="primary" :loading="submitting" class="!rounded-xl shadow-sm !h-9" @click="handleSave">
+      <el-button @click="visible = false">取消</el-button>
+      <el-button type="primary" :loading="submitting" @click="handleSave">
         {{ isEdit ? '保存' : '添加' }}
       </el-button>
     </template>

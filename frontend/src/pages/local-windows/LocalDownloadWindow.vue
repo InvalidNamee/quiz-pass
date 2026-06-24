@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRoute } from 'vue-router'
 import { emit } from '@tauri-apps/api/event'
 import { getCurrentWindow } from '@tauri-apps/api/window'
+import { ElMessageBox } from 'element-plus'
 import { DownloadCloud } from '@lucide/vue'
 import { downloadBankToLocal } from '../../local/banks'
 import { useToast } from '../../composables/useToast'
@@ -28,6 +29,17 @@ const alreadyDownloaded = computed(() => Boolean(payload.value.alreadyDownloaded
 
 async function download() {
   if (!remoteBankId.value) return
+  if (alreadyDownloaded.value) {
+    try {
+      await ElMessageBox.confirm(
+        '更新会覆盖本机保存的题库内容快照。已有本地练习记录不会被删除，但历史记录可能按新的题面展示；建议先同步作答记录。',
+        '确认更新本地副本',
+        { confirmButtonText: '继续更新', cancelButtonText: '取消', type: 'warning' },
+      )
+    } catch {
+      return
+    }
+  }
   downloading.value = true
   try {
     const local = await downloadBankToLocal(remoteBankId.value)
@@ -63,7 +75,7 @@ async function download() {
       </div>
 
       <div class="rounded-md border border-slate-200 bg-slate-50 px-3 py-2 text-xs leading-5 text-slate-500">
-        {{ alreadyDownloaded ? '会覆盖本地题库内容快照，但不会删除已有本地练习记录。' : '下载后可在弱网或断网时进入本地题库练习。' }}
+        {{ alreadyDownloaded ? '会覆盖本地题库内容快照；已有本地练习记录会保留，更新前建议先同步作答记录。' : '下载后可在弱网或断网时进入本地题库练习。' }}
       </div>
 
       <div class="flex justify-end gap-2 pt-2">

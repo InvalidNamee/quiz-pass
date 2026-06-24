@@ -84,10 +84,12 @@ async function migrate(db: Database) {
       source TEXT,
       generated_model TEXT,
       sort_order INTEGER NOT NULL DEFAULT 0,
+      is_active INTEGER NOT NULL DEFAULT 1,
       UNIQUE(local_bank_id, remote_question_id),
       FOREIGN KEY(local_bank_id) REFERENCES local_banks(id) ON DELETE CASCADE
     )
   `)
+  await ensureColumn(db, 'local_questions', 'is_active', 'INTEGER NOT NULL DEFAULT 1')
   await db.execute(`
     CREATE TABLE IF NOT EXISTS local_options (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -173,4 +175,11 @@ async function migrate(db: Database) {
       FOREIGN KEY(local_question_id) REFERENCES local_questions(id) ON DELETE CASCADE
     )
   `)
+}
+
+async function ensureColumn(db: Database, table: string, column: string, definition: string) {
+  const columns = await db.select<Array<{ name: string }>>(`PRAGMA table_info(${table})`)
+  if (!columns.some((item) => item.name === column)) {
+    await db.execute(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+  }
 }

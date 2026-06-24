@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { UploadCloud, RefreshCw } from '@lucide/vue'
+import { RefreshCw } from '@lucide/vue'
 import { listLocalHistory, syncPendingLocalSessions } from '../local/practice'
 import type { LocalPracticeSession } from '../local/types'
 import { useToast } from '../composables/useToast'
@@ -28,7 +28,10 @@ async function syncNow() {
   syncing.value = true
   try {
     const result = await syncPendingLocalSessions()
-    toast.show(result.failed.length ? `同步完成，${result.failed.length} 条失败` : '同步完成', result.failed.length ? 'info' : 'success')
+    toast.show(
+      result.failed.length ? `同步完成，上传 ${result.synced.length} 条、下载 ${result.downloaded} 条，${result.failed.length} 条失败` : `同步完成，上传 ${result.synced.length} 条、下载 ${result.downloaded} 条`,
+      result.failed.length ? 'info' : 'success',
+    )
     await load()
   } catch (error) {
     toast.show(error instanceof Error ? error.message : '同步失败', 'error')
@@ -53,7 +56,7 @@ onMounted(load)
       </div>
       <div class="flex gap-2">
         <el-button :loading="loading" @click="load"><RefreshCw :size="14" class="mr-1" />刷新</el-button>
-        <el-button type="primary" :loading="syncing" @click="syncNow"><UploadCloud :size="14" class="mr-1" />立即同步</el-button>
+        <el-button type="primary" :loading="syncing" @click="syncNow"><RefreshCw :size="14" class="mr-1" />立即同步</el-button>
       </div>
     </div>
 

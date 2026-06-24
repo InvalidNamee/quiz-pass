@@ -25,6 +25,7 @@ type LocalQuestionRow = {
   explanation: string | null
   difficulty: string | null
   sort_order: number
+  is_active: number
 }
 
 type LocalOptionRow = {
@@ -101,11 +102,20 @@ export async function saveBankPackage(pack: BankDownloadPackage) {
     const bank = rows[0]
     if (!bank) throw new Error('本地题库保存失败')
 
-    await db.execute('DELETE FROM local_questions WHERE local_bank_id = $1', [bank.id])
+    await db.execute('UPDATE local_questions SET is_active = 0 WHERE local_bank_id = $1', [bank.id])
     for (const [index, question] of pack.questions.entries()) {
       await db.execute(
-        `INSERT INTO local_questions (local_bank_id, remote_question_id, type, stem, explanation, difficulty, source, generated_model, sort_order)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+        `INSERT INTO local_questions (local_bank_id, remote_question_id, type, stem, explanation, difficulty, source, generated_model, sort_order, is_active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1)
+         ON CONFLICT(local_bank_id, remote_question_id) DO UPDATE SET
+           type = excluded.type,
+           stem = excluded.stem,
+           explanation = excluded.explanation,
+           difficulty = excluded.difficulty,
+           source = excluded.source,
+           generated_model = excluded.generated_model,
+           sort_order = excluded.sort_order,
+           is_active = 1`,
         [bank.id, question.id, question.type, question.stem, question.explanation, question.difficulty, question.source, question.generated_model, index],
       )
       const questionRows = await db.select<Array<{ id: number }>>(
@@ -114,6 +124,8 @@ export async function saveBankPackage(pack: BankDownloadPackage) {
       )
       const localQuestionId = questionRows[0]?.id
       if (!localQuestionId) throw new Error('本地题目保存失败')
+      await db.execute('DELETE FROM local_options WHERE local_question_id = $1', [localQuestionId])
+      await db.execute('DELETE FROM local_blanks WHERE local_question_id = $1', [localQuestionId])
       for (const option of question.options) {
         await db.execute(
           `INSERT INTO local_options (local_question_id, remote_option_id, label, content, is_correct, sort_order)
@@ -156,9 +168,12 @@ export async function getLocalBankByRemoteId(remoteBankId: number) {
   return rows[0] ? rowToBank(rows[0]) : null
 }
 
-export async function getLocalQuestions(localBankId: number) {
+export async function getLocalQuestions(localBankId: number, options: { includeInactive?: boolean } = {}) {
   const db = await getLocalDb()
-  const rows = await db.select<LocalQuestionRow[]>('SELECT * FROM local_questions WHERE local_bank_id = $1 ORDER BY sort_order ASC, id ASC', [localBankId])
+  const rows = await db.select<LocalQuestionRow[]>(
+    `SELECT * FROM local_questions WHERE local_bank_id = $1${options.includeInactive ? '' : ' AND is_active = 1'} ORDER BY sort_order ASC, id ASC`,
+    [localBankId],
+  )
   const result: LocalQuestion[] = []
   for (const row of rows) {
     const options = await db.select<LocalOptionRow[]>('SELECT * FROM local_options WHERE local_question_id = $1 ORDER BY sort_order ASC, id ASC', [row.id])

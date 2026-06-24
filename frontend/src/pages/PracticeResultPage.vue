@@ -68,51 +68,47 @@ function correctAnswerText(row: Result) {
 </script>
 
 <template>
-  <section class="qp-page space-y-6">
-    <!-- Polished Results Header Board -->
-    <div v-if="session" class="relative overflow-hidden rounded-2xl bg-gradient-to-r from-indigo-500 via-indigo-600 to-purple-600 p-6 text-white shadow-xl shadow-indigo-500/10">
-      <div class="absolute -right-10 -bottom-10 h-40 w-40 rounded-full bg-white/10 blur-xl" />
-      <div class="relative z-10 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+  <section class="qp-page">
+    <div v-if="session" class="qp-section">
+      <div class="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
-          <h1 class="text-2xl font-extrabold tracking-tight">本次练习报告 🎉</h1>
-          <p class="mt-1.5 text-xs text-indigo-100">复盘今日错题，查漏补缺，争取下次完美通关！</p>
+          <h1 class="qp-page-title">本次练习报告</h1>
+          <p class="qp-page-subtitle">复盘本次作答，查看正确答案和解析。</p>
         </div>
-        <div class="flex items-center gap-6">
+        <div class="flex flex-wrap items-center gap-4">
           <div class="text-center">
-            <span class="text-2xl font-black block">{{ session.score }}</span>
-            <span class="text-[10px] uppercase font-bold tracking-wider text-indigo-200">得分</span>
+            <span class="block text-xl font-bold text-slate-900">{{ session.score }}</span>
+            <span class="text-xs font-medium text-slate-500">得分</span>
           </div>
-          <div class="h-8 w-px bg-white/20" />
+          <div class="h-8 w-px bg-slate-200" />
           <div class="text-center">
-            <span class="text-2xl font-black block">{{ session.correct_count }} / {{ session.total_questions }}</span>
-            <span class="text-[10px] uppercase font-bold tracking-wider text-indigo-200">答对题数</span>
+            <span class="block text-xl font-bold text-slate-900">{{ session.correct_count }} / {{ session.total_questions }}</span>
+            <span class="text-xs font-medium text-slate-500">答对题数</span>
           </div>
-          <div class="h-8 w-px bg-white/20" />
+          <div class="h-8 w-px bg-slate-200" />
           <div class="text-center">
-            <span class="text-2xl font-black block">{{ Math.round((session.correct_count / (session.total_questions || 1)) * 100) }}%</span>
-            <span class="text-[10px] uppercase font-bold tracking-wider text-indigo-200">正确率</span>
+            <span class="block text-xl font-bold text-slate-900">{{ Math.round((session.correct_count / (session.total_questions || 1)) * 100) }}%</span>
+            <span class="text-xs font-medium text-slate-500">正确率</span>
           </div>
         </div>
       </div>
     </div>
 
-    <!-- Loading Skeleton or Real Card Stream -->
-    <div v-loading="loading" class="space-y-4">
+    <div v-loading="loading" class="grid gap-3">
       <template v-if="results.length">
         <div
           v-for="(row, index) in results"
           :key="row.question_id"
-          class="relative rounded-2xl border border-slate-100/80 bg-white p-5 shadow-sm transition-all hover:shadow-md flex flex-col gap-3.5"
+          class="flex flex-col gap-3 rounded-md border border-slate-200 bg-white p-4"
           :class="{
             'border-l-4 border-l-emerald-500': row.is_correct,
             'border-l-4 border-l-rose-500': !row.is_correct && !row.is_unanswered,
             'border-l-4 border-l-amber-500': row.is_unanswered,
           }"
         >
-          <!-- Question Index and Status micro tags -->
-          <div class="flex items-center justify-between gap-3 border-b border-slate-50 pb-3">
+          <div class="flex items-center justify-between gap-3 border-b border-slate-100 pb-3">
             <div class="flex min-w-0 items-center gap-2">
-              <span class="flex h-6 w-6 items-center justify-center rounded-full bg-slate-100 text-xs font-bold text-slate-500">
+              <span class="flex h-6 w-6 items-center justify-center rounded-md bg-slate-100 text-xs font-bold text-slate-500">
                 {{ index + 1 }}
               </span>
               <el-tag size="small" class="!rounded-md" type="info">{{ typeLabels[row.type] }}</el-tag>
@@ -123,13 +119,11 @@ function correctAnswerText(row: Result) {
             <span v-else class="result-status-pill is-wrong"><CircleX :size="13" />错误</span>
           </div>
 
-          <!-- Question Stem -->
           <div class="text-sm font-bold text-slate-800 leading-relaxed">
             <MathText :key="`result-stem-${row.question_id}`" class="inline" :text="row.stem" />
           </div>
 
-          <!-- Option lists -->
-          <div v-if="row.options.length" class="grid gap-2 bg-slate-50/40 p-3.5 rounded-xl border border-slate-100/50">
+          <div v-if="row.options.length" class="grid gap-2 rounded-md border border-slate-200 bg-slate-50/40 p-3">
             <div
               v-for="option in row.options"
               :key="option.id"
@@ -140,8 +134,7 @@ function correctAnswerText(row: Result) {
             </div>
           </div>
 
-          <!-- Selected & Correct Summary -->
-          <div class="flex flex-wrap gap-x-6 gap-y-2 text-xs font-semibold py-1 px-1 border-t border-slate-50 mt-1">
+          <div class="flex flex-wrap gap-x-5 gap-y-2 border-t border-slate-100 px-1 py-1 text-xs font-semibold">
             <div class="flex items-center gap-1.5">
               <span class="text-slate-400">您的答案：</span>
               <span
@@ -167,10 +160,9 @@ function correctAnswerText(row: Result) {
             </div>
           </div>
 
-          <!-- Styled explanation section -->
           <div
             v-if="row.explanation"
-            class="rounded-xl border border-indigo-50/50 bg-indigo-50/30 p-3.5 text-xs text-indigo-950 leading-relaxed shadow-inner"
+            class="rounded-md border border-indigo-100 bg-indigo-50/40 p-3 text-xs text-indigo-950 leading-relaxed"
           >
             <div class="font-extrabold text-indigo-900 mb-1.5 flex items-center gap-1">
               <span><Lightbulb :size="14" class="mr-1" />题目解析：</span>
@@ -179,7 +171,7 @@ function correctAnswerText(row: Result) {
           </div>
         </div>
       </template>
-      <el-empty v-else description="暂无练习测试结果" class="bg-white rounded-2xl border border-slate-100 shadow-sm" />
+      <el-empty v-else description="暂无练习测试结果" class="rounded-md border border-slate-200 bg-white" />
     </div>
   </section>
 </template>

@@ -151,9 +151,9 @@ onMounted(() => {
   void load()
 })
 watch(() => route.fullPath, () => { void load() })
-  watch(viewMode, (v) => {
-    localStorage.setItem('qp-view-mode', v)
-  })
+watch(viewMode, (v) => {
+  localStorage.setItem('qp-view-mode', v)
+})
 watch(banks, syncPolling, { deep: true })
 onBeforeUnmount(() => {
   window.removeEventListener('quiz-pass:utility-window-completed', handleUtilityCompleted)
@@ -165,7 +165,7 @@ onBeforeUnmount(() => {
   <div class="qp-page space-y-4">
     <div class="qp-titlebar">
       <div>
-        <h1 class="qp-title !text-xl !font-bold bg-gradient-to-r from-slate-900 to-indigo-950 bg-clip-text text-transparent">{{ title }}</h1>
+        <h1 class="qp-title">{{ title }}</h1>
         <p class="qp-subtitle">{{ subtitle }}</p>
       </div>
       <div class="flex gap-2">
@@ -173,7 +173,6 @@ onBeforeUnmount(() => {
           v-if="allowCreate"
           size="small"
           type="primary"
-          class="!rounded-xl !bg-gradient-to-r !from-indigo-500 !to-purple-500 !border-none !h-9 shadow-md shadow-indigo-500/10 active:scale-95 transition-all"
           @click="openCreateBank"
         >
           <Plus :size="14" class="mr-1" />新建题库
@@ -182,7 +181,7 @@ onBeforeUnmount(() => {
     </div>
 
     <!-- Inline filters -->
-    <div class="qp-toolbar !border-none bg-white p-3 rounded-2xl shadow-sm border border-slate-100 flex flex-wrap gap-2.5 items-center">
+    <div class="qp-toolbar">
       <el-input v-model="keyword" size="small" placeholder="搜索题库…" clearable class="!w-48" @change="applySearch" />
       <AuthorFilterDialog v-if="showAuthorFilter" v-model="selectedAuthor" @update:model-value="applySearch" />
       <TagFilterDialog v-model="selectedTags" @update:model-value="applySearch" />
@@ -201,13 +200,13 @@ onBeforeUnmount(() => {
 
       <el-button v-if="hasActiveFilters" size="small" text class="!text-slate-400 hover:!text-indigo-600" @click="clearAll">清除筛选</el-button>
 
-      <el-radio-group v-model="viewMode" size="small" @change="applySearch" class="ml-auto !shadow-sm !rounded-lg overflow-hidden">
+      <el-radio-group v-model="viewMode" size="small" @change="applySearch" class="ml-auto overflow-hidden">
         <el-radio-button value="table">表格</el-radio-button>
         <el-radio-button value="grid">网格</el-radio-button>
       </el-radio-group>
     </div>
 
-    <div v-if="selectedTags.length || (showAuthorFilter && selectedAuthor)" class="flex flex-wrap items-center gap-2 bg-slate-50/50 p-2.5 rounded-xl border border-slate-100">
+    <div v-if="selectedTags.length || (showAuthorFilter && selectedAuthor)" class="flex flex-wrap items-center gap-2 rounded-md border border-slate-200 bg-white p-2.5">
       <template v-if="showAuthorFilter && selectedAuthor">
         <span class="text-xs font-semibold text-slate-400 tracking-wider">已选作者</span>
         <el-tag closable size="small" type="primary" effect="plain" class="!rounded-lg" @close="selectedAuthor = null; applySearch()">
@@ -230,7 +229,7 @@ onBeforeUnmount(() => {
       stripe
       size="small"
       highlight-current-row
-      class="border border-slate-100 !rounded-2xl shadow-sm"
+      class="border border-slate-200 !rounded-md"
     >
       <el-table-column label="题库名称" min-width="220">
         <template #default="{ row }: { row: QuestionBankV2 }">
@@ -300,7 +299,7 @@ onBeforeUnmount(() => {
           <span v-else class="text-xs text-slate-300">—</span>
         </template>
       </el-table-column>
-      <el-table-column label="操作" min-width="210" align="right">
+      <el-table-column label="操作" min-width="210" align="left" header-align="left">
         <template #default="{ row }: { row: QuestionBankV2 }">
           <div class="qp-icon-actions">
             <el-tooltip v-if="row.resumable_session" content="继续练习" placement="top">
@@ -329,11 +328,11 @@ onBeforeUnmount(() => {
     </el-table>
 
     <!-- Grid View -->
-    <div v-if="viewMode === 'grid'" v-loading="loading" class="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
+    <div v-if="viewMode === 'grid'" v-loading="loading" class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
       <div
         v-for="bank in banks"
         :key="bank.id"
-        class="group flex flex-col gap-2.5 rounded-2xl border border-slate-100 bg-white p-4.5 shadow-sm transition-all duration-300 hover:-translate-y-1 hover:shadow-lg hover:border-indigo-500/10"
+        class="group flex flex-col gap-2.5 rounded-md border border-slate-200 bg-white p-3 transition-colors hover:border-indigo-200 hover:bg-indigo-50/30"
       >
         <div class="flex items-start justify-between gap-2">
           <div class="flex flex-1 items-center gap-1.5 min-w-0">
@@ -367,7 +366,7 @@ onBeforeUnmount(() => {
           <span v-if="bank.tags.length > 3" class="text-[10px] text-slate-400 font-bold bg-slate-100/60 px-1 py-0.5 rounded">+{{ bank.tags.length - 3 }}</span>
         </div>
 
-        <div v-if="bank.latest_practice_session" class="grid gap-1.5 rounded-xl bg-slate-50/70 px-2.5 py-2">
+        <div v-if="bank.latest_practice_session" class="grid gap-1.5 rounded-md bg-slate-50 px-2.5 py-2">
           <div class="flex items-center justify-between gap-2 text-xs">
             <span class="font-semibold text-slate-500">{{ practiceProgressType(bank.latest_practice_session) }}</span>
             <span class="text-slate-400">{{ practiceProgressText(bank.latest_practice_session) }}</span>

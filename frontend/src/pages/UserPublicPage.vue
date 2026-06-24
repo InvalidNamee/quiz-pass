@@ -3,7 +3,7 @@ import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import type { QuestionBankV2, UserPublic } from '../api/types'
 import { listBanks, favoriteBank, unfavoriteBank } from '../api/v2/banks'
-import { Star } from '@lucide/vue'
+import { Rocket, Star, Zap } from '@lucide/vue'
 import { getUserPublic } from '../api/v2/users'
 import UserAvatar from '../components/UserAvatar.vue'
 import { useToast } from '../composables/useToast'
@@ -97,11 +97,19 @@ onMounted(async () => {
           <el-table-column label="收藏数" width="80" align="center">
             <template #default="{ row }: { row: QuestionBankV2 }">{{ row.stats.favorite_count }}</template>
           </el-table-column>
-          <el-table-column label="操作" width="180" align="right">
+          <el-table-column label="操作" width="180" align="left" header-align="left">
             <template #default="{ row }: { row: QuestionBankV2 }">
-              <div class="flex items-center justify-end gap-1">
-                <el-button v-if="row.resumable_session" size="small" type="primary" @click.stop="router.push(`/practice/session/${row.resumable_session.id}?resume=1`)">继续</el-button>
-                <el-button v-if="row.permissions.can_practice" size="small" @click.stop="router.push(`/banks/${row.id}?practice=1`)">练习</el-button>
+              <div class="qp-icon-actions">
+                <el-tooltip v-if="row.resumable_session" content="继续练习" placement="top">
+                  <el-button size="small" class="qp-icon-button is-blue" @click.stop="router.push(`/practice/session/${row.resumable_session.id}?resume=1`)">
+                    <Zap :size="16" />
+                  </el-button>
+                </el-tooltip>
+                <el-tooltip v-if="row.permissions.can_practice" content="开始练习" placement="top">
+                  <el-button size="small" class="qp-icon-button" @click.stop="router.push(`/banks/${row.id}?practice=1`)">
+                    <Rocket :size="16" />
+                  </el-button>
+                </el-tooltip>
               </div>
             </template>
           </el-table-column>

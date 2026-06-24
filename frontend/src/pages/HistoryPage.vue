@@ -81,7 +81,7 @@ onMounted(load); watch(() => route.fullPath, load)
       </div>
     </div>
 
-    <div class="qp-toolbar rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
+    <div class="qp-toolbar">
       <el-select v-model="mode" size="small" placeholder="模式" clearable class="!w-32" @change="applyFilters()">
         <el-option label="普通练习" value="practice" /><el-option label="模拟考试" value="exam" /><el-option label="错题复习" value="mistake_review" />
       </el-select>
@@ -96,7 +96,7 @@ onMounted(load); watch(() => route.fullPath, load)
       stripe
       size="small"
       highlight-current-row
-      class="cursor-pointer border border-slate-100 !rounded-2xl shadow-sm"
+      class="cursor-pointer border border-slate-200 !rounded-md"
       @row-click="openSession"
     >
       <el-table-column label="题库" min-width="160">

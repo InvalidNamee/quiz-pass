@@ -108,7 +108,7 @@ onBeforeUnmount(() => {
       size="small"
       highlight-current-row
       empty-text="暂无配置"
-      class="border border-slate-100 !rounded-2xl shadow-sm"
+      class="border border-slate-200 !rounded-md"
     >
       <el-table-column label="名称" min-width="180">
         <template #default="{ row }">
@@ -128,7 +128,7 @@ onBeforeUnmount(() => {
         </template>
       </el-table-column>
       <el-table-column label="API 地址" prop="api_base_url" min-width="200" show-overflow-tooltip />
-      <el-table-column label="操作" width="260" align="right">
+      <el-table-column label="操作" width="260" align="left" header-align="left">
         <template #default="{ row }">
           <div class="qp-icon-actions">
             <el-tooltip content="测试连接" placement="top">

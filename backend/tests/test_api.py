@@ -496,6 +496,80 @@ def test_offline_practice_sync_imports_full_session_and_is_idempotent():
         assert client.get(f"/api/v2/banks/{bank['id']}/mistake-attempts", headers=headers).json()["total"] == 1
 
 
+def test_offline_practice_sync_updates_existing_in_progress_session():
+    with TestClient(app) as client:
+        headers = _register(client, "offline-sync-update@example.com", "offlinesyncupdate")
+        bank = client.post("/api/v2/banks", headers=headers, json={"title": "Offline Sync Update", "visibility": "private"}).json()
+        single = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_sample_question_payload("离线更新单选")).json()
+        blank = client.post(f"/api/v2/banks/{bank['id']}/questions", headers=headers, json=_blank_question_payload()).json()
+
+        draft_payload = {
+            "device_id": "device-update",
+            "sessions": [
+                {
+                    "client_session_id": "local-session-update",
+                    "remote_bank_id": bank["id"],
+                    "mode": "practice",
+                    "status": "in_progress",
+                    "question_order": [single["id"], blank["id"]],
+                    "answers": [
+                        {
+                            "question_id": single["id"],
+                            "selected_option_ids": [single["options"][1]["id"]],
+                            "text_answers": [],
+                            "is_submitted": True,
+                            "answered_at": "2026-06-17T10:00:00Z",
+                        }
+                    ],
+                    "started_at": "2026-06-17T09:59:00Z",
+                    "submitted_at": None,
+                }
+            ],
+        }
+        first_sync = client.post("/api/v2/offline/practice-sync", headers=headers, json=draft_payload)
+        assert first_sync.status_code == 200, first_sync.text
+        remote_session_id = first_sync.json()["synced"][0]["remote_session_id"]
+        assert client.get(f"/api/v2/banks/{bank['id']}/mistake-attempts", headers=headers).json()["total"] == 1
+
+        submitted_payload = {
+            **draft_payload,
+            "sessions": [
+                {
+                    **draft_payload["sessions"][0],
+                    "status": "submitted",
+                    "answers": [
+                        {
+                            "question_id": single["id"],
+                            "selected_option_ids": [single["options"][0]["id"]],
+                            "text_answers": [],
+                            "is_submitted": True,
+                            "answered_at": "2026-06-17T10:03:00Z",
+                        },
+                        {
+                            "question_id": blank["id"],
+                            "selected_option_ids": [],
+                            "text_answers": ["传输层"],
+                            "is_submitted": True,
+                            "answered_at": "2026-06-17T10:04:00Z",
+                        },
+                    ],
+                    "submitted_at": "2026-06-17T10:05:00Z",
+                }
+            ],
+        }
+        second_sync = client.post("/api/v2/offline/practice-sync", headers=headers, json=submitted_payload)
+        assert second_sync.status_code == 200, second_sync.text
+        assert second_sync.json()["synced"][0]["remote_session_id"] == remote_session_id
+        assert client.get("/api/v2/history/sessions", headers=headers).json()["total"] == 1
+
+        synced_history = client.get("/api/v2/history/sessions", headers=headers).json()["items"][0]
+        assert synced_history["id"] == remote_session_id
+        assert synced_history["status"] == "submitted"
+        assert synced_history["correct_count"] == 2
+        assert synced_history["score"] == 100
+        assert client.get(f"/api/v2/banks/{bank['id']}/mistake-attempts", headers=headers).json()["total"] == 0
+
+
 def test_refresh_token_can_refresh_access_but_not_access_api():
     with TestClient(app) as client:
         response = client.post(

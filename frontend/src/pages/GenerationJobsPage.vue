@@ -246,7 +246,7 @@ onBeforeUnmount(() => {
       </div>
     </div>
 
-    <div class="qp-toolbar rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
+    <div class="qp-toolbar">
       <el-select v-model="status" size="small" placeholder="全部状态" style="width: 160px">
         <el-option value="">全部状态</el-option>
         <el-option value="pending">等待生成</el-option>

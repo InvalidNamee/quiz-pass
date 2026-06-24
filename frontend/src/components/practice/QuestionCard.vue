@@ -92,7 +92,7 @@ function correctTextSummary() {
 </script>
 
 <template>
-  <el-card shadow="never" :class="['!rounded-2xl question-panel !border-slate-100 shadow-sm transition-all p-2', answerStatus === 'correct' ? 'is-correct' : answerStatus === 'wrong' ? 'is-wrong' : '']">
+  <el-card shadow="never" :class="['!rounded-md question-panel !border-slate-200 p-2', answerStatus === 'correct' ? 'is-correct' : answerStatus === 'wrong' ? 'is-wrong' : '']">
     <div class="mb-4 flex items-center gap-2">
       <el-tag size="small" class="!rounded-md" type="info">{{ typeLabels[question.type] }}</el-tag>
       <el-tag v-if="isLocked" size="small" class="!rounded-md" type="warning">已提交</el-tag>
@@ -147,7 +147,7 @@ function correctTextSummary() {
     </div>
 
     <div v-if="showSubmitButton" class="mt-5 flex gap-2 pt-1">
-      <el-button type="primary" :disabled="!canSubmit()" class="!rounded-xl shadow-md shadow-indigo-500/10 active:scale-95 transition-all" @click="emit('answer')"><Zap :size="14" class="mr-1" />提交答案</el-button>
+      <el-button type="primary" :disabled="!canSubmit()" @click="emit('answer')"><Zap :size="14" class="mr-1" />提交答案</el-button>
     </div>
 
     <!-- Answer feedback -->
@@ -157,7 +157,7 @@ function correctTextSummary() {
     </div>
 
     <!-- Exam mode: submitted but not yet revealed -->
-    <el-alert v-else-if="isLocked" class="mt-4 !rounded-xl" type="info" title="已成功提交作答，交卷后将统一公布解析结果" show-icon :closable="false" />
+    <el-alert v-else-if="isLocked" class="mt-4" type="info" title="已成功提交作答，交卷后将统一公布解析结果" show-icon :closable="false" />
 
     <!-- Reveal panel -->
     <div v-if="shouldReveal" class="mt-4 grid gap-2.5 rounded-xl border p-4 text-sm leading-relaxed" :class="answerStatus === 'correct' ? 'reveal-panel is-correct-reveal' : 'reveal-panel is-wrong-reveal'">
@@ -197,11 +197,9 @@ function correctTextSummary() {
 }
 .question-panel.is-correct {
   border-color: var(--practice-ok-border) !important;
-  box-shadow: 0 4px 12px rgba(16, 185, 129, 0.05) !important;
 }
 .question-panel.is-wrong {
   border-color: var(--practice-bad-border) !important;
-  box-shadow: 0 4px 12px rgba(239, 68, 68, 0.05) !important;
 }
 
 .question-choice {
@@ -211,13 +209,12 @@ function correctTextSummary() {
   align-items: flex-start;
   gap: 12px;
   border: 1px solid rgba(226, 232, 240, 0.8);
-  border-radius: 12px;
+  border-radius: 8px;
   padding: 12px 14px;
   text-align: left;
   background: #fff;
   color: #334155;
-  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.01);
+  transition: border-color 0.15s ease, background-color 0.15s ease;
 }
 .question-choice:disabled {
   cursor: default;
@@ -225,11 +222,6 @@ function correctTextSummary() {
 .question-choice:hover:not(:disabled) {
   border-color: #a5b4fc;
   background: #fdfdfd;
-  transform: translateY(-0.5px);
-  box-shadow: 0 4px 6px -1px rgba(99, 102, 241, 0.04);
-}
-.question-choice:active:not(:disabled) {
-  transform: scale(0.99);
 }
 .question-choice:hover:not(:disabled) .choice-badge {
   background: #e0e7ff;
@@ -238,7 +230,6 @@ function correctTextSummary() {
 .question-choice.is-selected-choice {
   border-color: #818cf8;
   background: #f5f3ff;
-  box-shadow: 0 4px 8px -2px rgba(99, 102, 241, 0.08);
 }
 .question-choice.is-selected-choice .choice-badge {
   background: #6366f1;

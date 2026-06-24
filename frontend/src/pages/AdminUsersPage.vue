@@ -145,7 +145,7 @@ onBeforeUnmount(() => {
         <p class="qp-subtitle">管理员分页检索用户、启停账号和重置密码。</p>
       </div>
     </div>
-    <div class="qp-toolbar rounded-2xl border border-slate-100 bg-white p-3 shadow-sm">
+    <div class="qp-toolbar">
       <el-input v-model="keyword" size="small" placeholder="搜索用户" clearable style="width: 200px" />
       <el-select v-model="role" size="small" placeholder="全部角色" style="width: 120px">
         <el-option value="">全部角色</el-option>
@@ -167,7 +167,7 @@ onBeforeUnmount(() => {
       size="small"
       highlight-current-row
       empty-text="没有匹配的用户"
-      class="border border-slate-100 !rounded-2xl shadow-sm"
+      class="border border-slate-200 !rounded-md"
     >
       <el-table-column label="用户" min-width="220">
         <template #default="{ row }">
@@ -191,7 +191,7 @@ onBeforeUnmount(() => {
           <el-tag :type="row.is_active ? 'success' : 'danger'">{{ row.is_active ? '启用' : '禁用' }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="220" align="right">
+      <el-table-column label="操作" width="220" align="left" header-align="left">
         <template #default="{ row }">
           <div class="qp-icon-actions">
             <el-tooltip content="编辑资料" placement="top">

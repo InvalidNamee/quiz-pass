@@ -74,7 +74,7 @@ function visibleError(row: WorkflowListItem, showSensitiveError?: boolean) {
     size="small"
     highlight-current-row
     empty-text="暂无工作流记录"
-    class="border border-slate-100 !rounded-2xl shadow-sm"
+    class="border border-slate-200 !rounded-md"
   >
     <el-table-column label="#" width="70">
       <template #default="{ row }">
@@ -129,7 +129,7 @@ function visibleError(row: WorkflowListItem, showSensitiveError?: boolean) {
         </el-popover>
       </template>
     </el-table-column>
-    <el-table-column v-if="showActions" label="操作" width="300" fixed="right" align="right">
+    <el-table-column v-if="showActions" label="操作" width="300" fixed="right" align="left" header-align="left">
       <template #default="{ row }">
         <slot name="actions" :row="row" />
       </template>
