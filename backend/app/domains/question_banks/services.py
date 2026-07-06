@@ -38,6 +38,7 @@ class QuestionBankService:
             owner_id=user.id,
             title=payload.title,
             description=payload.description,
+            ai_context=payload.ai_context,
             visibility=payload.visibility,
             desired_visibility=payload.visibility,
         )

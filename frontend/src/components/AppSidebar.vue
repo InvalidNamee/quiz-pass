@@ -10,6 +10,7 @@ import {
   History,
   Home,
   Library,
+  Share2,
   Sparkles,
   Star,
   Users,
@@ -36,6 +37,7 @@ const groups = computed(() => [
     title: '题库',
     items: [
       { label: '我的题库', to: '/banks', icon: Library },
+      { label: '我的分享', to: '/banks/shared', icon: Share2 },
       { label: '本地题库', to: '/local/banks', icon: HardDrive },
       { label: '公开题库', to: '/banks/public', icon: Globe2 },
       { label: '我的收藏', to: '/favorites', icon: Star },

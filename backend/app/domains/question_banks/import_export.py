@@ -13,6 +13,15 @@ from app.models.user import User
 from app.domains.question_banks.tags import merge_tag_names, normalize_tag_names, set_bank_tags
 from app.utils.json_io import create_question_from_payload, question_to_json
 
+AI_CONTEXT_MAX_LENGTH = 12000
+
+
+def normalize_ai_context(value: str | None) -> str | None:
+    text = (value or "").strip()
+    if len(text) > AI_CONTEXT_MAX_LENGTH:
+        raise HTTPException(status_code=422, detail=f"AI 背景知识不能超过 {AI_CONTEXT_MAX_LENGTH} 字")
+    return text or None
+
 
 class QuestionBankImportExportService:
     def __init__(self, db: Session):
@@ -66,6 +75,7 @@ class QuestionBankImportExportService:
         visibility: str = "private",
         form_tag_names: list[object] | None = None,
         file_stem: str | None = None,
+        ai_context: str | None = None,
     ):
         if visibility == "public" and user.role != "admin":
             raise HTTPException(status_code=403, detail="普通用户只能通过分享生成公开题库")
@@ -79,7 +89,7 @@ class QuestionBankImportExportService:
             description = raw_description.strip() or None if isinstance(raw_description, str) else None
             file_tag_names = bank_info.get("tags") if isinstance(bank_info.get("tags"), list) else []
             questions = self.extract_questions(payload)
-            bank = QuestionBank(owner_id=user.id, title=title, description=description, visibility=visibility, desired_visibility=visibility)
+            bank = QuestionBank(owner_id=user.id, title=title, description=description, ai_context=normalize_ai_context(ai_context), visibility=visibility, desired_visibility=visibility)
             self.db.add(bank)
             self.db.flush()
             set_bank_tags(self.db, bank, merge_tag_names(file_tag_names, form_tag_names or []))

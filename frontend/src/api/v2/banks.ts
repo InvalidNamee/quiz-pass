@@ -1,9 +1,10 @@
 import { api, apiUrl } from '../http'
 import type { BankDownloadPackage, Page, Question, QuestionBankV2, QuestionBankTag } from '../types'
 
+export type BankListScope = 'mine' | 'public' | 'favorites' | 'shared'
 type BankListParams = { page?: number; page_size?: number; keyword?: string; owner_id?: number; owner?: string; tag_ids?: string; visibility?: string; generation_status?: string }
 
-export function listBanks(scope: 'mine' | 'public' | 'favorites', params: BankListParams = {}) {
+export function listBanks(scope: BankListScope, params: BankListParams = {}) {
   const q = new URLSearchParams()
   q.set('scope', scope)
   Object.entries(params).forEach(([k, v]) => { if (v !== undefined && v !== '') q.set(k, String(v)) })
@@ -22,7 +23,7 @@ export function downloadBankPackage(bankId: number) {
   return api<BankDownloadPackage>(`/api/v2/banks/${bankId}/download-package`)
 }
 
-export function createBank(data: { title: string; visibility?: string; tag_names?: string[] }) {
+export function createBank(data: { title: string; description?: string | null; ai_context?: string | null; visibility?: string; tag_names?: string[] }) {
   return api<QuestionBankV2>('/api/v2/banks', { method: 'POST', body: JSON.stringify(data) })
 }
 

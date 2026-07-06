@@ -10,6 +10,7 @@ from app.db.session import SessionLocal
 from app.domains.ai_generation.schemas import AIGenerationWorkflowCreatedOut
 from app.domains.ai_generation.drafts import DraftService
 from app.domains.ai_generation.errors import AIOutputValidationError
+from app.domains.ai_generation.watchdog import fail_stale_workflows
 from app.domains.ai_generation.workflow_runtime import WorkflowRuntime
 from app.domains.ai_generation.workflow_state import now_utc
 from app.domains.question_banks.permissions import QuestionBankPermissionService
@@ -25,6 +26,7 @@ from app.utils.document_extractors import extract_text
 
 
 SOURCE_FILE_NAME_MAX_LENGTH = 255
+AI_CONTEXT_MAX_LENGTH = 12000
 
 
 def summarize_source_file_name(filenames: list[str]) -> str | None:
@@ -35,6 +37,22 @@ def summarize_source_file_name(filenames: list[str]) -> str | None:
     suffix = f" 等 {len(filenames)} 个文件"
     prefix_limit = max(0, SOURCE_FILE_NAME_MAX_LENGTH - len(suffix))
     return f"{filenames[0][:prefix_limit]}{suffix}"
+
+
+def validate_source_text_size(text: str) -> None:
+    max_chars = int(get_settings().ai_max_text_chars or 0)
+    if max_chars > 0 and len(text) > max_chars:
+        raise HTTPException(
+            status_code=413,
+            detail=f"材料过长：提取后 {len(text)} 字，超过上限 {max_chars} 字，请拆分文件或减少文本量",
+        )
+
+
+def normalize_ai_context(value: str | None) -> str | None:
+    text = (value or "").strip()
+    if len(text) > AI_CONTEXT_MAX_LENGTH:
+        raise HTTPException(status_code=422, detail=f"AI 背景知识不能超过 {AI_CONTEXT_MAX_LENGTH} 字")
+    return text or None
 
 
 async def extract_uploaded_sources(file: UploadFile | None = None, files: list[UploadFile] | None = None) -> tuple[str, str | None]:
@@ -56,8 +74,10 @@ async def extract_uploaded_sources(file: UploadFile | None = None, files: list[U
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     if len(extracted) == 1:
+        validate_source_text_size(extracted[0][1])
         return extracted[0][1], summarize_source_file_name([extracted[0][0]])
     combined_text = "\n\n".join(f"===== 文件: {filename} =====\n{text}" for filename, text in extracted)
+    validate_source_text_size(combined_text)
     return combined_text, summarize_source_file_name([filename for filename, _ in extracted])
 
 
@@ -146,6 +166,7 @@ class AIGenerationWorkflowService:
         background_tasks: BackgroundTasks,
         title: str,
         description: str | None,
+        ai_context: str | None,
         desired_visibility: str,
         ai_provider_config_id: int | None,
         question_count_mode: str,
@@ -170,6 +191,7 @@ class AIGenerationWorkflowService:
             raise HTTPException(status_code=422, detail="tag_names 必须是字符串数组") from exc
         if not isinstance(parsed_tag_names, list):
             raise HTTPException(status_code=422, detail="tag_names 必须是字符串数组")
+        normalized_ai_context = normalize_ai_context(ai_context)
 
         config = self.pick_ai_config(user.id, ai_provider_config_id)
         text, source_file_name = await extract_uploaded_sources(file, files)
@@ -179,6 +201,7 @@ class AIGenerationWorkflowService:
             owner_id=user.id,
             title=title,
             description=description,
+            ai_context=normalized_ai_context,
             visibility="private",
             desired_visibility=desired_visibility,
             generation_status="pending",
@@ -312,6 +335,7 @@ class AIGenerationWorkflowService:
         source_text: str | None,
         title: str | None,
         description: str | None,
+        ai_context: str | None,
         desired_visibility: str | None,
         file: UploadFile | None,
         files: list[UploadFile] | None = None,
@@ -344,8 +368,10 @@ class AIGenerationWorkflowService:
             text = (source_text or "").strip() or (original.source_text_snapshot or "")
         if not text.strip():
             raise HTTPException(status_code=422, detail="重新生成需要源文本或上传文件")
+        validate_source_text_size(text)
 
         host = urlparse(config.api_base_url).netloc or config.api_base_url
+        normalized_ai_context = normalize_ai_context(ai_context) if ai_context is not None else None
         if original.purpose == "create_bank":
             desired = desired_visibility or (old_bank.desired_visibility if old_bank else "private")
             if desired not in ("private", "public"):
@@ -356,6 +382,8 @@ class AIGenerationWorkflowService:
                 bank = old_bank
                 bank.title = (title or old_bank.title or original.bank_title_snapshot or "重新生成题库").strip()
                 bank.description = description if description is not None else old_bank.description
+                if ai_context is not None:
+                    bank.ai_context = normalized_ai_context
                 bank.visibility = "private"
                 bank.desired_visibility = desired
                 bank.generation_status = "processing"
@@ -367,6 +395,7 @@ class AIGenerationWorkflowService:
                     owner_id=user.id,
                     title=(title or original.bank_title_snapshot or "重新生成题库").strip(),
                     description=description,
+                    ai_context=normalized_ai_context,
                     visibility="private",
                     desired_visibility=desired,
                     generation_status="pending",
@@ -424,6 +453,7 @@ class AIGenerationWorkflowService:
         return AIGenerationWorkflowCreatedOut(workflow_id=workflow.id, bank_id=bank.id, job_id=job.id)
 
     def workflows_for_user_stmt(self, user: User, status: str | None = None, bank_id: int | None = None):
+        fail_stale_workflows(self.db)
         stmt = select(AIGenerationWorkflow).where(AIGenerationWorkflow.user_id == user.id)
         if status:
             stmt = stmt.where(AIGenerationWorkflow.status == status)
@@ -432,6 +462,7 @@ class AIGenerationWorkflowService:
         return stmt.order_by(AIGenerationWorkflow.created_at.desc())
 
     def workflows_for_readable_bank_stmt(self, bank_id: int, user: User, status: str | None = None):
+        fail_stale_workflows(self.db)
         bank = self.db.get(QuestionBank, bank_id)
         if not QuestionBankPermissionService.can_read(bank, user):
             raise HTTPException(status_code=404, detail="Question bank not found")
@@ -441,6 +472,7 @@ class AIGenerationWorkflowService:
         return stmt.order_by(AIGenerationWorkflow.created_at.desc(), AIGenerationWorkflow.id.desc())
 
     def get_owned_workflow(self, workflow_id: int, user: User) -> AIGenerationWorkflow:
+        fail_stale_workflows(self.db)
         workflow = self.db.get(AIGenerationWorkflow, workflow_id)
         if not workflow or workflow.user_id != user.id:
             raise HTTPException(status_code=404, detail="Workflow not found")
@@ -614,7 +646,25 @@ class AIGenerationWorkflowService:
         workflow = self.get_owned_workflow(workflow_id, user)
         detail = AIGenerationWorkflowDetailOut.model_validate(self.workflow_out(workflow).model_dump())
         detail.steps = self.workflow_steps(workflow_id, user)
+        detail.failed_payload_json = self._latest_step_payload_json(detail.steps, "validate_payload", "failed", "input")
+        detail.failed_repaired_payload_json = self._latest_step_payload_json(detail.steps, "repair_payload", "succeeded", "output")
         return detail
+
+    @staticmethod
+    def _latest_step_payload_json(steps: list[AIGenerationWorkflowStepOut], step_name: str, status: str, side: str) -> str | None:
+        for step in reversed(steps):
+            if step.step_name != step_name or step.status != status:
+                continue
+            raw = step.output_json if side == "output" else step.input_json
+            if not raw:
+                continue
+            try:
+                data = json.loads(raw)
+            except json.JSONDecodeError:
+                continue
+            payload = data.get("payload") if isinstance(data, dict) and "payload" in data else data
+            return json.dumps(payload, ensure_ascii=False, indent=2)
+        return None
 
     def draft_for_workflow(self, workflow_id: int, user: User) -> AIGenerationDraftOut:
         workflow = self.get_owned_workflow(workflow_id, user)

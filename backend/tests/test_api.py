@@ -1,5 +1,6 @@
 import json
 import os
+from datetime import timedelta
 from pathlib import Path
 
 import pytest
@@ -21,12 +22,14 @@ from app.db.session import SessionLocal  # noqa: E402
 from app.main import app  # noqa: E402
 from app.models.audit import AuditEvent  # noqa: E402
 from app.models.ai_workflow import AIGenerationDraft, AIGenerationWorkflow, AIGenerationWorkflowStep, AIGenerationDraftQuestion  # noqa: E402
+from app.models.ai_provider_config import UserAIProviderConfig  # noqa: E402
 from app.models.import_job import ImportJob  # noqa: E402
 from app.models.practice import MistakeAttempt, MistakeRecord, PracticeAnswer, PracticeSession, PracticeSessionQuestion  # noqa: E402
 from app.models.question import Question, QuestionOption  # noqa: E402
 from app.models.question_bank import QuestionBank, QuestionBankFavorite, question_bank_tag_links  # noqa: E402
 from app.models.user import EmailAuthToken, User  # noqa: E402
 from app.core.config import get_settings  # noqa: E402
+from app.utils.crypto import encrypt_secret  # noqa: E402
 import app.infrastructure.email as email_delivery  # noqa: E402
 
 
@@ -262,6 +265,11 @@ def test_sharing_bank_creates_static_public_copy_and_locks_normal_management():
         assert shared["permissions"]["can_share"] is False
         assert shared["stats"]["question_count"] == 1
         assert shared["tags"][0]["name"] == "共享标签"
+        mine_after_share = client.get("/api/v2/banks?scope=mine&page_size=50", headers=owner_headers).json()["items"]
+        assert source["id"] in [item["id"] for item in mine_after_share]
+        assert shared["id"] not in [item["id"] for item in mine_after_share]
+        shared_scope = client.get("/api/v2/banks?scope=shared&page_size=50", headers=owner_headers).json()["items"]
+        assert [item["id"] for item in shared_scope] == [shared["id"]]
 
         reader_shared = client.get(f"/api/v2/banks/{shared['id']}", headers=reader_headers)
         assert reader_shared.status_code == 200, reader_shared.text
@@ -1189,6 +1197,206 @@ def test_ai_generation_validation_failure(monkeypatch):
         assert "single 有 2 个正确答案" in job["error_message"]
         steps = client.get(f"/api/v2/ai/workflows/{job['workflow_id']}/steps", headers=headers).json()
         assert any(step["step_name"] == "validate_payload" and step["status"] == "failed" for step in steps)
+        detail = client.get(f"/api/v2/ai/workflows/{job['workflow_id']}/detail", headers=headers)
+        assert detail.status_code == 200, detail.text
+        detail_payload = detail.json()
+        assert detail_payload["failed_payload_json"]
+        assert "bad" in detail_payload["failed_payload_json"]
+        assert detail_payload["failed_repaired_payload_json"]
+        assert "bad" in detail_payload["failed_repaired_payload_json"]
+
+
+def test_ai_workflow_rejects_oversized_source_before_shell_creation(monkeypatch):
+    settings = get_settings()
+    monkeypatch.setattr(settings, "ai_max_text_chars", 5)
+    with TestClient(app) as client:
+        headers = _register(client, "ai-too-large@example.com", "aitoolarge")
+        config = client.post(
+            "/api/v2/users/me/ai-provider-configs",
+            headers=headers,
+            json={"name": "mock", "api_base_url": "https://example.test/v1", "api_key": "sk-test", "model": "mock", "is_default": True},
+        )
+        assert config.status_code == 200
+
+        response = client.post(
+            "/api/v2/ai/workflows",
+            headers=headers,
+            data={"title": "Too Large", "desired_visibility": "private", "question_count": "1"},
+            files={"file": ("material.txt", b"123456", "text/plain")},
+        )
+        assert response.status_code == 413
+        assert "材料过长" in response.json()["error"]["message"]
+        assert client.get("/api/v2/ai/workflows", headers=headers).json()["total"] == 0
+
+
+def test_ai_workflow_runtime_marks_unhandled_node_exception_failed(monkeypatch):
+    from app.domains.ai_generation.context import WorkflowContextBuilder
+    from app.domains.ai_generation.workflow_runtime import WorkflowRuntime
+
+    db = SessionLocal()
+    try:
+        user = User(email="ai-runtime-fail@example.com", username="airuntimefail", display_name="airuntimefail", password_hash="hash")
+        db.add(user)
+        db.flush()
+        config = UserAIProviderConfig(
+            user_id=user.id,
+            name="mock",
+            api_base_url="https://example.test/v1",
+            api_key_encrypted=encrypt_secret("sk-test"),
+            model="mock",
+            is_default=True,
+            is_active=True,
+        )
+        db.add(config)
+        bank = QuestionBank(owner_id=user.id, title="Runtime Fail", visibility="private", desired_visibility="private", generation_status="pending")
+        db.add(bank)
+        db.flush()
+        workflow = AIGenerationWorkflow(
+            bank_id=bank.id,
+            user_id=user.id,
+            purpose="create_bank",
+            generation_mode="knowledge_generate",
+            status="pending",
+            source_text_snapshot="material",
+            ai_provider_config_id=config.id,
+            ai_model_snapshot=config.model,
+            ai_base_url_snapshot="example.test",
+        )
+        db.add(workflow)
+        db.flush()
+        job = ImportJob(user_id=user.id, bank_id=bank.id, workflow_id=workflow.id, status="pending", desired_visibility="private", type="document_ai")
+        db.add(job)
+        db.commit()
+
+        def broken_context(*args, **kwargs):
+            raise RuntimeError("context exploded")
+
+        monkeypatch.setattr(WorkflowContextBuilder, "build", broken_context)
+        WorkflowRuntime(db, model_client=lambda *args, **kwargs: {"questions": []}).run(
+            workflow.id,
+            text="material",
+            requested_count=1,
+            generate_description=False,
+            generation_mode="knowledge_generate",
+            extra_instruction=None,
+        )
+        db.refresh(workflow)
+        db.refresh(job)
+        db.refresh(bank)
+        assert workflow.status == "failed"
+        assert job.status == "failed"
+        assert bank.generation_status == "failed"
+        assert "context exploded" in workflow.error_message
+    finally:
+        db.close()
+
+
+def test_ai_workflow_watchdog_marks_stale_running_workflows_failed():
+    from app.domains.ai_generation.watchdog import fail_stale_workflows
+    from app.domains.ai_generation.workflow_state import now_utc
+
+    db = SessionLocal()
+    try:
+        user = User(email="ai-watchdog@example.com", username="aiwatchdog", display_name="aiwatchdog", password_hash="hash")
+        db.add(user)
+        db.flush()
+        stale_at = now_utc() - timedelta(minutes=90)
+
+        create_bank = QuestionBank(owner_id=user.id, title="Stale Create", visibility="private", desired_visibility="private", generation_status="processing")
+        extend_bank = QuestionBank(owner_id=user.id, title="Stale Extend", visibility="public", desired_visibility="public", generation_status="succeeded", question_count=3)
+        db.add_all([create_bank, extend_bank])
+        db.flush()
+        create_workflow = AIGenerationWorkflow(
+            bank_id=create_bank.id,
+            user_id=user.id,
+            purpose="create_bank",
+            generation_mode="knowledge_generate",
+            status="calling_model",
+            updated_at=stale_at,
+        )
+        extend_workflow = AIGenerationWorkflow(
+            bank_id=extend_bank.id,
+            user_id=user.id,
+            purpose="extend_bank",
+            generation_mode="knowledge_generate",
+            status="repairing",
+            updated_at=stale_at,
+        )
+        fresh_workflow = AIGenerationWorkflow(
+            bank_id=extend_bank.id,
+            user_id=user.id,
+            purpose="extend_bank",
+            generation_mode="knowledge_generate",
+            status="calling_model",
+            updated_at=now_utc(),
+        )
+        db.add_all([create_workflow, extend_workflow, fresh_workflow])
+        db.flush()
+        create_job = ImportJob(user_id=user.id, bank_id=create_bank.id, workflow_id=create_workflow.id, status="calling_model", desired_visibility="private", type="document_ai")
+        extend_job = ImportJob(user_id=user.id, bank_id=extend_bank.id, workflow_id=extend_workflow.id, status="repairing", desired_visibility="public", type="document_ai")
+        fresh_job = ImportJob(user_id=user.id, bank_id=extend_bank.id, workflow_id=fresh_workflow.id, status="calling_model", desired_visibility="public", type="document_ai")
+        db.add_all([create_job, extend_job, fresh_job])
+        db.commit()
+
+        assert fail_stale_workflows(db, older_than_minutes=30) == 2
+        db.refresh(create_workflow)
+        db.refresh(extend_workflow)
+        db.refresh(fresh_workflow)
+        db.refresh(create_job)
+        db.refresh(extend_job)
+        db.refresh(fresh_job)
+        db.refresh(create_bank)
+        db.refresh(extend_bank)
+
+        assert create_workflow.status == "failed"
+        assert create_job.status == "failed"
+        assert create_bank.generation_status == "failed"
+        assert create_bank.visibility == "private"
+        assert "超时未更新" in create_workflow.error_message
+        assert extend_workflow.status == "failed"
+        assert extend_job.status == "failed"
+        assert extend_bank.generation_status == "succeeded"
+        assert fresh_workflow.status == "calling_model"
+        assert fresh_job.status == "calling_model"
+        assert db.scalar(select(AIGenerationWorkflowStep).where(AIGenerationWorkflowStep.workflow_id == create_workflow.id, AIGenerationWorkflowStep.step_name == "fail")) is not None
+    finally:
+        db.close()
+
+
+def test_ai_workflow_list_recovers_stale_processing_workflow():
+    from app.domains.ai_generation.workflow_state import now_utc
+
+    with TestClient(app) as client:
+        headers = _register(client, "ai-list-watchdog@example.com", "ailistwatchdog")
+        db = SessionLocal()
+        try:
+            user = db.scalar(select(User).where(User.username == "ailistwatchdog"))
+            assert user is not None
+            bank = QuestionBank(owner_id=user.id, title="List Stale", visibility="private", desired_visibility="private", generation_status="processing")
+            db.add(bank)
+            db.flush()
+            workflow = AIGenerationWorkflow(
+                bank_id=bank.id,
+                user_id=user.id,
+                purpose="create_bank",
+                generation_mode="knowledge_generate",
+                status="calling_model",
+                updated_at=now_utc() - timedelta(minutes=90),
+            )
+            db.add(workflow)
+            db.flush()
+            db.add(ImportJob(user_id=user.id, bank_id=bank.id, workflow_id=workflow.id, status="calling_model", desired_visibility="private", type="document_ai"))
+            db.commit()
+
+            response = client.get("/api/v2/ai/workflows", headers=headers)
+            assert response.status_code == 200, response.text
+            item = next(item for item in response.json()["items"] if item["id"] == workflow.id)
+            assert item["status"] == "failed"
+            assert "超时未更新" in item["error_message"]
+            db.refresh(bank)
+            assert bank.generation_status == "failed"
+        finally:
+            db.close()
 
 
 def test_ai_generation_repair_draft_confirm_and_extend(monkeypatch):
@@ -1984,13 +2192,15 @@ def test_v2_ai_workflow_retry_failed_creates_new_workflow(monkeypatch):
         failed = client.post(
             "/api/v2/ai/workflows",
             headers=headers,
-            data={"title": "Retry Bank", "question_count": "1"},
+            data={"title": "Retry Bank", "question_count": "1", "ai_context": "初始 AI 背景"},
             files={"file": ("bad.txt", b"bad source", "text/plain")},
         )
         assert failed.status_code == 200, failed.text
         failed_workflow = client.get(f"/api/v2/ai/workflows/{failed.json()['workflow_id']}", headers=headers).json()
         assert failed_workflow["status"] == "failed"
         original_bank_id = failed_workflow["bank_id"]
+        failed_bank = client.get(f"/api/v2/banks/{original_bank_id}", headers=headers).json()
+        assert failed_bank["ai_context"] == "初始 AI 背景"
 
         mode["ok"] = True
         retried = client.post(
@@ -2002,7 +2212,8 @@ def test_v2_ai_workflow_retry_failed_creates_new_workflow(monkeypatch):
                 "question_count": "1",
                 "title": "Retry Bank 2",
                 "description": "retry description",
-                    "desired_visibility": "private",
+                "ai_context": "重试 AI 背景",
+                "desired_visibility": "private",
             },
         )
         assert retried.status_code == 200, retried.text
@@ -2016,6 +2227,7 @@ def test_v2_ai_workflow_retry_failed_creates_new_workflow(monkeypatch):
         reused_bank = client.get(f"/api/v2/banks/{original_bank_id}", headers=headers).json()
         assert reused_bank["title"] == "Retry Bank 2"
         assert reused_bank["description"] == "retry description"
+        assert reused_bank["ai_context"] == "重试 AI 背景"
         assert reused_bank["desired_visibility"] == "private"
         mine = client.get("/api/v2/banks?scope=mine&page_size=50", headers=headers).json()["items"]
         matching_ids = [item["id"] for item in mine if item["title"] in {"Retry Bank", "Retry Bank 2"}]
@@ -2829,12 +3041,13 @@ def test_v2_question_crud_permissions_and_json_import_export():
         imported = client.post(
             "/api/v2/banks/import-json",
             headers=owner_headers,
-            data={"visibility": "private", "tag_names": '["表单标签", null, "", 42, "None"]'},
+            data={"visibility": "private", "ai_context": "导入时写入的 AI 背景", "tag_names": '["表单标签", null, "", 42, "None"]'},
             files={"file": ("bank.json", json.dumps(imported_payload).encode("utf-8"), "application/json")},
         )
         assert imported.status_code == 200, imported.text
         assert imported.json()["title"] == "Imported Bank"
         assert imported.json()["description"] == "Imported description"
+        assert imported.json()["ai_context"] == "导入时写入的 AI 背景"
         assert imported.json()["stats"]["question_count"] == 1
         assert [tag["name"] for tag in imported.json()["tags"]] == ["导入标签", "表单标签"]
 

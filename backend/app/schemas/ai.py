@@ -126,6 +126,8 @@ class AIGenerationWorkflowOut(BaseModel):
 
 class AIGenerationWorkflowDetailOut(AIGenerationWorkflowOut):
     steps: list["AIGenerationWorkflowStepOut"] = Field(default_factory=list)
+    failed_payload_json: str | None = None
+    failed_repaired_payload_json: str | None = None
 
 
 class AIGenerationWorkflowStepOut(BaseModel):

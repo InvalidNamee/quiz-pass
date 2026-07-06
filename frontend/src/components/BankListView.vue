@@ -4,6 +4,7 @@ import { useRoute, useRouter } from 'vue-router'
 import { useBankList } from '../composables/useBankList'
 import { ElMessageBox } from 'element-plus'
 import { favoriteBank, unfavoriteBank, shareBank, deleteBank } from '../api/v2/banks'
+import type { BankListScope } from '../api/v2/banks'
 import type { QuestionBankV2 } from '../api/types'
 import GenerateBankDialog from './GenerateBankDialog.vue'
 import PracticeSetupDialog from './PracticeSetupDialog.vue'
@@ -18,7 +19,7 @@ import { openBankGenerateWindow, openPracticeSetupWindow } from '../features/uti
 
 const props = defineProps<{
   title: string; subtitle: string
-  scope: 'mine' | 'public' | 'favorites'
+  scope: BankListScope
   showAuthorFilter?: boolean; showVisibilityFilter?: boolean; showGenerationFilter?: boolean
   allowCreate?: boolean
 }>()

@@ -64,7 +64,9 @@ class QuestionBankQueryService:
     ):
         stmt = select(QuestionBank)
         if scope == "mine":
-            stmt = stmt.where(QuestionBank.owner_id == user.id)
+            stmt = stmt.where(QuestionBank.owner_id == user.id, QuestionBank.is_shared_copy.is_(False))
+        elif scope == "shared":
+            stmt = stmt.where(QuestionBank.owner_id == user.id, QuestionBank.is_shared_copy.is_(True))
         elif scope == "public":
             stmt = stmt.where(QuestionBank.visibility == "public", QuestionBank.generation_status.in_(["none", "succeeded"]))
         elif scope == "favorites":
@@ -84,7 +86,7 @@ class QuestionBankQueryService:
 
         if keyword:
             stmt = stmt.where(or_(QuestionBank.title.contains(keyword), QuestionBank.description.contains(keyword)))
-        if scope != "mine":
+        if scope not in {"mine", "shared"}:
             if owner_id:
                 stmt = stmt.where(QuestionBank.owner_id == owner_id)
             elif owner and owner.strip():

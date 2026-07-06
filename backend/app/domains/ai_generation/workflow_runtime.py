@@ -72,7 +72,7 @@ class WorkflowRuntime:
         config = self.db.get(UserAIProviderConfig, workflow.ai_provider_config_id) if workflow.ai_provider_config_id else None
         if not bank or not workflow or not config:
             return
-        if workflow.status == "cancelled" or (job and job.status == "cancelled"):
+        if workflow.status in {"cancelled", "failed"} or (job and job.status in {"cancelled", "failed"}):
             return
         if job:
             job.started_at = now_utc()
@@ -97,6 +97,9 @@ class WorkflowRuntime:
             )
         except WorkflowCancelled:
             self.db.rollback()
+            return
+        except Exception as exc:
+            self.mark_unhandled_failure(workflow.id, exc)
             return
 
     def build_graph(self):
@@ -134,7 +137,7 @@ class WorkflowRuntime:
 
     @staticmethod
     def raise_if_cancelled(workflow: AIGenerationWorkflow, job: ImportJob) -> None:
-        if workflow.status == "cancelled" or job.status == "cancelled":
+        if workflow.status in {"cancelled", "failed"} or job.status in {"cancelled", "failed"}:
             raise WorkflowCancelled()
 
     def extract_document_node(self, state: AIGenerationState) -> AIGenerationState:
@@ -263,6 +266,30 @@ class WorkflowRuntime:
         WorkflowStateService(db).fail(workflow, job, bank, message, attempts)
         db.commit()
         return {"error_message": message, "route": "done"}
+
+    def mark_unhandled_failure(self, workflow_id: int, exc: Exception) -> None:
+        self.db.rollback()
+        workflow = self.db.get(AIGenerationWorkflow, workflow_id)
+        if not workflow:
+            return
+        job = self.db.scalar(select(ImportJob).where(ImportJob.workflow_id == workflow.id))
+        if not job:
+            return
+        bank = self.db.get(QuestionBank, workflow.bank_id) if workflow.bank_id else None
+        config = self.db.get(UserAIProviderConfig, workflow.ai_provider_config_id) if workflow.ai_provider_config_id else None
+        message = format_ai_error(exc, workflow.generation_mode, config, workflow.repair_attempts)
+        state = WorkflowStateService(self.db)
+        if bank:
+            state.fail(workflow, job, bank, message, workflow.repair_attempts)
+        else:
+            workflow.status = "failed"
+            workflow.error_message = message
+            workflow.finished_at = now_utc()
+            job.status = "failed"
+            job.error_message = message
+            job.finished_at = now_utc()
+            state.record_step(workflow.id, "fail", "failed", error_message=message)
+        self.db.commit()
 
     @staticmethod
     def route_after_generation(state: AIGenerationState) -> Literal["validate_payload", "fail"]:

@@ -3,7 +3,7 @@ import type { OfflinePracticeSyncResult, QuestionType } from '../api/types'
 import { getResult, getSessionQuestions, listHistory } from '../api/v2/practice'
 import { getLocalDb } from './db'
 import { getLocalBank, getLocalQuestions, listLocalBanks } from './banks'
-import type { LocalBlank, LocalOption, LocalPracticeAnswerResult, LocalPracticeQuestion, LocalPracticeResult, LocalPracticeSession, LocalQuestion } from './types'
+import type { LocalBank, LocalBlank, LocalOption, LocalPracticeAnswerResult, LocalPracticeQuestion, LocalPracticeResult, LocalPracticeSession, LocalQuestion } from './types'
 
 type SessionRow = {
   id: number
@@ -34,6 +34,25 @@ type AnswerRow = {
 type SessionQuestionRow = {
   local_question_id: number
   sort_order: number
+}
+
+type SyncStateRow = {
+  key: string
+  value: string
+  updated_at: string
+}
+
+type RemoteHistorySession = Awaited<ReturnType<typeof listHistory>>['items'][number]
+
+export type LocalSyncWarning = {
+  key: string
+  type: 'outdated_bank_package'
+  local_bank_id: number
+  remote_bank_id: number
+  bank_title: string
+  message: string
+  missing_question_ids: number[]
+  updated_at: string
 }
 
 function nowIso() {
@@ -315,9 +334,71 @@ export async function listLocalHistory() {
   return rows.map(rowToSession)
 }
 
+export async function deleteLocalSession(sessionId: number) {
+  const db = await getLocalDb()
+  await db.execute('DELETE FROM local_practice_sessions WHERE id = $1', [sessionId])
+}
+
+export async function listLocalSyncWarnings(): Promise<LocalSyncWarning[]> {
+  const db = await getLocalDb()
+  const rows = await db.select<SyncStateRow[]>("SELECT key, value, updated_at FROM sync_state WHERE key LIKE 'bank:%:remote-history-warning' ORDER BY updated_at DESC")
+  return rows.flatMap((row) => {
+    try {
+      const parsed = JSON.parse(row.value) as Omit<LocalSyncWarning, 'key' | 'updated_at'> & { updated_at?: string }
+      if (parsed.type !== 'outdated_bank_package') return []
+      return [{
+        ...parsed,
+        key: row.key,
+        updated_at: parsed.updated_at || row.updated_at,
+      }]
+    } catch {
+      return []
+    }
+  })
+}
+
+export async function clearLocalSyncWarning(key: string) {
+  const db = await getLocalDb()
+  await db.execute('DELETE FROM sync_state WHERE key = $1', [key])
+}
+
+function localSyncWarningKey(localBankId: number) {
+  return `bank:${localBankId}:remote-history-warning`
+}
+
+async function saveOutdatedBankWarning(db: Awaited<ReturnType<typeof getLocalDb>>, bank: LocalBank, missingQuestionIds: number[]) {
+  const uniqueIds = [...new Set(missingQuestionIds)].sort((a, b) => a - b)
+  const updatedAt = nowIso()
+  const warning: Omit<LocalSyncWarning, 'key'> = {
+    type: 'outdated_bank_package',
+    local_bank_id: bank.id,
+    remote_bank_id: bank.remote_bank_id,
+    bank_title: bank.title,
+    message: `「${bank.title}」的本地副本缺少 ${uniqueIds.length} 道远端历史题目，请先更新副本后重试同步。`,
+    missing_question_ids: uniqueIds,
+    updated_at: updatedAt,
+  }
+  await db.execute(
+    `INSERT INTO sync_state (key, value, updated_at)
+     VALUES ($1, $2, $3)
+     ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    [localSyncWarningKey(bank.id), JSON.stringify(warning), updatedAt],
+  )
+  return { ...warning, key: localSyncWarningKey(bank.id) }
+}
+
+async function clearOutdatedBankWarning(db: Awaited<ReturnType<typeof getLocalDb>>, localBankId: number) {
+  await db.execute('DELETE FROM sync_state WHERE key = $1', [localSyncWarningKey(localBankId)])
+}
+
+function toErrorMessage(error: unknown, fallback: string) {
+  return error instanceof Error && error.message ? error.message : fallback
+}
+
 type LocalSyncResult = OfflinePracticeSyncResult & {
   downloaded: number
   skipped: number
+  outdated_banks: LocalSyncWarning[]
 }
 
 export async function syncPendingLocalSessions(): Promise<LocalSyncResult> {
@@ -352,10 +433,26 @@ export async function syncPendingLocalSessions(): Promise<LocalSyncResult> {
   }
   if (payloadSessions.length) {
     const deviceId = await getDeviceId()
-    uploadResult = await api<OfflinePracticeSyncResult>('/api/v2/offline/practice-sync', {
-      method: 'POST',
-      body: JSON.stringify({ device_id: deviceId, sessions: payloadSessions }),
-    })
+    try {
+      uploadResult = await api<OfflinePracticeSyncResult>('/api/v2/offline/practice-sync', {
+        method: 'POST',
+        body: JSON.stringify({ device_id: deviceId, sessions: payloadSessions }),
+      })
+    } catch (error) {
+      const message = toErrorMessage(error, '同步请求失败，稍后可重试')
+      uploadResult = {
+        synced: [],
+        failed: sessions.map((session) => ({
+          client_session_id: session.client_session_id,
+          code: 'SYNC_REQUEST_FAILED',
+          message,
+        })),
+      }
+      for (const session of sessions) {
+        await db.execute("UPDATE local_practice_sessions SET sync_status = 'failed', sync_error = $1 WHERE id = $2", [message, session.id])
+      }
+      return { ...uploadResult, downloaded: 0, skipped: 0, outdated_banks: await listLocalSyncWarnings() }
+    }
     const syncedByClient = new Map(uploadResult.synced.map((item) => [item.client_session_id, item.remote_session_id]))
     const failedByClient = new Map(uploadResult.failed.map((item) => [item.client_session_id, item.message]))
     for (const session of sessions) {
@@ -368,7 +465,7 @@ export async function syncPendingLocalSessions(): Promise<LocalSyncResult> {
     }
   }
   const pullResult = await pullRemotePracticeSessions()
-  return { ...uploadResult, downloaded: pullResult.downloaded, skipped: pullResult.skipped }
+  return { ...uploadResult, downloaded: pullResult.downloaded, skipped: pullResult.skipped, outdated_banks: pullResult.outdated_banks }
 }
 
 async function pullRemotePracticeSessions() {
@@ -376,9 +473,11 @@ async function pullRemotePracticeSessions() {
   const banks = await listLocalBanks()
   let downloaded = 0
   let skipped = 0
+  const outdatedByBank = new Map<number, { bank: LocalBank; missingQuestionIds: number[] }>()
   for (const bank of banks) {
     const localQuestions = await getLocalQuestions(bank.id, { includeInactive: true })
     const byRemoteQuestionId = new Map(localQuestions.map((question) => [question.remote_question_id, question]))
+    const bankMissingQuestionIds: number[] = []
     let page = 1
     while (true) {
       const remotePage = await listHistory({ page, page_size: 100, bank_id: bank.remote_bank_id })
@@ -389,21 +488,37 @@ async function pullRemotePracticeSessions() {
           continue
         }
         const imported = await importRemoteSession(bank.id, remoteSession, byRemoteQuestionId)
-        if (imported) downloaded += 1
-        else skipped += 1
+        if (imported.imported) {
+          downloaded += 1
+        } else {
+          skipped += 1
+          if (imported.missing_question_ids?.length) bankMissingQuestionIds.push(...imported.missing_question_ids)
+        }
       }
       if (page >= remotePage.total_pages) break
       page += 1
     }
+    if (bankMissingQuestionIds.length) {
+      outdatedByBank.set(bank.id, { bank, missingQuestionIds: bankMissingQuestionIds })
+    } else {
+      await clearOutdatedBankWarning(db, bank.id)
+    }
   }
-  return { downloaded, skipped }
+  const outdated_banks: LocalSyncWarning[] = []
+  for (const item of outdatedByBank.values()) {
+    outdated_banks.push(await saveOutdatedBankWarning(db, item.bank, item.missingQuestionIds))
+  }
+  return { downloaded, skipped, outdated_banks }
 }
 
-async function importRemoteSession(localBankId: number, remoteSession: Awaited<ReturnType<typeof listHistory>>['items'][number], byRemoteQuestionId: Map<number, LocalQuestion>) {
+async function importRemoteSession(localBankId: number, remoteSession: RemoteHistorySession, byRemoteQuestionId: Map<number, LocalQuestion>): Promise<{ imported: boolean; missing_question_ids?: number[] }> {
   const db = await getLocalDb()
   const remoteRows = remoteSession.status === 'submitted'
     ? await getResult(remoteSession.id)
     : await getSessionQuestions(remoteSession.id)
+  const missingQuestionIds = remoteRows
+    .map((row) => ('question_id' in row ? Number(row.question_id) : Number(row.id)))
+    .filter((questionId) => !byRemoteQuestionId.has(questionId))
   const ordered = remoteRows
     .map((row) => {
       const remoteQuestionId = 'question_id' in row ? Number(row.question_id) : Number(row.id)
@@ -411,7 +526,7 @@ async function importRemoteSession(localBankId: number, remoteSession: Awaited<R
       return question ? { row, question } : null
     })
     .filter(Boolean) as Array<{ row: any; question: LocalQuestion }>
-  if (!ordered.length || ordered.length !== remoteRows.length) return false
+  if (!ordered.length || ordered.length !== remoteRows.length) return { imported: false, missing_question_ids: missingQuestionIds }
 
   await db.execute('BEGIN')
   try {
@@ -457,7 +572,7 @@ async function importRemoteSession(localBankId: number, remoteSession: Awaited<R
       )
     }
     await db.execute('COMMIT')
-    return true
+    return { imported: true }
   } catch (error) {
     await db.execute('ROLLBACK')
     throw error

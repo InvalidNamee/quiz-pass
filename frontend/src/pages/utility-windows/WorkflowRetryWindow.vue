@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import type { AIProviderConfig } from '../../api/types'
 import { getWorkflowDetail, retryWorkflow, type WorkflowListItem } from '../../api/v2/aiGeneration'
+import { getBank } from '../../api/v2/banks'
 import { listAIConfigs } from '../../api/v2/users'
 import { useToast } from '../../composables/useToast'
 import { useUtilityWindowPage } from '../../features/utility-windows/useUtilityWindowPage'
@@ -42,6 +43,8 @@ const retryForm = ref({
   includeExistingQuestions: false,
   sourceText: '',
   title: '',
+  description: '',
+  aiContext: '',
 })
 const retryTypeSettings = reactive<Record<QuestionTypeKey, { enabled: boolean; useCount: boolean; count: number }>>({
   single: { ...defaultTypeSettings.single },
@@ -73,6 +76,7 @@ async function load() {
       getWorkflowDetail(Number(payload.value.workflowId)),
       listAIConfigs(),
     ])
+    const bankDetail = detail.purpose === 'create_bank' && detail.bank_id ? await getBank(detail.bank_id).catch(() => null) : null
     workflow.value = detail
     configs.value = configList
     retryForm.value = {
@@ -85,7 +89,9 @@ async function load() {
       inheritContext: detail.inherit_context,
       includeExistingQuestions: detail.include_existing_questions,
       sourceText: detail.source_text_snapshot || '',
-      title: detail.bank_title_snapshot || '重新生成题库',
+      title: bankDetail?.title || detail.bank_title_snapshot || '重新生成题库',
+      description: bankDetail?.description || '',
+      aiContext: bankDetail?.ai_context || '',
     }
     applyTypeSettings(detail)
   } catch (error) {
@@ -136,7 +142,11 @@ async function submitRetry() {
     form.set('extra_instruction', retryForm.value.extraInstruction)
     form.set('inherit_context', String(workflow.value.purpose === 'extend_bank' ? retryForm.value.inheritContext : false))
     form.set('include_existing_questions', String(workflow.value.purpose === 'extend_bank' ? retryForm.value.includeExistingQuestions : false))
-    if (workflow.value.purpose === 'create_bank') form.set('title', retryForm.value.title || '重新生成题库')
+    if (workflow.value.purpose === 'create_bank') {
+      form.set('title', retryForm.value.title || '重新生成题库')
+      form.set('description', retryForm.value.description)
+      form.set('ai_context', retryForm.value.aiContext)
+    }
     if (retryFiles.value.length) retryFiles.value.forEach((item) => form.append('files', item))
     else form.set('source_text', retryForm.value.sourceText.trim())
     const data = await retryWorkflow(workflow.value.id, form)
@@ -170,6 +180,12 @@ onMounted(load)
 
         <el-form-item v-if="workflow.purpose === 'create_bank'" label="题库名称">
           <el-input v-model="retryForm.title" placeholder="重新生成题库" />
+        </el-form-item>
+        <el-form-item v-if="workflow.purpose === 'create_bank'" label="题库描述">
+          <el-input v-model="retryForm.description" type="textarea" :rows="2" placeholder="简短描述（可选）" />
+        </el-form-item>
+        <el-form-item v-if="workflow.purpose === 'create_bank'" label="AI 背景知识（给 AI 看，可选）">
+          <el-input v-model="retryForm.aiContext" type="textarea" :rows="3" maxlength="12000" show-word-limit placeholder="重新生成会继续写回同一个题库壳。" />
         </el-form-item>
 
         <el-form-item label="AI 模型">

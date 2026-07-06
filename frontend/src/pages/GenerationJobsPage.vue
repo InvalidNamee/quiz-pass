@@ -4,6 +4,7 @@ import { ElMessageBox } from 'element-plus'
 import { useRoute, useRouter } from 'vue-router'
 import type { AIProviderConfig, Page } from '../api/types'
 import { cancelWorkflow, listWorkflows, retryWorkflow, type WorkflowListItem } from '../api/v2/aiGeneration'
+import { getBank } from '../api/v2/banks'
 import { listAIConfigs } from '../api/v2/users'
 import WorkflowTable from '../components/WorkflowTable.vue'
 import WorkflowDetailDrawer from '../components/WorkflowDetailDrawer.vue'
@@ -38,6 +39,8 @@ const retryForm = ref({
   includeExistingQuestions: false,
   sourceText: '',
   title: '',
+  description: '',
+  aiContext: '',
 })
 type QuestionTypeKey = 'single' | 'multiple' | 'blank' | 'short_answer'
 const questionTypeLabels: Record<QuestionTypeKey, string> = { single: '单选', multiple: '多选', blank: '填空', short_answer: '简答' }
@@ -126,6 +129,7 @@ async function openRetry(row: WorkflowListItem) {
   }
   retryTarget.value = row
   if (!configs.value.length) configs.value = await listAIConfigs()
+  const bankDetail = row.purpose === 'create_bank' && row.bank_id ? await getBank(row.bank_id).catch(() => null) : null
   retryForm.value = {
     aiProviderConfigId: row.ai_provider_config_id ? String(row.ai_provider_config_id) : String(configs.value.find((item) => item.is_default)?.id || configs.value[0]?.id || ''),
     generationMode: row.generation_mode,
@@ -136,7 +140,9 @@ async function openRetry(row: WorkflowListItem) {
     inheritContext: row.inherit_context,
     includeExistingQuestions: row.include_existing_questions,
     sourceText: row.source_text_snapshot || '',
-    title: row.bank_title_snapshot || '重新生成题库',
+    title: bankDetail?.title || row.bank_title_snapshot || '重新生成题库',
+    description: bankDetail?.description || '',
+    aiContext: bankDetail?.ai_context || '',
   }
   applyRetryTypeSettings(row)
   retryFiles.value = []
@@ -196,6 +202,8 @@ async function submitRetry() {
     form.set('include_existing_questions', String(retryTarget.value.purpose === 'extend_bank' ? retryForm.value.includeExistingQuestions : false))
     if (retryTarget.value.purpose === 'create_bank') {
       form.set('title', retryForm.value.title || '重新生成题库')
+      form.set('description', retryForm.value.description)
+      form.set('ai_context', retryForm.value.aiContext)
     }
     if (retryFiles.value.length) retryFiles.value.forEach(item => form.append('files', item))
     else form.set('source_text', retryForm.value.sourceText.trim())
@@ -329,6 +337,12 @@ onBeforeUnmount(() => {
 
         <el-form-item v-if="retryTarget?.purpose === 'create_bank'" label="题库名称">
           <el-input v-model="retryForm.title" placeholder="重新生成题库" />
+        </el-form-item>
+        <el-form-item v-if="retryTarget?.purpose === 'create_bank'" label="题库描述">
+          <el-input v-model="retryForm.description" type="textarea" :rows="2" placeholder="简短描述（可选）" />
+        </el-form-item>
+        <el-form-item v-if="retryTarget?.purpose === 'create_bank'" label="AI 背景知识（给 AI 看，可选）">
+          <el-input v-model="retryForm.aiContext" type="textarea" :rows="3" maxlength="12000" show-word-limit />
         </el-form-item>
 
         <div class="grid gap-3 sm:grid-cols-2">

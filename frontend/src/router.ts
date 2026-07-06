@@ -8,6 +8,7 @@ import ResetPasswordPage from './pages/ResetPasswordPage.vue'
 import DashboardPage from './pages/DashboardPage.vue'
 import BanksPage from './pages/BanksPage.vue'
 import PublicBanksPage from './pages/PublicBanksPage.vue'
+import SharedBanksPage from './pages/SharedBanksPage.vue'
 import BankDetailPage from './pages/BankDetailPage.vue'
 import BankWorkflowsPage from './pages/BankWorkflowsPage.vue'
 import GeneratePage from './pages/GeneratePage.vue'
@@ -46,6 +47,7 @@ export const router = createRouter({
     { path: '/profile', component: ProfilePage, meta: { auth: true } },
     { path: '/users/:userId', component: UserPublicPage, meta: { auth: true } },
     { path: '/banks', component: BanksPage, meta: { auth: true } },
+    { path: '/banks/shared', component: SharedBanksPage, meta: { auth: true } },
     { path: '/banks/public', component: PublicBanksPage, meta: { auth: true } },
     { path: '/favorites', component: FavoritesPage, meta: { auth: true } },
     { path: '/local/banks', component: LocalBanksPage, meta: { auth: true } },

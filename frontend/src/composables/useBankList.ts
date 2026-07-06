@@ -3,8 +3,9 @@ import { useRoute, useRouter } from 'vue-router'
 import * as v2 from '../api/v2/banks'
 import { getUserPublic } from '../api/v2/users'
 import type { Page, QuestionBankV2, QuestionBankTag, UserPublic } from '../api/types'
+import type { BankListScope } from '../api/v2/banks'
 
-export function useBankList(scope: 'mine' | 'public' | 'favorites') {
+export function useBankList(scope: BankListScope) {
   const route = useRoute()
   const router = useRouter()
 

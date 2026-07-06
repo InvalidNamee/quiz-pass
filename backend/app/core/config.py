@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     ai_workflow_queue_name: str = "ai-generation"
     ai_workflow_execution_mode: str = "background_tasks"
     ai_workflow_worker_count: int = 1
+    ai_workflow_stale_timeout_minutes: int = 60
 
     model_config = SettingsConfigDict(env_file=BACKEND_DIR / ".env", env_file_encoding="utf-8")
 

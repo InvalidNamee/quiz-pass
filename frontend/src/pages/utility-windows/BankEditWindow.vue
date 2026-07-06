@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { updateBank, getBank } from '../../api/v2/banks'
 import { useAuthStore } from '../../stores/auth'
 import { useToast } from '../../composables/useToast'
+import TagSelect from '../../features/tags/TagSelect.vue'
 import { normalizeTagNames, tagKey, tagLabel, type TagInputValue } from '../../features/tags/tagUtils'
 import { useUtilityWindowPage } from '../../features/utility-windows/useUtilityWindowPage'
 
@@ -100,9 +101,7 @@ onMounted(load)
               {{ tagLabel(tag) }}
             </el-tag>
           </div>
-          <el-select v-model="editTags" multiple filterable allow-create default-first-option clearable placeholder="添加或创建标签" style="width: 100%">
-            <el-option v-for="(tag, index) in editTags" :key="tagKey(tag, index)" :label="tagLabel(tag)" :value="tag" />
-          </el-select>
+          <TagSelect v-model="editTags" placeholder="搜索或创建题库标签" />
         </el-form-item>
       </el-form>
 

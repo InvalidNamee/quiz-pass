@@ -6,7 +6,8 @@ import { createWorkflow, extendWorkflow } from '../../api/v2/aiGeneration'
 import { getBank, importJsonNewBank, importJsonToBank } from '../../api/v2/banks'
 import { listAIConfigs } from '../../api/v2/users'
 import { useToast } from '../../composables/useToast'
-import { normalizeTagNames, tagKey, tagLabel, type TagInputValue } from '../../features/tags/tagUtils'
+import TagSelect from '../../features/tags/TagSelect.vue'
+import { normalizeTagNames, type TagInputValue } from '../../features/tags/tagUtils'
 import { useUtilityWindowPage } from '../../features/utility-windows/useUtilityWindowPage'
 
 type Payload = {
@@ -33,6 +34,7 @@ const loading = ref(true)
 const submitting = ref(false)
 const title = ref('')
 const description = ref('')
+const aiContext = ref('')
 const createMode = ref<CreateMode>('ai_knowledge')
 const aiProviderConfigId = ref('')
 const questionTypeSettings = reactive<Record<QuestionTypeKey, { enabled: boolean; useCount: boolean; count: number }>>({
@@ -76,6 +78,7 @@ async function load() {
 function reset() {
   title.value = ''
   description.value = ''
+  aiContext.value = ''
   extraInstruction.value = ''
   inheritContext.value = true
   includeExistingQuestions.value = false
@@ -105,6 +108,7 @@ async function prefillFromJson(uploadedFile: File) {
     if (typeof bankInfo.title === 'string' && bankInfo.title.trim()) title.value = bankInfo.title.trim()
     else if (!title.value.trim()) title.value = fileStem(uploadedFile.name)
     if (typeof bankInfo.description === 'string') description.value = bankInfo.description.trim()
+    if (typeof bankInfo.ai_context === 'string') aiContext.value = bankInfo.ai_context.trim()
     if (Array.isArray(bankInfo.tags)) {
       selectedTags.value = bankInfo.tags
         .filter((tag: unknown): tag is string => typeof tag === 'string' && Boolean(tag.trim()))
@@ -145,6 +149,7 @@ async function submit() {
       const tagNames = normalizeTagNames(selectedTags.value)
       if (tagNames.length) form.set('tag_names', JSON.stringify(tagNames))
       if (!isExtend.value) form.set('file_stem', fileStem(jsonFile.name))
+      if (!isExtend.value && aiContext.value.trim()) form.set('ai_context', aiContext.value.trim())
       const importedBank = isExtend.value && extendBankId.value
         ? await importJsonToBank(extendBankId.value, form)
         : await importJsonNewBank(form)
@@ -155,6 +160,7 @@ async function submit() {
       if (!isExtend.value) {
         form.set('title', title.value)
         if (description.value.trim()) form.set('description', description.value.trim())
+        if (aiContext.value.trim()) form.set('ai_context', aiContext.value.trim())
         const tagNames = normalizeTagNames(selectedTags.value)
         if (tagNames.length) form.set('tag_names', JSON.stringify(tagNames))
       }
@@ -210,11 +216,8 @@ load()
         <template v-if="showNewBankFields">
           <el-form-item label="题库名称"><el-input v-model="title" placeholder="输入题库名称" /></el-form-item>
           <el-form-item label="描述"><el-input v-model="description" type="textarea" :rows="2" placeholder="简短描述（可选）" /></el-form-item>
-          <el-form-item label="标签">
-            <el-select v-model="selectedTags" multiple filterable allow-create default-first-option clearable placeholder="添加标签" style="width: 100%">
-              <el-option v-for="(tag, index) in selectedTags" :key="tagKey(tag, index)" :label="tagLabel(tag)" :value="tag" />
-            </el-select>
-          </el-form-item>
+          <el-form-item label="AI 背景知识（给 AI 看，可选）"><el-input v-model="aiContext" type="textarea" :rows="3" maxlength="12000" show-word-limit placeholder="例如：题库面向期末复习，强调概念辨析和易错点。" /></el-form-item>
+          <el-form-item label="标签"><TagSelect v-model="selectedTags" /></el-form-item>
         </template>
 
         <template v-if="createMode !== 'json_import'">

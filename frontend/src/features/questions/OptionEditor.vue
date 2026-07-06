@@ -35,7 +35,7 @@ function setCorrect(index: number, checked: CheckboxValueType = true) {
         <el-button size="small" :disabled="form.options.length >= MAX_OPTION_COUNT" @click="addOption">添加选项</el-button>
       </div>
     </div>
-    <div v-for="(option, index) in form.options" :key="index" class="grid grid-cols-[32px_48px_minmax(0,1fr)_48px] items-center gap-2">
+    <div v-for="(option, index) in form.options" :key="index" class="grid grid-cols-[32px_48px_minmax(0,1fr)_48px] items-start gap-2">
       <el-radio
         v-if="form.type === 'single'"
         :model-value="form.options.findIndex(item => item.is_correct)"
@@ -43,8 +43,8 @@ function setCorrect(index: number, checked: CheckboxValueType = true) {
         @change="() => setCorrect(index)"
       />
       <el-checkbox v-else :model-value="option.is_correct" @change="(checked: CheckboxValueType) => setCorrect(index, checked)" />
-      <span class="text-center text-sm font-medium text-slate-600">{{ option.label }}</span>
-      <el-input v-model="option.content" size="small" :placeholder="`选项 ${option.label}`" />
+      <span class="pt-1.5 text-center text-sm font-medium text-slate-600">{{ option.label }}</span>
+      <el-input v-model="option.content" type="textarea" :autosize="{ minRows: 1, maxRows: 5 }" :placeholder="`选项 ${option.label}`" />
       <el-button v-if="form.options.length > 2" text size="small" @click="removeOption(index)">移除</el-button>
     </div>
   </div>

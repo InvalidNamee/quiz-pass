@@ -51,13 +51,14 @@ async def import_json_new_bank(
     visibility: str = Form("private"),
     tag_names: str | None = Form(None),
     file_stem: str | None = Form(None),
+    ai_context: str | None = Form(None),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
     service = QuestionBankImportExportService(db)
     payload = service.parse_upload(await file.read())
     parsed_tag_names = service.parse_tag_names(tag_names)
-    return service.import_new_bank(payload, current_user, visibility, parsed_tag_names, file_stem=file_stem)
+    return service.import_new_bank(payload, current_user, visibility, parsed_tag_names, file_stem=file_stem, ai_context=ai_context)
 
 
 @router.get("/banks/tags", response_model=Page[QuestionBankTagOut])

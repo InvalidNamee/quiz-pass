@@ -88,6 +88,7 @@ class QuestionBankV2Out(BaseModel):
 class QuestionBankV2Create(BaseModel):
     title: str = Field(min_length=1, max_length=255)
     description: str | None = None
+    ai_context: str | None = Field(default=None, max_length=12000)
     visibility: str = Field(default="private", pattern="^(private|public)$")
     tag_names: list[str] | None = None
 
